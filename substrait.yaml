@@ -1,0 +1,25 @@
+# This file is REQUIRED — a deploy without it (or without a real description)
+# fails validation.
+#
+# App description — what this app does and who it's for (1–3 sentences). Each
+# deploy records it onto the app, and it's what teammates see in the portal and
+# the platform's API Library, so keep it current as the app evolves. The
+# placeholder below must be replaced before the first deploy.
+description: >
+  Ninja PNS — solutioning and pricing workflow for Ninja Xpress Indonesia. Routes each
+  new shipper requirement to Commercial or the PNS team by account type, service and
+  potential revenue, then tracks it from intake through pricing, review and approval to
+  a signed contract. Used by the Commercial, PNS, PSP and Legal teams.
+
+# Backing services — declare what your app needs and the platform provisions it
+# next to the app, injecting the connection env var. Installing a client library
+# alone does nothing; this manifest is the only trigger. Ephemeral by default
+# (pod restart wipes data); add `persistent: true` for a disk that survives
+# restarts and redeploys. Leave everything commented out if your app needs none
+# of these.
+#
+# services:
+#   redis: {}              # cache/queue      → REDIS_URL=redis://redis:6379/0
+#   kafka:                 # Kafka-compatible → KAFKA_BROKERS=kafka:9092
+#     persistent: true     #   (single-node Redpanda; 10Gi disk when persistent)
+#   qdrant: {}             # vector database  → QDRANT_URL=http://qdrant:6333

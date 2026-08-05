@@ -1,0 +1,1181 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Ninja PNS — Solutioning",
+    "version": "1.0.0",
+    "description": "Solutioning and pricing workflow for Ninja Xpress Indonesia. Routes each new shipper requirement to Commercial or the PNS team by account type, service and potential revenue, then tracks it from intake through pricing, review and approval to a signed contract. Identity comes from the platform's auth proxy (x-forwarded-email); authorisation is enforced per route, and margin/cost fields are omitted from responses for roles without the seeMargin permission."
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "Readiness probe used by the platform",
+        "operationId": "health",
+        "responses": {
+          "200": {
+            "description": "Service is up",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Health" } } }
+          }
+        }
+      }
+    },
+    "/api/me": {
+      "get": {
+        "summary": "Who the caller is and which actions they are permitted to take",
+        "operationId": "me",
+        "responses": {
+          "200": {
+            "description": "Signed-in user with a resolved permission map",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Me" } } }
+          },
+          "401": { "$ref": "#/components/responses/NotSignedIn" },
+          "403": { "$ref": "#/components/responses/NoRole" }
+        }
+      }
+    },
+    "/api/tickets": {
+      "get": {
+        "summary": "List solutioning tickets, filtered and scoped to the caller's role",
+        "description": "Legal sees only accepted deals; every other group reads the whole pipeline. PSP is unscoped deliberately — judging a rate needs the surrounding context, and PSP gets pulled into discussion after approving. With awaiting=true the list is the pricing queue, scoped to whichever side owes the price. The margin field is present only for callers with the seeMargin permission.",
+        "operationId": "listTickets",
+        "parameters": [
+          { "name": "status", "in": "query", "description": "Comma-separated status names", "schema": { "type": "string" } },
+          { "name": "service", "in": "query", "description": "Comma-separated service types", "schema": { "type": "string" } },
+          { "name": "owner", "in": "query", "description": "Assigned PNS member, or __unassigned__", "schema": { "type": "string" } },
+          { "name": "sales", "in": "query", "description": "Salesperson name", "schema": { "type": "string" } },
+          { "name": "submitted_from", "in": "query", "schema": { "type": "string", "format": "date" } },
+          { "name": "submitted_to", "in": "query", "schema": { "type": "string", "format": "date" } },
+          { "name": "search", "in": "query", "description": "Matches shipper name or ticket ref", "schema": { "type": "string" } },
+          { "name": "awaiting", "in": "query", "description": "Restrict to the pricing queue", "schema": { "type": "boolean", "default": false } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Matching tickets",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TicketList" } } }
+          },
+          "401": { "$ref": "#/components/responses/NotSignedIn" },
+          "403": { "$ref": "#/components/responses/NoRole" }
+        }
+      },
+      "post": {
+        "summary": "Raise a new solutioning ticket and route it automatically",
+        "description": "Creates the shipper if the name is new. The routing engine decides from account type, service and revenue whether Sales or PNS owes the price, and whether PNS must review afterwards. Requires the createTicket permission (Commercial or Admin).",
+        "operationId": "createTicket",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/NewTicket" } } }
+        },
+        "responses": {
+          "201": {
+            "description": "Created, with the assigned ref and opening status",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Ok" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
+    "/api/tickets/{ref}/price": {
+      "post": {
+        "summary": "Attach a price and advance the ticket to its next stage",
+        "description": "Only the side that owes the price may call this. Flagging below_bottom sends it to the head of whichever team priced it; otherwise it goes to PNS review when Sales priced a deal at or above 30 Mio, or straight to Proposal Submitted.",
+        "operationId": "submitPrice",
+        "parameters": [ { "$ref": "#/components/parameters/TicketRef" } ],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PriceIn" } } }
+        },
+        "responses": {
+          "200": {
+            "description": "Price recorded and status advanced",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Ok" } } }
+          },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/tickets/{ref}/status": {
+      "post": {
+        "summary": "Move a ticket to another status, accept it, or close it as lost",
+        "description": "Accepting or marking lost requires the acceptProposal permission (Commercial owns the shipper outcome). Sending back to a pending status requires a reason and reassigns who owes the re-quote; marking lost requires a loss_reason instead.",
+        "operationId": "changeStatus",
+        "parameters": [ { "$ref": "#/components/parameters/TicketRef" } ],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/StatusIn" } } }
+        },
+        "responses": {
+          "200": {
+            "description": "Status changed",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Ok" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/tickets/{ref}/input": {
+      "patch": {
+        "summary": "Correct a ticket's intake after submission",
+        "description": "Requires editInput (Commercial or Admin). Changing account type or potential revenue additionally requires editAcctOrRev (Commercial Head), because both feed the routing rule. The rule is re-run on the corrected facts and resp/needs_review updated, but the status is left alone so a correction does not pull the ticket out of the queue it is sitting in. Every edit is written to the ticket history and the audit log; status_since is not touched, so the SLA clock keeps running.",
+        "operationId": "editTicketInput",
+        "parameters": [ { "$ref": "#/components/parameters/TicketRef" } ],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/InputPatch" } } }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated, or unchanged if nothing differed",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Ok" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/tickets/{ref}/sales": {
+      "post": {
+        "summary": "Hand the ticket to a different salesperson",
+        "description": "Commercial Head only (setSales). Looks the new PIC's email up from the users table and notifies them.",
+        "operationId": "changeTicketSales",
+        "parameters": [ { "$ref": "#/components/parameters/TicketRef" } ],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SalesIn" } } }
+        },
+        "responses": {
+          "200": {
+            "description": "Reassigned",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Ok" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/tickets/{ref}/reopen": {
+      "post": {
+        "summary": "Put a lost or cancelled deal back into the pipeline",
+        "description": "Commercial Head only (reopen). Refuses unless the ticket is currently Lost or Cancel. Clears the outcome and loss reason, and sets resp from the status it reopens into.",
+        "operationId": "reopenTicket",
+        "parameters": [ { "$ref": "#/components/parameters/TicketRef" } ],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ReopenIn" } } }
+        },
+        "responses": {
+          "200": {
+            "description": "Reopened",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Ok" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/tickets/{ref}/purge": {
+      "delete": {
+        "summary": "Erase a ticket from the recycle bin permanently",
+        "description": "Admin only (purgeTicket), and only for a ticket already in the bin — there is no one-step hard delete of a live ticket. The intake, pricing, history and approvals cascade away with it. Not reversible.",
+        "operationId": "purgeTicket",
+        "parameters": [ { "$ref": "#/components/parameters/TicketRef" } ],
+        "responses": {
+          "200": {
+            "description": "Permanently deleted",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Ok" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/tickets/{ref}/files": {
+      "get": {
+        "summary": "List the photos and documents attached to a ticket",
+        "description": "Metadata only — bytes come from /api/files/{fid}, so listing a ticket never drags blobs across. Ordered by kind then upload time.",
+        "operationId": "listTicketFiles",
+        "parameters": [ { "$ref": "#/components/parameters/TicketRef" } ],
+        "responses": {
+          "200": {
+            "description": "Attachment metadata",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/FileList" } } }
+          },
+          "401": { "$ref": "#/components/responses/NotSignedIn" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      },
+      "post": {
+        "summary": "Attach a photo of the goods or a supporting document",
+        "description": "multipart/form-data. Open to every group: Commercial supplies the cargo photos with the intake, PNS attaches solution diagrams, Legal attaches contract drafts. Hard limits: 5 MB per file (the bytes travel to OceanBase in one packet) and an allowlist of image, PDF, Word, Excel, CSV and plain-text types. SVG is refused because it can carry script. The browser downscales images before sending. Notifies the PNS owner and sales PIC.",
+        "operationId": "uploadTicketFile",
+        "parameters": [ { "$ref": "#/components/parameters/TicketRef" } ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": ["file"],
+                "properties": {
+                  "file": { "type": "string", "format": "binary" },
+                  "kind": { "type": "string", "enum": ["goods_photo", "document"], "default": "document" },
+                  "caption": { "type": "string", "nullable": true }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Attached",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Ok" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "413": {
+            "description": "Larger than the 5 MB limit",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "415": {
+            "description": "File type not on the allowlist",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
+    "/api/files/{fid}": {
+      "get": {
+        "summary": "Download or display one attachment",
+        "description": "Returns the raw bytes with the stored content type. Images on the inline allowlist (JPEG, PNG, WebP, GIF) are served inline so they render in an img tag; everything else is forced to download via Content-Disposition. X-Content-Type-Options: nosniff is always set so the browser cannot reinterpret the declared type.",
+        "operationId": "getFile",
+        "parameters": [ { "$ref": "#/components/parameters/FileId" } ],
+        "responses": {
+          "200": {
+            "description": "The file",
+            "content": { "application/octet-stream": { "schema": { "type": "string", "format": "binary" } } }
+          },
+          "401": { "$ref": "#/components/responses/NotSignedIn" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      },
+      "delete": {
+        "summary": "Remove an attachment",
+        "description": "The person who uploaded it, or an Admin. A real delete — the row and its bytes go.",
+        "operationId": "deleteFile",
+        "parameters": [ { "$ref": "#/components/parameters/FileId" } ],
+        "responses": {
+          "200": {
+            "description": "Removed",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Ok" } } }
+          },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/tickets/{ref}/comments": {
+      "get": {
+        "summary": "Read the question and discussion thread on a ticket",
+        "description": "Oldest first. Readable by any signed-in user regardless of group — the thread exists so Commercial, PNS, PSP, Legal and CSO can resolve ambiguity in one place. open_questions counts entries flagged as questions that nobody has closed.",
+        "operationId": "listComments",
+        "parameters": [ { "$ref": "#/components/parameters/TicketRef" } ],
+        "responses": {
+          "200": {
+            "description": "The thread",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CommentList" } } }
+          },
+          "401": { "$ref": "#/components/responses/NotSignedIn" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      },
+      "post": {
+        "summary": "Post a question or reply, tagging people by email",
+        "description": "Open to every group. Mentions come from the mentions array and from any @someone@domain written in the body; only active registered accounts resolve, and the response's status field reports who was actually tagged plus any address that matched nobody. The ticket's PNS owner and sales PIC are notified on every post in addition to those tagged, minus the author. Body is capped at 4000 characters.",
+        "operationId": "addComment",
+        "parameters": [ { "$ref": "#/components/parameters/TicketRef" } ],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/NewComment" } } }
+        },
+        "responses": {
+          "201": {
+            "description": "Posted; status names who was tagged",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Ok" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/comments/{cid}/resolve": {
+      "post": {
+        "summary": "Mark a question as answered",
+        "description": "Only entries flagged as questions can be closed. Permitted to the person who asked, or to a PNS/Commercial Head or Admin for questions that have gone stale. Idempotent — closing an already-closed question succeeds without changing it.",
+        "operationId": "resolveComment",
+        "parameters": [
+          { "name": "cid", "in": "path", "required": true, "description": "Comment id", "schema": { "type": "integer" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Closed",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Ok" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/users/directory": {
+      "get": {
+        "summary": "List everyone who can be tagged in a discussion",
+        "description": "Active users with name, email and group label only — no role level. Readable by any signed-in user because tagging by email is the point; it deliberately does not require manageUsers the way /api/users does.",
+        "operationId": "getDirectory",
+        "responses": {
+          "200": {
+            "description": "Taggable people",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Directory" } } }
+          },
+          "401": { "$ref": "#/components/responses/NotSignedIn" }
+        }
+      }
+    },
+    "/api/options": {
+      "get": {
+        "summary": "Suggested values for the intake form's free-text fields",
+        "description": "The intake deliberately does not constrain commodity, product, vehicle body, palletisation, destination type or frequency — a shipper turned up with medicine, which no fixed list predicted. This returns a seed list plus every distinct value anyone has typed on a past ticket, so one-off answers become suggestions for the next person. Also returns the salesperson and shipper lists and the enum values the UI needs.",
+        "operationId": "getOptions",
+        "responses": {
+          "200": {
+            "description": "Suggestions and enum values",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Options" } } }
+          },
+          "401": { "$ref": "#/components/responses/NotSignedIn" }
+        }
+      }
+    },
+    "/api/tickets/{ref}/assign": {
+      "post": {
+        "summary": "Set the PNS owner and/or the price reviewer",
+        "description": "PNS Head or Admin. Owner assignment is no longer limited to PNS-priced tickets — Sales-priced work still lands on PNS for review, so it needs an owner too. Each slot notifies the person named; an empty string clears it. Recorded in history without restarting the SLA clock.",
+        "operationId": "assignTicket",
+        "parameters": [ { "$ref": "#/components/parameters/TicketRef" } ],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AssignIn" } } }
+        },
+        "responses": {
+          "200": {
+            "description": "Assigned",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Ok" } } }
+          },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/tickets/{ref}/head-ack": {
+      "post": {
+        "summary": "Acknowledge a price flagged below the bottom rate",
+        "description": "Only the head of the team that priced it may acknowledge — Commercial Head for Sales-priced tickets, PNS Head for PNS-priced ones. Records an approval and advances the ticket.",
+        "operationId": "headAck",
+        "parameters": [ { "$ref": "#/components/parameters/TicketRef" } ],
+        "responses": {
+          "200": {
+            "description": "Acknowledged and advanced",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Ok" } } }
+          },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/tickets/{ref}/psp": {
+      "post": {
+        "summary": "Approve or reject a margin as the pricing desk",
+        "description": "PSP (or Admin) only. Approving advances to Proposal Submitted; rejecting requires a note and returns the ticket to whichever side submitted it.",
+        "operationId": "pspDecide",
+        "parameters": [ { "$ref": "#/components/parameters/TicketRef" } ],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PspIn" } } }
+        },
+        "responses": {
+          "200": {
+            "description": "Decision recorded",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Ok" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/tickets/deleted": {
+      "get": {
+        "summary": "List the recycle bin — tickets that were soft-deleted",
+        "description": "PNS Admin only (restoreTicket permission). Ordered by deletion time, newest first. Deleted tickets keep their history so a restore puts everything back.",
+        "operationId": "listDeletedTickets",
+        "responses": {
+          "200": {
+            "description": "Deleted tickets",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TicketList" } } }
+          },
+          "401": { "$ref": "#/components/responses/NotSignedIn" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
+    "/api/tickets/{ref}": {
+      "get": {
+        "summary": "Read one ticket with its intake, pricing and status history",
+        "description": "Feeds the ticket detail screen. cost, margin and bottom_margin are present only for callers with the seeMargin permission (PNS, PSP, CSO, Admin) — they are never sent otherwise.",
+        "operationId": "getTicket",
+        "parameters": [ { "$ref": "#/components/parameters/TicketRef" } ],
+        "responses": {
+          "200": {
+            "description": "The ticket, scoped to what the caller may see",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TicketDetail" } } }
+          },
+          "401": { "$ref": "#/components/responses/NotSignedIn" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      },
+      "delete": {
+        "summary": "Move a ticket to the recycle bin",
+        "description": "Soft delete — the ticket leaves every list but keeps its history and can be restored. PNS Admin only.",
+        "operationId": "deleteTicket",
+        "parameters": [ { "$ref": "#/components/parameters/TicketRef" } ],
+        "responses": {
+          "200": {
+            "description": "Moved to the bin",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Ok" } } }
+          },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/tickets/{ref}/restore": {
+      "post": {
+        "summary": "Restore a ticket from the recycle bin",
+        "description": "PNS Admin only. The ticket returns with its original status, and PNS and Commercial are notified that it reappeared.",
+        "operationId": "restoreTicket",
+        "parameters": [ { "$ref": "#/components/parameters/TicketRef" } ],
+        "responses": {
+          "200": {
+            "description": "Restored",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Ok" } } }
+          },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
+    "/api/stats": {
+      "get": {
+        "summary": "Pipeline counts and win rate for the dashboard tiles",
+        "description": "Win rate is won divided by decided deals, excluding cancelled tickets. Returns null when nothing has been decided yet.",
+        "operationId": "stats",
+        "responses": {
+          "200": {
+            "description": "Aggregate counts",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Stats" } } }
+          },
+          "401": { "$ref": "#/components/responses/NotSignedIn" }
+        }
+      }
+    },
+    "/api/capa": {
+      "get": {
+        "summary": "List CAPA tickets, optionally filtered by status",
+        "operationId": "listCapa",
+        "parameters": [
+          { "name": "status", "in": "query", "description": "Pending PNS, Submitted or CAPA Closed", "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Matching CAPA records",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CapaList" } } }
+          },
+          "401": { "$ref": "#/components/responses/NotSignedIn" }
+        }
+      },
+      "post": {
+        "summary": "Raise a corrective action against an existing shipper",
+        "description": "Commercial (or Admin) only. CAPA is deliberately separate from solutioning — no pricing, routing or revenue. At least one service type is required.",
+        "operationId": "raiseCapa",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/NewCapa" } } }
+        },
+        "responses": {
+          "201": {
+            "description": "Raised, pending PNS",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Ok" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
+    "/api/capa/{ref}/submit": {
+      "post": {
+        "summary": "Submit the PNS proposal for a CAPA and assign an owner",
+        "description": "PNS (or Admin) only. Moves the CAPA to Submitted and notifies Commercial to verify it.",
+        "operationId": "submitCapa",
+        "parameters": [ { "$ref": "#/components/parameters/CapaRef" } ],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CapaProposal" } } }
+        },
+        "responses": {
+          "200": {
+            "description": "Proposal submitted",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Ok" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
+    "/api/capa/{ref}/close": {
+      "post": {
+        "summary": "Close a CAPA once the corrective action is verified",
+        "description": "Commercial (or Admin) only. Records who closed it and when.",
+        "operationId": "closeCapa",
+        "parameters": [ { "$ref": "#/components/parameters/CapaRef" } ],
+        "responses": {
+          "200": {
+            "description": "Closed",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Ok" } } }
+          },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
+    "/api/users": {
+      "get": {
+        "summary": "List everyone registered in the app, with the valid role values",
+        "description": "Feeds the Administration screen. Requires the manageUsers permission (PNS Admin or PNS Head). Ordered active first, then by group, heads before staff. Also returns the allowed groups, levels and teams so the UI never invents a value the API would reject.",
+        "operationId": "listUsers",
+        "responses": {
+          "200": {
+            "description": "Registered users plus the allowed role values",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UserList" } } }
+          },
+          "401": { "$ref": "#/components/responses/NotSignedIn" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      },
+      "post": {
+        "summary": "Register a person so SSO will let them into the app",
+        "description": "Google authenticates; this row authorises. Requires manageUsers. Granting the Admin group additionally requires grantAdmin, so a PNS Head cannot mint administrators. Commercial users must carry a team. Returns 409 if the email is already registered.",
+        "operationId": "registerUser",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/NewUser" } } }
+        },
+        "responses": {
+          "201": {
+            "description": "Registered; ref is the normalised email",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Ok" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "409": {
+            "description": "Already registered",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
+    "/api/users/assignable": {
+      "get": {
+        "summary": "Names that can own a ticket or CAPA",
+        "description": "Active users in the PNS or Admin groups, heads first. Readable by any signed-in user because the assignee dropdowns need it.",
+        "operationId": "listAssignableUsers",
+        "responses": {
+          "200": {
+            "description": "Display names",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/NameList" } } }
+          },
+          "401": { "$ref": "#/components/responses/NotSignedIn" }
+        }
+      }
+    },
+    "/api/users/{email}": {
+      "patch": {
+        "summary": "Change a person's role, team, name or access",
+        "description": "Requires manageUsers. Moving anyone into or out of the Admin group requires grantAdmin. Refuses to change your own group or level, to deactivate your own account, or to remove the last active Admin — any of those could lock everyone out.",
+        "operationId": "updateUser",
+        "parameters": [ { "$ref": "#/components/parameters/UserEmail" } ],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UserPatch" } } }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Ok" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      },
+      "delete": {
+        "summary": "Revoke a person's access to the app",
+        "description": "Sets active=0 rather than deleting the row, because ticket and CAPA history records people by name. Requires manageUsers; revoking an Admin also requires grantAdmin. Refuses on your own account and on the last active Admin.",
+        "operationId": "deactivateUser",
+        "parameters": [ { "$ref": "#/components/parameters/UserEmail" } ],
+        "responses": {
+          "200": {
+            "description": "Access revoked",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Ok" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/notifications": {
+      "get": {
+        "summary": "The caller's notification feed with unread count",
+        "description": "Each event carries an audience; a caller sees it when their group, exact role label or name matches. Admin sees everything. Read state is per user.",
+        "operationId": "notifications",
+        "responses": {
+          "200": {
+            "description": "Notifications visible to this caller",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/NoteList" } } }
+          },
+          "401": { "$ref": "#/components/responses/NotSignedIn" }
+        }
+      }
+    },
+    "/api/me/preferences": {
+      "get": {
+        "summary": "Read the caller's notification preferences",
+        "description": "Also reports whether the deployment has SMTP configured at all, so the UI can hide the email toggle when there is nothing to toggle.",
+        "operationId": "getPreferences",
+        "responses": {
+          "200": {
+            "description": "Preferences and mail configuration state",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Prefs" } } }
+          },
+          "401": { "$ref": "#/components/responses/NotSignedIn" }
+        }
+      },
+      "post": {
+        "summary": "Turn the caller's personal email notifications on or off",
+        "description": "Opt-out is per person and applies only to email; in-app notifications are unaffected.",
+        "operationId": "setPreferences",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PrefsIn" } } }
+        },
+        "responses": {
+          "200": {
+            "description": "Saved",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Ok" } } }
+          },
+          "401": { "$ref": "#/components/responses/NotSignedIn" }
+        }
+      }
+    },
+    "/api/diagnostics/email": {
+      "post": {
+        "summary": "Check whether the backend can reach the SMTP relay",
+        "description": "Admin or PNS Head (manageUsers). Opens a real connection from the pod, negotiates STARTTLS and authenticates if credentials are set, then reports what happened. Never raises — a failure comes back as reachable:false with the exception text, because the whole point is to diagnose. With send=true it also delivers one test message to the caller's own address.",
+        "operationId": "checkEmailDelivery",
+        "parameters": [
+          { "name": "send", "in": "query", "required": false, "description": "Also send a test message to the caller", "schema": { "type": "boolean", "default": false } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Diagnostic result, including failures",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/EmailCheck" } } }
+          },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
+    "/api/notifications/read": {
+      "post": {
+        "summary": "Mark all of the caller's notifications as read",
+        "operationId": "markRead",
+        "responses": {
+          "200": {
+            "description": "Marked read",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Ok" } } }
+          },
+          "401": { "$ref": "#/components/responses/NotSignedIn" }
+        }
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "TicketRef": {
+        "name": "ref",
+        "in": "path",
+        "required": true,
+        "description": "Ticket reference, e.g. SOF-1284",
+        "schema": { "type": "string" }
+      },
+      "CapaRef": {
+        "name": "ref",
+        "in": "path",
+        "required": true,
+        "description": "CAPA reference, e.g. CAPA-041",
+        "schema": { "type": "string" }
+      },
+      "FileId": {
+        "name": "fid",
+        "in": "path",
+        "required": true,
+        "description": "Attachment id",
+        "schema": { "type": "integer" }
+      },
+      "UserEmail": {
+        "name": "email",
+        "in": "path",
+        "required": true,
+        "description": "The person's Google account address; matched case-insensitively",
+        "schema": { "type": "string", "format": "email" }
+      }
+    },
+    "responses": {
+      "NotSignedIn": {
+        "description": "No identity on the request",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+      },
+      "NoRole": {
+        "description": "Authenticated but no role has been assigned yet",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+      },
+      "Forbidden": {
+        "description": "The caller's role may not take this action",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+      },
+      "BadRequest": {
+        "description": "Missing or invalid field",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+      },
+      "NotFound": {
+        "description": "No such ticket",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "properties": { "detail": { "type": "string" } }
+      },
+      "Health": {
+        "type": "object",
+        "required": ["status"],
+        "properties": { "status": { "type": "string", "example": "ok" } }
+      },
+      "Me": {
+        "type": "object",
+        "required": ["email", "name", "group", "level", "permissions"],
+        "properties": {
+          "email": { "type": "string" },
+          "name": { "type": "string" },
+          "group": { "type": "string", "enum": ["Commercial", "PNS", "PSP", "Legal", "CSO", "Admin"] },
+          "level": { "type": "string", "enum": ["staff", "head"] },
+          "team": { "type": "string", "nullable": true, "description": "Team1 (GJ/WJ) or Team2 (EJ/CJ); Commercial only" },
+          "permissions": {
+            "type": "object",
+            "description": "Action name to boolean, resolved for this caller",
+            "additionalProperties": { "type": "boolean" }
+          },
+          "build": { "type": "string", "description": "Backend build marker, bumped on each deploy so a redeploy can be verified from outside" },
+          "sso": { "type": "boolean", "description": "True when the platform auth proxy identified this request" },
+          "dev_fallback": { "type": "boolean", "description": "True when SSO did not identify the request and DEV_USER_EMAIL was used instead — an unsafe configuration the UI warns about" }
+        }
+      },
+      "UserRow": {
+        "type": "object",
+        "required": ["email", "name", "group", "level", "team", "active", "created_at"],
+        "properties": {
+          "email": { "type": "string", "format": "email" },
+          "name": { "type": "string", "description": "Display name; this is what ticket and CAPA history records" },
+          "group": { "type": "string", "enum": ["Commercial", "PNS", "PSP", "Legal", "CSO", "Admin"] },
+          "level": { "type": "string", "enum": ["staff", "head"] },
+          "team": { "type": "string", "nullable": true, "description": "Commercial only: Team1 (GJ/WJ) or Team2 (EJ/CJ)" },
+          "active": { "type": "boolean", "description": "False means access is revoked; the row is kept for history" },
+          "created_at": { "type": "string", "format": "date" },
+          "is_self": { "type": "boolean", "description": "True on the caller's own row, which they may not re-role or revoke" }
+        }
+      },
+      "UserList": {
+        "type": "object",
+        "required": ["users", "groups", "levels", "teams"],
+        "properties": {
+          "users": { "type": "array", "items": { "$ref": "#/components/schemas/UserRow" } },
+          "groups": { "type": "array", "items": { "type": "string" }, "description": "Allowed role groups" },
+          "levels": { "type": "array", "items": { "type": "string" }, "description": "Allowed role levels" },
+          "teams": { "type": "array", "items": { "type": "string" }, "description": "Allowed Commercial teams" }
+        }
+      },
+      "Prefs": {
+        "type": "object",
+        "required": ["email_optout", "email_configured"],
+        "properties": {
+          "email_optout": { "type": "boolean", "description": "True when this person has turned personal emails off" },
+          "email_configured": { "type": "boolean", "description": "False when the deployment has no SMTP settings, in which case no mail is sent to anyone" },
+          "email_from": { "type": "string", "nullable": true, "description": "The address mail is sent as" }
+        }
+      },
+      "PrefsIn": {
+        "type": "object",
+        "required": ["email_optout"],
+        "properties": { "email_optout": { "type": "boolean" } }
+      },
+      "EmailCheck": {
+        "type": "object",
+        "required": ["configured", "reachable", "detail"],
+        "properties": {
+          "configured": { "type": "boolean", "description": "SMTP_HOST and SMTP_FROM are both set" },
+          "host": { "type": "string", "nullable": true },
+          "port": { "type": "integer", "nullable": true },
+          "sender": { "type": "string", "nullable": true },
+          "reachable": { "type": "boolean", "description": "A connection was opened successfully from the pod" },
+          "detail": { "type": "string", "description": "What happened, including the exception type and message on failure" },
+          "sent_to": { "type": "string", "nullable": true, "description": "Set when send=true and a test message went out" }
+        }
+      },
+      "TicketFile": {
+        "type": "object",
+        "required": ["id", "kind", "filename", "content_type", "size_bytes", "is_image", "uploaded_by", "at", "url"],
+        "properties": {
+          "id": { "type": "integer" },
+          "kind": { "type": "string", "enum": ["goods_photo", "document"] },
+          "filename": { "type": "string" },
+          "content_type": { "type": "string" },
+          "size_bytes": { "type": "integer", "description": "Size after the browser's downscale, not the original" },
+          "caption": { "type": "string", "nullable": true },
+          "is_image": { "type": "boolean", "description": "True when it is safe to render inline" },
+          "uploaded_by": { "type": "string" },
+          "at": { "type": "string" },
+          "url": { "type": "string", "description": "Relative path to the bytes, usable directly as an img src or href" }
+        }
+      },
+      "FileList": {
+        "type": "object",
+        "required": ["files"],
+        "properties": {
+          "files": { "type": "array", "items": { "$ref": "#/components/schemas/TicketFile" } }
+        }
+      },
+      "Comment": {
+        "type": "object",
+        "required": ["id", "author", "author_email", "group", "body", "is_question", "mentions", "at"],
+        "properties": {
+          "id": { "type": "integer" },
+          "author": { "type": "string" },
+          "author_email": { "type": "string", "format": "email" },
+          "group": { "type": "string", "description": "Author's role group, shown as a pill" },
+          "body": { "type": "string" },
+          "is_question": { "type": "boolean", "description": "Questions stay flagged until closed" },
+          "mentions": { "type": "array", "items": { "type": "string" }, "description": "Emails that resolved to a real account and were notified" },
+          "resolved_by": { "type": "string", "nullable": true },
+          "resolved_at": { "type": "string", "nullable": true },
+          "at": { "type": "string" },
+          "is_mine": { "type": "boolean", "description": "True on the caller's own posts" }
+        }
+      },
+      "CommentList": {
+        "type": "object",
+        "required": ["comments", "open_questions"],
+        "properties": {
+          "comments": { "type": "array", "items": { "$ref": "#/components/schemas/Comment" } },
+          "open_questions": { "type": "integer", "description": "Questions nobody has closed" }
+        }
+      },
+      "NewComment": {
+        "type": "object",
+        "required": ["body"],
+        "properties": {
+          "body": { "type": "string", "description": "Up to 4000 characters. @someone@domain here is picked up as a mention too." },
+          "is_question": { "type": "boolean", "default": false },
+          "mentions": { "type": "array", "items": { "type": "string", "format": "email" }, "description": "Emails to notify; unknown addresses are reported back, not silently dropped" }
+        }
+      },
+      "DirEntry": {
+        "type": "object",
+        "required": ["email", "name", "group"],
+        "properties": {
+          "email": { "type": "string", "format": "email" },
+          "name": { "type": "string" },
+          "group": { "type": "string" }
+        }
+      },
+      "Directory": {
+        "type": "object",
+        "required": ["people"],
+        "properties": {
+          "people": { "type": "array", "items": { "$ref": "#/components/schemas/DirEntry" } }
+        }
+      },
+      "NameList": {
+        "type": "object",
+        "required": ["names"],
+        "properties": {
+          "names": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "NewUser": {
+        "type": "object",
+        "required": ["email", "name", "group"],
+        "properties": {
+          "email": { "type": "string", "format": "email", "description": "Normalised to lower case" },
+          "name": { "type": "string" },
+          "group": { "type": "string", "enum": ["Commercial", "PNS", "PSP", "Legal", "CSO", "Admin"] },
+          "level": { "type": "string", "enum": ["staff", "head"], "default": "staff" },
+          "team": { "type": "string", "nullable": true, "description": "Required for Commercial, ignored otherwise" }
+        }
+      },
+      "UserPatch": {
+        "type": "object",
+        "description": "Every field is optional; omitted fields are left as they are.",
+        "properties": {
+          "name": { "type": "string", "nullable": true },
+          "group": { "type": "string", "nullable": true, "enum": ["Commercial", "PNS", "PSP", "Legal", "CSO", "Admin"] },
+          "level": { "type": "string", "nullable": true, "enum": ["staff", "head"] },
+          "team": { "type": "string", "nullable": true },
+          "active": { "type": "boolean", "nullable": true, "description": "False revokes access, true restores it" }
+        }
+      },
+      "Ticket": {
+        "type": "object",
+        "required": ["ref", "shipper", "acct_type", "service", "revenue", "status", "priced_by", "needs_review", "submitted_on", "sla_elapsed", "sla_target"],
+        "properties": {
+          "ref": { "type": "string" },
+          "shipper": { "type": "string" },
+          "acct_type": { "type": "string", "enum": ["Strategic", "Non-Strategic"] },
+          "service": { "type": "string", "enum": ["LTL", "B2BR", "B2C", "FTL on-call", "FTL monthly", "Sameday"] },
+          "revenue": { "type": "integer", "description": "Potential revenue in IDR" },
+          "status": { "type": "string" },
+          "priced_by": { "type": "string", "enum": ["Sales", "PNS"] },
+          "needs_review": { "type": "boolean", "description": "True only when Sales priced it and PNS must review" },
+          "owner": { "type": "string", "nullable": true, "description": "Assigned PNS member" },
+          "reviewer": { "type": "string", "nullable": true },
+          "sales": { "type": "string", "nullable": true },
+          "region": { "type": "string", "nullable": true, "enum": ["GJ", "WJ", "EJ", "CJ"] },
+          "submitted_on": { "type": "string", "format": "date" },
+          "sla_elapsed": { "type": "integer", "description": "Days in the current status" },
+          "sla_target": { "type": "integer" },
+          "margin": { "type": "number", "nullable": true, "description": "Percent. Omitted entirely for callers without the seeMargin permission." },
+          "price_file": { "type": "string", "nullable": true, "description": "Human label for the attached price" },
+          "price_url": { "type": "string", "nullable": true, "description": "http(s) link to the pricing spreadsheet; access is governed by the sheet itself, not by this app" },
+          "open_questions": { "type": "integer", "description": "Unanswered questions on this ticket's discussion thread" }
+        }
+      },
+      "TicketList": {
+        "type": "object",
+        "required": ["tickets", "total"],
+        "properties": {
+          "tickets": { "type": "array", "items": { "$ref": "#/components/schemas/Ticket" } },
+          "total": { "type": "integer" }
+        }
+      },
+      "HistoryEntry": {
+        "type": "object",
+        "required": ["status", "actor", "at"],
+        "properties": {
+          "status": { "type": "string", "description": "The status the ticket entered" },
+          "actor": { "type": "string", "description": "Display name of whoever moved it" },
+          "note": { "type": "string", "nullable": true },
+          "at": { "type": "string", "description": "Timestamp, newest first in the list" }
+        }
+      },
+      "TicketDetail": {
+        "type": "object",
+        "required": ["ticket", "input", "input_cleared", "history", "price_file"],
+        "properties": {
+          "ticket": { "$ref": "#/components/schemas/Ticket" },
+          "input": { "type": "object", "additionalProperties": true, "description": "The raw intake payload as submitted by Commercial" },
+          "input_cleared": { "type": "boolean", "description": "True once PNS has cleared the intake, which is what unlocks the Project Charter" },
+          "history": { "type": "array", "items": { "$ref": "#/components/schemas/HistoryEntry" } },
+          "price_file": { "type": "string", "nullable": true },
+          "price_url": { "type": "string", "nullable": true, "description": "Link to the pricing spreadsheet, if one was attached" },
+          "cost": { "type": "number", "nullable": true, "description": "Restricted — omitted for callers without seeMargin" },
+          "margin": { "type": "number", "nullable": true, "description": "Percent. Restricted — omitted for callers without seeMargin" },
+          "bottom_margin": { "type": "number", "nullable": true, "description": "Product bottom margin for this service; null where none is published (Sameday). Restricted." },
+          "rate_card": { "type": "string", "nullable": true, "description": "Name of the published rate card the price must be built from" }
+        }
+      },
+      "Stats": {
+        "type": "object",
+        "required": ["ongoing", "won", "lost", "total_year"],
+        "properties": {
+          "ongoing": { "type": "integer", "description": "Pending or proposal-submitted" },
+          "won": { "type": "integer" },
+          "lost": { "type": "integer" },
+          "win_rate": { "type": "integer", "nullable": true, "description": "Percent of decided deals; null when none decided" },
+          "total_year": { "type": "integer" }
+        }
+      },
+      "Ok": {
+        "type": "object",
+        "required": ["ok"],
+        "properties": {
+          "ok": { "type": "boolean" },
+          "ref": { "type": "string", "nullable": true },
+          "status": { "type": "string", "nullable": true }
+        }
+      },
+      "NewTicket": {
+        "type": "object",
+        "required": ["shipper", "service", "revenue", "brief"],
+        "properties": {
+          "shipper": { "type": "string" },
+          "service": { "type": "string", "enum": ["LTL", "B2BR", "B2C", "FTL on-call", "FTL monthly", "Sameday"] },
+          "revenue": { "type": "integer" },
+          "brief": { "type": "string", "description": "Brief summary; carries onto the Project Charter" },
+          "sales_email": { "type": "string", "nullable": true },
+          "acct_type": { "type": "string", "default": "Non-Strategic" },
+          "region": { "type": "string", "default": "GJ" },
+          "payload": { "type": "object", "description": "The rest of the intake form", "additionalProperties": true }
+        }
+      },
+      "PriceIn": {
+        "type": "object",
+        "required": ["price_file"],
+        "properties": {
+          "price_file": { "type": "string", "description": "Human label shown next to the link, e.g. \"Rate card v2\". Required; the UI substitutes \"Pricing spreadsheet\" when only a link is given." },
+          "price_url": { "type": "string", "nullable": true, "description": "Link to the pricing spreadsheet. Must be http(s) — any other scheme is refused with 400, because the value is rendered as an anchor other users click. Max 1000 characters." },
+          "price_size": { "type": "integer", "nullable": true },
+          "margin_pct": { "type": "number", "nullable": true },
+          "below_bottom": { "type": "boolean", "default": false, "description": "Routes to the pricing team's head for acknowledgement" }
+        }
+      },
+      "StatusIn": {
+        "type": "object",
+        "required": ["status"],
+        "properties": {
+          "status": { "type": "string" },
+          "reason": { "type": "string", "nullable": true, "description": "Required when sending back to a pending status" },
+          "loss_reason": { "type": "string", "nullable": true, "enum": ["pricing", "shipper", "solution", "ops", "no_vendor", "billing", "pns"] }
+        }
+      },
+      "AssignIn": {
+        "type": "object",
+        "description": "Pass owner, reviewer, or both. An empty string clears that slot; an omitted field leaves it unchanged. At least one must be present.",
+        "properties": {
+          "owner": { "type": "string", "nullable": true, "description": "PNS member who works the ticket" },
+          "reviewer": { "type": "string", "nullable": true, "description": "PNS member who checks a Sales-built price" }
+        }
+      },
+      "InputPatch": {
+        "type": "object",
+        "description": "Every field optional. payload is merged key-by-key into the stored intake, not replaced wholesale.",
+        "properties": {
+          "payload": { "type": "object", "additionalProperties": true, "description": "Intake fields to overwrite" },
+          "service": { "type": "string", "nullable": true, "enum": ["LTL", "B2BR", "B2C", "FTL on-call", "FTL monthly", "Sameday"] },
+          "revenue": { "type": "integer", "nullable": true, "description": "Potential revenue in IDR; needs editAcctOrRev" },
+          "acct_type": { "type": "string", "nullable": true, "enum": ["Strategic", "Non-Strategic"], "description": "Stored on the shipper; needs editAcctOrRev" }
+        }
+      },
+      "SalesIn": {
+        "type": "object",
+        "required": ["name"],
+        "properties": { "name": { "type": "string", "description": "Display name of an active user" } }
+      },
+      "ReopenIn": {
+        "type": "object",
+        "required": ["status"],
+        "properties": { "status": { "type": "string", "description": "Pending status to reopen into" } }
+      },
+      "Options": {
+        "type": "object",
+        "required": ["remembered", "sales", "shippers", "loss_reasons", "pending_statuses"],
+        "properties": {
+          "remembered": {
+            "type": "object",
+            "description": "Field name to suggested values, seeded with common answers and extended with everything typed on past tickets",
+            "additionalProperties": { "type": "array", "items": { "type": "string" } }
+          },
+          "sales": { "type": "array", "items": { "type": "string" }, "description": "Active Commercial and Admin names" },
+          "shippers": { "type": "array", "items": { "type": "string" } },
+          "loss_reasons": { "type": "array", "items": { "type": "string" } },
+          "pending_statuses": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "PspIn": {
+        "type": "object",
+        "required": ["approve"],
+        "properties": {
+          "approve": { "type": "boolean" },
+          "note": { "type": "string", "nullable": true, "description": "Required when rejecting" }
+        }
+      },
+      "Capa": {
+        "type": "object",
+        "required": ["ref", "shipper", "services", "issue", "status", "raised_by", "submitted_on"],
+        "properties": {
+          "ref": { "type": "string" },
+          "shipper": { "type": "string" },
+          "services": { "type": "array", "items": { "type": "string" } },
+          "issue": { "type": "string" },
+          "status": { "type": "string", "enum": ["Pending PNS", "Submitted", "CAPA Closed"] },
+          "assignee": { "type": "string", "nullable": true },
+          "proposal": { "type": "string", "nullable": true },
+          "raised_by": { "type": "string" },
+          "submitted_on": { "type": "string", "format": "date" }
+        }
+      },
+      "CapaList": {
+        "type": "object",
+        "required": ["capa"],
+        "properties": { "capa": { "type": "array", "items": { "$ref": "#/components/schemas/Capa" } } }
+      },
+      "NewCapa": {
+        "type": "object",
+        "required": ["shipper", "services", "issue"],
+        "properties": {
+          "shipper": { "type": "string" },
+          "services": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+          "issue": { "type": "string" },
+          "trid_samples": { "type": "string", "nullable": true }
+        }
+      },
+      "CapaProposal": {
+        "type": "object",
+        "required": ["assignee", "proposal"],
+        "properties": {
+          "assignee": { "type": "string" },
+          "proposal": { "type": "string" }
+        }
+      },
+      "Note": {
+        "type": "object",
+        "required": ["id", "body", "at", "unread"],
+        "properties": {
+          "id": { "type": "integer" },
+          "body": { "type": "string" },
+          "ticket_ref": { "type": "string", "nullable": true },
+          "at": { "type": "string" },
+          "unread": { "type": "boolean" }
+        }
+      },
+      "NoteList": {
+        "type": "object",
+        "required": ["notes", "unread"],
+        "properties": {
+          "notes": { "type": "array", "items": { "$ref": "#/components/schemas/Note" } },
+          "unread": { "type": "integer" }
+        }
+      }
+    }
+  }
+}
