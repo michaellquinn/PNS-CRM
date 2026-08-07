@@ -76,6 +76,16 @@ export const api = {
   purge: (ref) => call(`/tickets/${ref}/purge`, { method: "DELETE" }),
   options: () => call("/options"),
 
+  capaFiles: (ref) => call(`/capa/${encodeURIComponent(ref)}/files`),
+  uploadCapaFile: (ref, file, kind = "evidence", caption = "") => {
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("kind", kind);
+    if (caption) fd.append("caption", caption);
+    return upload(`/capa/${encodeURIComponent(ref)}/files`, fd);
+  },
+  deleteCapaFile: (id) => call(`/capa-files/${id}`, { method: "DELETE" }),
+
   capa: (status) => call(`/capa${qs({ status })}`),
   raiseCapa: (body) => call("/capa", { method: "POST", body: JSON.stringify(body) }),
   submitCapa: (ref, body) => call(`/capa/${ref}/submit`, { method: "POST", body: JSON.stringify(body) }),

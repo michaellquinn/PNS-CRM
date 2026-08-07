@@ -524,6 +524,90 @@
         }
       }
     },
+    "/api/capa/{ref}/files": {
+      "get": {
+        "summary": "List evidence and documents attached to a CAPA",
+        "description": "Metadata only; bytes come from /api/capa-files/{fid}.",
+        "operationId": "listCapaFiles",
+        "parameters": [ { "$ref": "#/components/parameters/CapaRef" } ],
+        "responses": {
+          "200": {
+            "description": "Attachment metadata",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/FileList" } } }
+          },
+          "401": { "$ref": "#/components/responses/NotSignedIn" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      },
+      "post": {
+        "summary": "Attach evidence to a CAPA",
+        "description": "multipart/form-data. Same 5 MB cap and type allowlist as ticket attachments, and open to every group. kind is evidence or document. Notifies the assignee and the person who raised it.",
+        "operationId": "uploadCapaFile",
+        "parameters": [ { "$ref": "#/components/parameters/CapaRef" } ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": ["file"],
+                "properties": {
+                  "file": { "type": "string", "format": "binary" },
+                  "kind": { "type": "string", "enum": ["evidence", "document"], "default": "evidence" },
+                  "caption": { "type": "string", "nullable": true }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Attached",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Ok" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "413": {
+            "description": "Larger than the 5 MB limit",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "415": {
+            "description": "File type not on the allowlist",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
+    "/api/capa-files/{fid}": {
+      "get": {
+        "summary": "Download or display one CAPA attachment",
+        "description": "Same rules as ticket attachments: allowlisted images render inline, everything else is forced to download, nosniff always set.",
+        "operationId": "getCapaFile",
+        "parameters": [ { "$ref": "#/components/parameters/FileId" } ],
+        "responses": {
+          "200": {
+            "description": "The file",
+            "content": { "application/octet-stream": { "schema": { "type": "string", "format": "binary" } } }
+          },
+          "401": { "$ref": "#/components/responses/NotSignedIn" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      },
+      "delete": {
+        "summary": "Remove a CAPA attachment",
+        "description": "The person who uploaded it, or an Admin.",
+        "operationId": "deleteCapaFile",
+        "parameters": [ { "$ref": "#/components/parameters/FileId" } ],
+        "responses": {
+          "200": {
+            "description": "Removed",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Ok" } } }
+          },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
     "/api/capa/{ref}/submit": {
       "post": {
         "summary": "Submit the PNS proposal for a CAPA and assign an owner",
@@ -1131,7 +1215,9 @@
           "assignee": { "type": "string", "nullable": true },
           "proposal": { "type": "string", "nullable": true },
           "raised_by": { "type": "string" },
-          "submitted_on": { "type": "string", "format": "date" }
+          "submitted_on": { "type": "string", "format": "date" },
+          "link_url": { "type": "string", "nullable": true, "description": "http(s) reference link, e.g. a tracking page or complaint thread" },
+          "file_count": { "type": "integer", "description": "Number of attachments on this CAPA" }
         }
       },
       "CapaList": {
@@ -1146,7 +1232,8 @@
           "shipper": { "type": "string" },
           "services": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
           "issue": { "type": "string" },
-          "trid_samples": { "type": "string", "nullable": true }
+          "trid_samples": { "type": "string", "nullable": true },
+          "link_url": { "type": "string", "nullable": true, "description": "Optional http(s) reference link" }
         }
       },
       "CapaProposal": {
@@ -1154,7 +1241,8 @@
         "required": ["assignee", "proposal"],
         "properties": {
           "assignee": { "type": "string" },
-          "proposal": { "type": "string" }
+          "proposal": { "type": "string" },
+          "link_url": { "type": "string", "nullable": true, "description": "Optional http(s) link added with the proposal" }
         }
       },
       "Note": {
