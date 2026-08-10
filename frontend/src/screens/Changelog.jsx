@@ -3,6 +3,24 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-08-10",
+    title: "Importer, assignment and sync sizing",
+    by: "Baskoro + Claude",
+    changes: [
+      "Trucking opportunities are imported instead of held back. Sales CRM cannot say whether they are FTL on-call or FTL monthly, so they land as on-call with a note and a flag for Sales to confirm before the charter goes out. Safe as a provisional label, since both FTL lines route to PNS and carry the same ceilings.",
+      "Complex Logistics assignment now splits on the account rather than on load. A new account goes to Michael Quinn; an account already shipping goes to Adila. Sameday is Annisa's exclusively from intake to published charter.",
+      "PNS can edit intake. During the Sales CRM rollout most intake arrives imported and incomplete, and waiting on Sales to complete it would stall the solutioning it exists to feed.",
+      "The sync sizes itself. It reads from the newest opportunity and stops once it reaches ones already imported, so a routine run reads a single page. The page count is now only a ceiling for a first import or a long gap.",
+      "Accounts for a page are fetched concurrently. Sequentially it was up to 200 round trips before the first ticket was considered, which ran past the ingress timeout and returned an empty 502.",
+      "A sweep that runs out of time now returns what it has and says so, rather than being cut off with no explanation.",
+    ],
+    overruled: [
+      "Trucking was being skipped entirely to avoid guessing the FTL line. Holding the work back cost more than a provisional label that gets corrected.",
+      "Intake was Sales and Sales Planning only. PNS is added for the rollout period.",
+      "The sync asked how many pages to read. It now works that out itself.",
+    ],
+  },
+  {
+    date: "2026-08-10",
     title: "PSP entry gate",
     by: "Baskoro + Claude",
     changes: [

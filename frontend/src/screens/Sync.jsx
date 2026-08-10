@@ -23,7 +23,7 @@ function Table({ head, rows, render, empty }) {
 }
 
 export default function Sync({ notify }) {
-  const [pages, setPages] = useState(3);
+  const [pages, setPages] = useState(20);
   const [busy, setBusy] = useState(false);
   const [res, setRes] = useState(null);
 
@@ -33,7 +33,7 @@ export default function Sync({ notify }) {
       `This writes to Solutions CRM. Sales CRM is never written to.`)) return;
     setBusy(true);
     try {
-      const d = await api.syncSalesCrm({ pages: Number(pages) || 3, dry_run: dry });
+      const d = await api.syncSalesCrm({ pages: Number(pages) || 20, dry_run: dry });
       setRes(d);
       notify(dry
         ? `Dry run: ${d.counts.created} would be created, ${d.counts.skipped} skipped`
@@ -48,12 +48,7 @@ export default function Sync({ notify }) {
         sub="Walks the newest-first opportunity list, creating tickets for new opportunities and refreshing ones already imported. Read-only against Sales CRM: nothing is ever written back." />
 
       <Card className="mb-4">
-        <div className="flex flex-wrap items-end gap-3 p-4">
-          <label className="text-[12.5px]">
-            <span className="mb-1 block text-slate-500">Pages to scan (100 each)</span>
-            <input className={`${inputCls} w-28`} type="number" min="1" max="20"
-              value={pages} onChange={(e) => setPages(e.target.value)} />
-          </label>
+        <div className="flex flex-wrap items-center gap-3 p-4">
           <Btn onClick={() => run(true)} disabled={busy}>
             {busy ? "Scanning…" : "Dry run"}
           </Btn>
@@ -61,10 +56,19 @@ export default function Sync({ notify }) {
             onClick={() => run(false)}>
             Import for real
           </Btn>
+          <label className="ml-auto flex items-center gap-2 text-[12px] text-slate-500">
+            Stop after
+            <input className={`${inputCls} w-20`} type="number" min="1" max="40"
+              value={pages} onChange={(e) => setPages(e.target.value)} />
+            pages
+          </label>
           <p className="w-full text-[11.5px] text-slate-400">
-            Run a dry run first. &ldquo;Import for real&rdquo; stays disabled until you have.
-            Only you can run this sync: the Sales CRM key is issued per person and reads
-            with that person&apos;s permissions.
+            The sweep sizes itself: it reads from the newest opportunity and stops once it
+            reaches ones already imported, so a routine run reads a single page. The page
+            cap only bites on a first import or after a long gap. Run a dry run first;
+            &ldquo;Import for real&rdquo; stays disabled until you have. Only you can run
+            this sync, because the Sales CRM key is issued per person and reads with that
+            person&apos;s permissions.
           </p>
         </div>
       </Card>
@@ -85,6 +89,9 @@ export default function Sync({ notify }) {
             {res.dry_run && <Pill tone="bg-sky-50 text-sky-700">dry run, nothing written</Pill>}
             {res.truncated && (
               <Pill tone="bg-rose-50 text-rose-700">stopped early on time, run it again</Pill>
+            )}
+            {res.caught_up && !res.truncated && (
+              <Pill tone="bg-emerald-50 text-emerald-700">caught up, nothing older to read</Pill>
             )}
           </div>
 
