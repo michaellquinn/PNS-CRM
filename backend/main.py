@@ -675,7 +675,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-08-10.23"
+BUILD = "2026-08-10.24"
 
 
 class Me(BaseModel):
@@ -979,9 +979,14 @@ SALESCRM_BASE = os.getenv("SALESCRM_BASE",
                           "https://api.ninjavan.co/global/salescrm/api/v1").rstrip("/")
 SALESCRM_API_KEY = os.getenv("SALESCRM_API_KEY", "").strip()
 SALESCRM_RECORD_TYPE = os.getenv("SALESCRM_RECORD_TYPE", "Indonesia").strip()
-# Wall-clock budget for one sync request. Comfortably inside the ingress timeout, so a
-# slow sweep returns partial results with `truncated: true` rather than a bare 502.
-SYNC_BUDGET_S = int(os.getenv("SYNC_BUDGET_S", "40") or 40)
+# Wall-clock budget for one sync request. The ingress cuts a request at 30s with a bare
+# 502, so this has to be comfortably under that: past the budget the sweep returns what
+# it has and says so. Measured cost is ~1.1s for a page of 100 opportunities plus ~0.8s
+# per account lookup, 93 distinct accounts on a typical page.
+SYNC_BUDGET_S = int(os.getenv("SYNC_BUDGET_S", "20") or 20)
+# Concurrent Sales CRM reads. At 16 a page of accounts resolves in about 5s instead of
+# 73s sequentially, which is the difference between finishing and being cut off.
+SYNC_CONCURRENCY = int(os.getenv("SYNC_CONCURRENCY", "16") or 16)
 
 # Sales CRM product line -> our service line.
 PRODUCT_MAP = {
@@ -1074,12 +1079,12 @@ class SalesCrm:
         opportunities meant 100 round trips before the first ticket was even considered,
         which put the whole sync past the ingress timeout and returned a bare 502.
 
-        Bounded at 8: enough to collapse the wall-clock, low enough not to look like an
-        attack to whatever sits in front of Sales CRM."""
+        Bounded by SYNC_CONCURRENCY: enough to collapse the wall-clock, low enough not to
+        look like an attack to whatever sits in front of Sales CRM."""
         todo = [str(i) for i in ids if str(i or "") and str(i) not in self._accounts]
         if not todo:
             return
-        sem = asyncio.Semaphore(8)
+        sem = asyncio.Semaphore(SYNC_CONCURRENCY)
 
         async def one(aid: str):
             async with sem:
@@ -1152,8 +1157,10 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
         known = {str(r["opportunity_id"]) for r in
                  await q("SELECT opportunity_id FROM tickets WHERE opportunity_id IS NOT NULL")}
 
+        # Per-request timeout well under the sweep's own budget, so one slow Sales CRM
+        # call cannot consume the whole run and leave nothing to report.
         async with httpx.AsyncClient(
-                timeout=45, headers={"X-API-Key": SALESCRM_API_KEY}) as client:
+                timeout=12, headers={"X-API-Key": SALESCRM_API_KEY}) as client:
             crm = SalesCrm(client)
             # The sweep sizes itself. Sales CRM returns newest first and cannot filter by
             # date, so the way to find what is new is to read from the top until reaching
@@ -1177,14 +1184,23 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
                 if not items:
                     break
 
-                # Warm every account this page needs before touching any of them, then
-                # their parents. Two concurrent rounds instead of a couple of hundred
-                # sequential round trips, which is the difference between finishing and
-                # being cut off by the ingress timeout.
-                await crm.warm_accounts(o.get("account_id") for o in items)
+                # Only opportunities that will actually be created need an account: the
+                # tier comes from it. Already-imported ones are refreshed from fields the
+                # page already carries, and skipped ones are not looked at again. On a
+                # re-run most of a page is already held, so this is the difference
+                # between a slow sweep and an instant one.
+                fresh = [o for o in items
+                         if str(o.get("id")) not in known
+                         and (not SALESCRM_RECORD_TYPE
+                              or o.get("record_type_name") == SALESCRM_RECORD_TYPE)
+                         and o.get("stage") not in CLOSED_LOST_STAGES
+                         and PRODUCT_MAP.get(
+                             str(_first(o.get("core_product"))
+                                 or o.get("nv_product_line") or "").strip())]
+                await crm.warm_accounts(o.get("account_id") for o in fresh)
                 await crm.warm_accounts(
                     (crm._accounts.get(str(o.get("account_id"))) or {}).get("parent_account_id")
-                    for o in items)
+                    for o in fresh)
 
                 for o in items:
                     if time.monotonic() > deadline:
