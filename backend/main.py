@@ -1019,7 +1019,7 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
         raise HTTPException(409, "a sync is already running — wait for it to finish")
 
     import httpx
-    created, skipped, errors = [], [], []
+    created, refreshed, skipped, errors = [], [], [], []
     scanned = 0
 
     async with _sync_lock:
@@ -1029,10 +1029,10 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
         async with httpx.AsyncClient(
                 timeout=45, headers={"X-API-Key": SALESCRM_API_KEY}) as client:
             crm = SalesCrm(client)
-            stop = False
+            # Every scanned page is processed rather than stopping at the first already
+            # imported opportunity: the same sweep both creates new tickets and refreshes
+            # the Sales-CRM-owned fields on existing ones. `pages` is the bound.
             for page in range(1, max(1, min(body.pages, 20)) + 1):
-                if stop:
-                    break
                 # record_type_name is NOT a filterable field — passing it returns
                 # 400 INVALID_FILTER_FIELD and the sweep finds nothing. The API accepts
                 # exact matches on a small set of fields only, so the record type is
@@ -1048,10 +1048,18 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
                     if SALESCRM_RECORD_TYPE and o.get("record_type_name") != SALESCRM_RECORD_TYPE:
                         continue
                     if oid in known:
-                        # Newest-first ordering means everything below this is older and
-                        # already imported. Stop rather than scanning 72,000 rows.
-                        stop = True
-                        break
+                        # Already imported, so refresh the fields Sales CRM owns rather
+                        # than skipping it. Stage, committed revenue and the close date
+                        # are theirs — ours are only ever a copy, so theirs wins.
+                        if not body.dry_run:
+                            n = await _refresh_from_salescrm(o)
+                            if n:
+                                refreshed.append({"id": oid, "name": o.get("name"),
+                                                  "stage": o.get("stage")})
+                        else:
+                            refreshed.append({"id": oid, "name": o.get("name"),
+                                              "stage": o.get("stage")})
+                        continue
 
                     stage = o.get("stage")
                     if stage in CLOSED_LOST_STAGES:
@@ -1107,9 +1115,34 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
     if not body.dry_run:
         await audit(u.email, "sync", "salescrm", None, "created", None, str(len(created)))
     return {"dry_run": body.dry_run, "scanned": scanned,
-            "created": created, "skipped": skipped, "errors": errors,
-            "counts": {"created": len(created), "skipped": len(skipped),
-                       "errors": len(errors)}}
+            "created": created, "refreshed": refreshed, "skipped": skipped,
+            "errors": errors,
+            "counts": {"created": len(created), "refreshed": len(refreshed),
+                       "skipped": len(skipped), "errors": len(errors)}}
+
+
+async def _refresh_from_salescrm(o: dict) -> int:
+    """Re-copy the fields Sales CRM owns onto a ticket we already hold.
+
+    Stage, committed revenue and the close date are Sales CRM's to state; ours are a
+    copy and a copy that disagrees with its source is worse than no copy. Deliberately
+    narrow: potential revenue, service and account tier are NOT refreshed, because PNS
+    corrects those here on purpose and an overwrite would silently undo the correction."""
+    oid = str(o.get("id"))
+    t = await q("SELECT id, stage FROM tickets WHERE opportunity_id=%s", (oid,), one=True)
+    if not t:
+        return 0
+    await execute("UPDATE tickets SET stage=%s, parent_stage=%s WHERE id=%s",
+                  (o.get("stage"), o.get("parent_stage"), t["id"]))
+
+    row = await q("SELECT payload FROM ticket_input WHERE ticket_id=%s", (t["id"],), one=True)
+    if row:
+        p = row["payload"] if isinstance(row["payload"], dict) else json.loads(row["payload"] or "{}")
+        p["committedRev"] = str(o.get("committed_revenue_mth") or "")
+        p["sfCloseDate"] = str(o.get("closed_won_date") or o.get("close_date") or "")
+        await execute("UPDATE ticket_input SET payload=%s WHERE ticket_id=%s",
+                      (json.dumps(p), t["id"]))
+    return 1
 
 
 async def _import_opportunity(o: dict, account: dict | None, plan: dict,
@@ -1169,7 +1202,7 @@ async def _import_opportunity(o: dict, account: dict | None, plan: dict,
         "pickSlot": str(o.get("pickup_timing") or ""),
         "golive": str(o.get("expected_close_date") or ""),
         "commodity": str((account or {}).get("industry") or ""),
-        "globalId": str((account or {}).get("global_id") or ""),
+        "shipperId": str((account or {}).get("global_id") or ""),
         "sfid": str(o.get("salesforce_opportunity_id") or ""),
         # The tracking sheet reports on committed revenue as well as potential, and they
         # are different numbers — potential is what routing uses, committed is what Sales
@@ -1533,6 +1566,17 @@ async def edit_input(ref: str, body: InputPatch, u: User = Depends(current_user)
         if row and row["payload"]:
             current = row["payload"] if isinstance(row["payload"], dict) else json.loads(row["payload"])
         merged = {**current, **body.payload}
+
+        # A go-live date is a commitment to Ops, and Ops cannot act on it without the
+        # account identifiers. Enforced at the point the date is set rather than chased
+        # later, because by then the date is already in someone's plan.
+        if str(merged.get("golive") or "").strip():
+            missing = [ONBOARDING_IDS[k] for k in ONBOARDING_IDS
+                       if not str(merged.get(k) or "").strip()]
+            if missing:
+                raise HTTPException(
+                    400, "a go-live date needs the account identifiers Ops will onboard "
+                         "against — still missing: " + ", ".join(missing))
         if row:
             await execute("UPDATE ticket_input SET payload=%s, updated_by=%s WHERE ticket_id=%s",
                           (json.dumps(merged), u.email, t["id"]))
@@ -1649,9 +1693,11 @@ CHARTER_SECTIONS = [
         ("dest", "Destination"), ("freq", "Shipment frequency"), ("volume", "Shipment volume"),
         ("pickSlot", "Pickup time"), ("pickWait", "Pickup waiting time"),
         ("delSlot", "Delivery time"), ("delWait", "Delivery waiting time"),
-        ("sfid", "Salesforce Opportunity ID"), ("globalId", "Global ID"), ("jiraId", "Jira ID"),
+        ("sfid", "Salesforce Opportunity ID"), ("jiraId", "Jira ID"),
         # Ops cannot onboard a shipper they cannot find in the account systems, so these
         # three travel with the go-live date rather than being chased afterwards.
+        # shipperId is the global shipper id — there is only one such number, and
+        # carrying it twice under two names is how the two versions start disagreeing.
         ("parentShipperId", "Parent shipper ID"), ("shipperId", "Shipper ID"),
         ("branchId", "Corporate branch ID"),
     ]),
@@ -1671,6 +1717,10 @@ CHARTER_HOURS = ("pickWait", "delWait")
 # key -> human label, so a field comment can name the field it is about without the
 # frontend having to send the label along with it.
 CHARTER_FIELD_LABELS = {k: label for _, fields in CHARTER_SECTIONS for k, label in fields}
+
+# Required before a go-live date can be set — see edit_input.
+ONBOARDING_IDS = {"parentShipperId": "Parent shipper ID", "shipperId": "Shipper ID",
+                  "branchId": "Corporate branch ID"}
 
 _CS = {
     "table": "border-collapse:collapse;width:100%;max-width:760px;font-family:Arial,Helvetica,"

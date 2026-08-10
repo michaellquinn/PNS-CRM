@@ -76,6 +76,9 @@ export default function Sync({ notify }) {
             <Pill tone="bg-emerald-50 text-emerald-700">
               {res.counts.created} {res.dry_run ? "would be created" : "created"}
             </Pill>
+            <Pill tone="bg-violet-50 text-violet-700">
+              {res.counts.refreshed} {res.dry_run ? "would refresh" : "refreshed"}
+            </Pill>
             <Pill tone="bg-amber-50 text-amber-700">{res.counts.skipped} skipped</Pill>
             {res.counts.errors > 0 &&
               <Pill tone="bg-rose-50 text-rose-700">{res.counts.errors} errors</Pill>}
@@ -107,6 +110,28 @@ export default function Sync({ notify }) {
                   </td>
                   <td className="px-4 py-2.5">{c.routes_to}</td>
                   <td className="px-4 py-2.5 font-mono text-[12px]">{c.ref || "—"}</td>
+                </tr>
+              )} />
+          </Card>
+
+          <Card className="mb-4">
+            <div className="border-b border-slate-200 px-4 py-3">
+              <h2 className="text-[13.5px] font-semibold">
+                Already imported &mdash; {res.dry_run ? "would refresh" : "refreshed"} from Sales CRM
+              </h2>
+              <p className="text-[12px] text-slate-500">
+                Stage, committed revenue and close date are re-copied. Potential revenue,
+                service and account tier are left alone &mdash; PNS corrects those here
+                on purpose and an overwrite would undo it.
+              </p>
+            </div>
+            <Table head={["Opportunity", "Name", "Sales CRM stage"]} rows={res.refreshed || []}
+              empty="Nothing already imported in this range."
+              render={(r, idx) => (
+                <tr key={`${r.id}-${idx}`} className="border-t border-slate-100">
+                  <td className="px-4 py-2.5 font-mono text-[12px]">{r.id}</td>
+                  <td className="px-4 py-2.5 text-slate-600">{r.name || "—"}</td>
+                  <td className="px-4 py-2.5">{r.stage}</td>
                 </tr>
               )} />
           </Card>
