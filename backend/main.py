@@ -675,7 +675,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-08-10.27"
+BUILD = "2026-08-10.28"
 
 
 class Me(BaseModel):
@@ -983,10 +983,10 @@ SALESCRM_RECORD_TYPE = os.getenv("SALESCRM_RECORD_TYPE", "Indonesia").strip()
 # 502, so this has to be comfortably under that: past the budget the sweep returns what
 # it has and says so. Measured cost is ~1.1s for a page of 100 opportunities plus ~0.8s
 # per account lookup, 93 distinct accounts on a typical page.
-SYNC_BUDGET_S = int(os.getenv("SYNC_BUDGET_S", "20") or 20)
+SYNC_BUDGET_S = int(os.getenv("SYNC_BUDGET_S", "25") or 25)
 # Concurrent Sales CRM reads. At 16 a page of accounts resolves in about 5s instead of
 # 73s sequentially, which is the difference between finishing and being cut off.
-SYNC_CONCURRENCY = int(os.getenv("SYNC_CONCURRENCY", "16") or 16)
+SYNC_CONCURRENCY = int(os.getenv("SYNC_CONCURRENCY", "24") or 24)
 # Ceiling on how many existing tickets get re-read in one run. Fine while PNS holds
 # hundreds; revisit if it ever holds thousands.
 SYNC_REFRESH_MAX = int(os.getenv("SYNC_REFRESH_MAX", "400") or 400)
@@ -1259,29 +1259,34 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
                 if not data.get("has_next"):
                     break
 
+            # Warm every account the whole run needs in one round, not one round per
+            # batch. A day holds five or six opportunities, so warming per batch spends
+            # a full round trip on six lookups and wastes the concurrency entirely:
+            # forty days cost forty rounds instead of two.
+            #
+            # Only opportunities that will actually be created need an account, since the
+            # tier comes from it. Already-imported ones refresh from fields the record
+            # already carries, and skipped ones are never looked at again.
+            def needs_account(o):
+                return (str(o.get("id")) not in known
+                        and (not SALESCRM_RECORD_TYPE
+                             or o.get("record_type_name") == SALESCRM_RECORD_TYPE)
+                        and o.get("stage") not in CLOSED_LOST_STAGES
+                        and PRODUCT_MAP.get(
+                            str(_first(o.get("core_product"))
+                                or o.get("nv_product_line") or "").strip()))
+
+            all_fresh = [o for _, items in batches for o in items if needs_account(o)]
+            await crm.warm_accounts(o.get("account_id") for o in all_fresh)
+            await crm.warm_accounts(
+                (crm._accounts.get(str(o.get("account_id"))) or {}).get("parent_account_id")
+                for o in all_fresh)
+
             for label, items in batches:
                 if time.monotonic() > deadline:
                     truncated = True
                     break
                 new_on_this_page = 0
-
-                # Only opportunities that will actually be created need an account: the
-                # tier comes from it. Already-imported ones are refreshed from fields the
-                # record already carries, and skipped ones are never looked at again. On
-                # a re-run most of a batch is already held, so this is the difference
-                # between a slow sweep and an instant one.
-                fresh = [o for o in items
-                         if str(o.get("id")) not in known
-                         and (not SALESCRM_RECORD_TYPE
-                              or o.get("record_type_name") == SALESCRM_RECORD_TYPE)
-                         and o.get("stage") not in CLOSED_LOST_STAGES
-                         and PRODUCT_MAP.get(
-                             str(_first(o.get("core_product"))
-                                 or o.get("nv_product_line") or "").strip())]
-                await crm.warm_accounts(o.get("account_id") for o in fresh)
-                await crm.warm_accounts(
-                    (crm._accounts.get(str(o.get("account_id"))) or {}).get("parent_account_id")
-                    for o in fresh)
 
                 for o in items:
                     if time.monotonic() > deadline:
