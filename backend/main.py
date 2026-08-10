@@ -650,7 +650,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-08-10.20"
+BUILD = "2026-08-10.21"
 
 
 class Me(BaseModel):
@@ -799,11 +799,16 @@ def health():
 
 @app.get("/api/me", response_model=Me)
 async def me(u: User = Depends(current_user)):
+    # Every action the frontend gates on must be listed here. A permission that exists in
+    # can() but is missing from this list is not a 403: it arrives as undefined, the nav
+    # entry or button silently never renders, and the feature looks like it was never
+    # built. Add the name here in the same edit that adds it to can().
     actions = ["createTicket", "deleteTicket", "restoreTicket", "purgeTicket",
                "assign", "assignReviewer", "markReviewed", "editInput", "editAcctOrRev",
                "setAcct", "setSales", "reopen", "pspDecide", "vendorToggle", "sendToPsp",
                "acceptProposal", "sendBackProposal", "seeMargin", "capaRaise",
-               "capaClose", "capaSubmit", "headAck", "manageUsers", "grantAdmin", "pspAssign"]
+               "capaClose", "capaSubmit", "headAck", "manageUsers", "grantAdmin",
+               "pspAssign", "pspOverride", "allowPsp", "syncSalesCrm"]
     return Me(email=u.email, name=u.name, group=u.group, level=u.level, team=u.team,
               permissions={a: can(u, a) for a in actions},
               sso=u.sso, dev_fallback=not u.sso and bool(DEV_USER))
