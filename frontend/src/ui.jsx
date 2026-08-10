@@ -232,12 +232,21 @@ export function TicketCard({ t, badges = [], children, onOpen }) {
   return (
     <Card className="p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
+        {/* The whole header opens the ticket, not just the reference. The action area
+            below (children) is deliberately outside it — a click meant for "Attach
+            price" must not navigate away instead. */}
+        <div
+          role={onOpen ? "button" : undefined}
+          tabIndex={onOpen ? 0 : undefined}
+          onClick={() => onOpen?.(t.ref)}
+          onKeyDown={(e) => {
+            if (onOpen && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); onOpen(t.ref); }
+          }}
+          className={`min-w-0 ${onOpen ? "-m-1 cursor-pointer rounded-lg p-1 hover:bg-slate-50" : ""}`}>
           <div className="mb-1 flex flex-wrap items-center gap-2">
-            <button onClick={() => onOpen?.(t.ref)}
-              className="font-mono text-[13px] font-bold text-[#EE1B2C] hover:underline">
+            <span className="font-mono text-[13px] font-bold text-[#EE1B2C] group-hover:underline">
               {t.ref}
-            </button>
+            </span>
             <Pill dot>{t.status}</Pill>
             {t.open_questions > 0 && (
               <Pill tone="bg-amber-50 text-amber-700">

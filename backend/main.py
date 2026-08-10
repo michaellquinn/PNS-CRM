@@ -121,15 +121,18 @@ def route(acct: str, svc: str, rev: int) -> dict:
 # rotates through the generalists. Baskoro is Head and is deliberately not in the pool —
 # assigning the head his own queue is how oversight quietly turns into a caseload.
 SERVICE_SPECIALIST = {
-    "Complex Logistics": "adila.kestibawani@ninjavan.co",
-    "Sameday":           "annisa.sophieamalia@ninjavan.co",
+    "Complex Logistics": ["adila.kestibawani@ninjavan.co",
+                          "michael.quinnfarand@ninjavan.co"],
+    "Sameday":           ["annisa.sophieamalia@ninjavan.co"],
 }
+
+# Auto-assignment can be switched off entirely, in which case every ticket arrives
+# unassigned for the Head to place. The Head can always reassign either way.
+AUTO_ASSIGN = os.getenv("AUTO_ASSIGN", "1").strip() not in ("0", "false", "False", "")
 # Everything without a specialist goes to this pair by default, whichever of them is
-# carrying less. Michael takes the overflow only once both are at the cap, so he stays
-# free for whatever the pair cannot absorb rather than taking a third of everything.
+# carrying less.
 PNS_DEFAULT_PAIR = ["m.ramdhani@ninjavan.co", "niko.yannova@ninjavan.co"]
-PNS_OVERFLOW = "michael.quinnfarand@ninjavan.co"
-PNS_WIP_CAP = 10          # tickets one person may hold at Pending PNS before overflow
+PNS_WIP_CAP = 10          # tickets one person may hold at Pending PNS before it stops
 
 
 async def pending_pns_load(names: list[str]) -> dict[str, int]:
@@ -147,40 +150,39 @@ async def pending_pns_load(names: list[str]) -> dict[str, int]:
 
 
 async def auto_assignee(service: str, seed: int) -> str | None:
-    """The PNS member who should own a new ticket, or None to leave it for the head.
+    """The PNS member who should own a new ticket, or None to leave it for the Head.
 
-    A specialist takes their own line outright. Everything else goes to the lighter of
-    the default pair, and only spills to the overflow owner once both are at the cap —
-    so work is levelled rather than sprayed round-robin at whoever is next in line.
+    Candidates are the named specialists for that service, or the default pair for
+    everything else. The lightest-loaded candidate under the cap takes it.
 
-    Anyone not registered or not active is skipped. Assigning work to someone who cannot
-    open the app is worse than leaving it unassigned, because it looks handled."""
-    email = SERVICE_SPECIALIST.get(service)
-    if email:
-        row = await q("SELECT name FROM users WHERE email=%s AND active=1", (email,), one=True)
-        if row:
-            return row["name"]
-        # Specialist away or unregistered — fall through rather than stranding the
-        # ticket on a name nobody is watching.
+    Once every candidate is at the cap the ticket is left **unassigned on purpose** and
+    surfaces in the Head's queue. Auto-assigning past the cap would keep the queue
+    looking tidy while quietly burying someone — an unassigned ticket is visible, an
+    over-assigned one is not.
 
-    ph = ",".join(["%s"] * len(PNS_DEFAULT_PAIR))
-    pair = await q(f"SELECT name FROM users WHERE email IN ({ph}) AND active=1 ORDER BY email",
-                   tuple(PNS_DEFAULT_PAIR))
-    names = [r["name"] for r in pair]
-    if names:
-        load = await pending_pns_load(names)
-        # Ties break on name so the choice is stable for a retried request.
-        lightest = min(names, key=lambda n: (load[n], n))
-        if load[lightest] < PNS_WIP_CAP:
-            return lightest
+    Anyone not registered or not active is skipped: work parked on a name nobody is
+    watching is worse than work with no name on it, because it looks handled."""
+    if not AUTO_ASSIGN:
+        return None
 
-    over = await q("SELECT name FROM users WHERE email=%s AND active=1",
-                   (PNS_OVERFLOW,), one=True)
-    if over:
-        return over["name"]
-    # Both the pair and the overflow owner are unavailable: leave it for the head to
-    # place by hand rather than pushing it onto someone already over the cap.
-    return names[0] if names else None
+    candidates = SERVICE_SPECIALIST.get(service) or PNS_DEFAULT_PAIR
+    ph = ",".join(["%s"] * len(candidates))
+    rows = await q(f"SELECT name FROM users WHERE email IN ({ph}) AND active=1",
+                   tuple(candidates))
+    names = [r["name"] for r in rows]
+    if not names and service in SERVICE_SPECIALIST:
+        # Specialists all away — fall back to the default pair rather than stranding it.
+        ph = ",".join(["%s"] * len(PNS_DEFAULT_PAIR))
+        rows = await q(f"SELECT name FROM users WHERE email IN ({ph}) AND active=1",
+                       tuple(PNS_DEFAULT_PAIR))
+        names = [r["name"] for r in rows]
+    if not names:
+        return None
+
+    load = await pending_pns_load(names)
+    # Ties break on name so a retried request makes the same choice.
+    lightest = min(names, key=lambda n: (load[n], n))
+    return lightest if load[lightest] < PNS_WIP_CAP else None
 
 
 def tier_of(rev: int) -> str:
@@ -317,7 +319,12 @@ class User(BaseModel):
     sso: bool = False        # True when identity came from the proxy, not DEV_USER_EMAIL
 
 
-ROLE_GROUPS = ["Commercial", "PNS", "PSP", "Legal", "CSO", "QC", "Admin"]
+# Commercial is Sales. Legal, Finance, Sales Planning and Visitor are read-mostly
+# audiences: they consume the charter and the pipeline rather than acting on tickets,
+# so they get no mutating permission at all — see can() below.
+ROLE_GROUPS = ["Commercial", "PNS", "PSP", "Legal", "Finance", "Sales Planning",
+               "CSO", "QC", "Visitor", "Admin"]
+READ_ONLY_GROUPS = ("Legal", "Finance", "Sales Planning", "Visitor")
 ROLE_LEVELS = ["staff", "head"]
 TEAMS = ["Team1", "Team2"]
 
@@ -347,6 +354,13 @@ def can(u: User, action: str, t: dict | None = None) -> bool:
     admin = u.group == "Admin"
     com_head = admin or (u.group == "Commercial" and u.level == "head")
     pns_head = admin or (u.group == "PNS" and u.level == "head")
+
+    # Read-mostly audiences never mutate. Stated once here rather than being spelled out
+    # as an exclusion on every line below, where one omission would grant a right nobody
+    # intended. They can still be tagged in a discussion and reply — that is a comment
+    # endpoint, deliberately open to everyone, not a permission.
+    if u.group in READ_ONLY_GROUPS:
+        return False
 
     if action == "headAck":
         if admin:
@@ -874,6 +888,295 @@ class NewTicket(BaseModel):
     payload: dict = {}
 
 
+# ------------------------------------------------------------------ Sales CRM sync
+SALESCRM_BASE = os.getenv("SALESCRM_BASE",
+                          "https://api.ninjavan.co/global/salescrm/api/v1").rstrip("/")
+SALESCRM_API_KEY = os.getenv("SALESCRM_API_KEY", "").strip()
+SALESCRM_RECORD_TYPE = os.getenv("SALESCRM_RECORD_TYPE", "Indonesia").strip()
+
+# Sales CRM product line -> our service line.
+PRODUCT_MAP = {
+    "LTL": "LTL",
+    "Restock": "B2BR",
+    "Parcel": "B2C",
+    "Last Mile - Parcel": "B2C",
+    "Fulfillment": "Fulfillment",
+    "Complex Logistics": "Complex Logistics",
+    "Complex Logs": "Complex Logistics",
+}
+# Deliberately not mapped. Cold chain and cross-border are out of scope for now.
+# Trucking is different: Sales CRM has one value covering both FTL lines and they route
+# differently, so guessing would put half of them on the wrong team. These are reported
+# as skipped with a reason rather than silently dropped.
+PRODUCT_SKIP = {
+    "Cold Chain": "cold chain is not in scope yet",
+    "Cold-chain": "cold chain is not in scope yet",
+    "Cross-border": "cross-border is not in scope yet",
+    "International": "cross-border is not in scope yet",
+    "Air-freight": "air freight is not a PNS service line",
+    "Trucking": "Sales CRM cannot say whether this is FTL on-call or FTL monthly",
+}
+
+# One sync at a time per process. Ten people pressing the button should produce one
+# sweep, not ten. The UNIQUE key on opportunity_id is what actually prevents duplicate
+# tickets — this only stops the wasted work.
+_sync_lock = asyncio.Lock()
+
+
+def _first(v):
+    """Sales CRM returns some fields as a list, some as a bare string, some as null."""
+    if isinstance(v, list):
+        return v[0] if v else None
+    return v
+
+
+def tier_from_csm(raw) -> str | None:
+    """Read Hypercare/Strategic out of Account.customer_success_manager.
+
+    The field is named for a person and is being used for three different things: the
+    account tier, legacy Salesforce identifiers from before the in-house migration, and
+    junk like '-'. Only the tier words count; a Salesforce id is not an unknown tier."""
+    s = str(raw or "").strip()
+    if not s or re.fullmatch(r"[0-9A-Za-z]{15,18}", s):
+        return None
+    if "Hypercare" in s:
+        return "Hypercare"
+    if "Strategic" in s:
+        return "Strategic"
+    return None
+
+
+class SalesCrm:
+    """Thin read-only client. Every call is a GET — this never writes to Sales CRM."""
+
+    def __init__(self, client):
+        self.c = client
+        self._accounts: dict[str, dict] = {}
+
+    async def records(self, obj: str, **params):
+        r = await self.c.get(f"{SALESCRM_BASE}/objects/{obj}/records", params=params)
+        if r.status_code == 401:
+            raise HTTPException(502, "Sales CRM rejected the API key — it may have expired "
+                                     "(keys last 30 days). Issue a new one and update "
+                                     "SALESCRM_API_KEY.")
+        r.raise_for_status()
+        return r.json()
+
+    async def account(self, aid) -> dict | None:
+        aid = str(aid or "")
+        if not aid:
+            return None
+        if aid not in self._accounts:
+            d = await self.records("Account", id=aid)
+            items = d.get("items") or []
+            self._accounts[aid] = items[0] if items else {}
+        return self._accounts[aid] or None
+
+    async def tier_for(self, account: dict | None, max_depth: int = 4) -> str:
+        """Walk up to the group to find the tier.
+
+        22 of the 25 tagged accounts in Sales CRM are parents, so the tier normally
+        lives on the group — but a child may carry its own, and that wins. The walk is
+        depth-limited and cycle-guarded because real data contains an account that is
+        its own parent, which would otherwise loop forever."""
+        seen: set[str] = set()
+        a = account
+        depth = max_depth
+        while a and depth > 0:
+            t = tier_from_csm(a.get("customer_success_manager"))
+            if t:
+                return t
+            pid = str(a.get("parent_account_id") or "")
+            if not pid or pid == str(a.get("id") or "") or pid in seen:
+                break          # missing, self-referencing or looping: treat as no parent
+            seen.add(pid)
+            a = await self.account(pid)
+            depth -= 1
+        return "Non-Strategic"
+
+
+class SyncIn(BaseModel):
+    pages: int = 3            # newest-first pages of 100 to scan
+    dry_run: bool = True      # report what would happen without writing anything
+
+
+@app.post("/api/sync/salescrm")
+async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
+    """Pull new Sales CRM opportunities and raise the matching solutioning tickets.
+
+    Sales CRM has no webhooks and its API cannot filter or sort by date, so this walks
+    the newest-first list and stops at the first opportunity already imported. Default
+    is a dry run: nothing is written until you ask for it."""
+    require(u, "syncSalesCrm")
+    if not SALESCRM_API_KEY:
+        raise HTTPException(503, "SALESCRM_API_KEY is not set on this deployment")
+    if _sync_lock.locked():
+        raise HTTPException(409, "a sync is already running — wait for it to finish")
+
+    import httpx
+    created, skipped, errors = [], [], []
+    scanned = 0
+
+    async with _sync_lock:
+        known = {str(r["opportunity_id"]) for r in
+                 await q("SELECT opportunity_id FROM tickets WHERE opportunity_id IS NOT NULL")}
+
+        async with httpx.AsyncClient(
+                timeout=45, headers={"X-API-Key": SALESCRM_API_KEY}) as client:
+            crm = SalesCrm(client)
+            stop = False
+            for page in range(1, max(1, min(body.pages, 20)) + 1):
+                if stop:
+                    break
+                # record_type_name is NOT a filterable field — passing it returns
+                # 400 INVALID_FILTER_FIELD and the sweep finds nothing. The API accepts
+                # exact matches on a small set of fields only, so the record type is
+                # filtered here instead.
+                data = await crm.records("Opportunity", page=page, page_size=100)
+                items = data.get("items") or []
+                if not items:
+                    break
+
+                for o in items:
+                    scanned += 1
+                    oid = str(o.get("id"))
+                    if SALESCRM_RECORD_TYPE and o.get("record_type_name") != SALESCRM_RECORD_TYPE:
+                        continue
+                    if oid in known:
+                        # Newest-first ordering means everything below this is older and
+                        # already imported. Stop rather than scanning 72,000 rows.
+                        stop = True
+                        break
+
+                    stage = o.get("stage")
+                    if stage in CLOSED_LOST_STAGES:
+                        skipped.append({"id": oid, "name": o.get("name"),
+                                        "why": f"Sales CRM stage is {stage}"})
+                        continue
+
+                    raw_product = _first(o.get("core_product")) or o.get("nv_product_line")
+                    service = PRODUCT_MAP.get(str(raw_product or "").strip())
+                    if not service:
+                        skipped.append({
+                            "id": oid, "name": o.get("name"),
+                            "why": PRODUCT_SKIP.get(str(raw_product or "").strip(),
+                                                    f"no service mapping for '{raw_product}'")})
+                        continue
+
+                    try:
+                        account = await crm.account(o.get("account_id"))
+                        acct_type = await crm.tier_for(account)
+                        revenue = int(float(o.get("total_potential_revenue_mth") or 0))
+                        shipper_name = (o.get("account_name")
+                                        or (account or {}).get("name") or "").strip()
+                        if not shipper_name:
+                            raise ValueError("opportunity has no account name")
+
+                        plan = {
+                            "opportunity_id": oid,
+                            "opportunity_name": o.get("name"),
+                            "shipper": shipper_name,
+                            "service": service,
+                            "revenue": revenue,
+                            "acct_type": acct_type,
+                            "stage": stage,
+                            "parent_stage": o.get("parent_stage"),
+                            "sales_name": o.get("owner_name"),
+                            "account_id": str(o.get("account_id") or ""),
+                            "parent_account_id": str((account or {}).get("parent_account_id") or ""),
+                        }
+                        r = route(acct_type, service, revenue)
+                        plan["routes_to"] = r["resp"]
+
+                        if not body.dry_run:
+                            plan["ref"] = await _import_opportunity(o, account, plan, r, u)
+                        created.append(plan)
+                        known.add(oid)
+                    except Exception as e:          # one bad row must not stop the sweep
+                        log.exception("sync failed for opportunity %s", oid)
+                        errors.append({"id": oid, "name": o.get("name"), "error": str(e)[:200]})
+
+                if not data.get("has_next"):
+                    break
+
+    if not body.dry_run:
+        await audit(u.email, "sync", "salescrm", None, "created", None, str(len(created)))
+    return {"dry_run": body.dry_run, "scanned": scanned,
+            "created": created, "skipped": skipped, "errors": errors,
+            "counts": {"created": len(created), "skipped": len(skipped),
+                       "errors": len(errors)}}
+
+
+async def _import_opportunity(o: dict, account: dict | None, plan: dict,
+                              r: dict, u: User) -> str:
+    """Write one opportunity in as a ticket. Returns the new ticket ref."""
+    sh = await q("SELECT id FROM shippers WHERE account_id=%s OR name=%s",
+                 (plan["account_id"], plan["shipper"]), one=True)
+    if sh:
+        shipper_id = sh["id"]
+        await execute("UPDATE shippers SET account_id=%s, parent_account_id=%s, "
+                      "account_name=%s, customer_success_manager=%s, acct_type=%s "
+                      "WHERE id=%s",
+                      (plan["account_id"] or None, plan["parent_account_id"] or None,
+                       plan["shipper"], (account or {}).get("customer_success_manager"),
+                       plan["acct_type"], shipper_id))
+    else:
+        shipper_id = await execute(
+            "INSERT INTO shippers (name, acct_type, region, account_id, parent_account_id, "
+            "account_name, customer_success_manager, global_shipper_id) "
+            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+            (plan["shipper"], plan["acct_type"], "GJ", plan["account_id"] or None,
+             plan["parent_account_id"] or None, plan["shipper"],
+             (account or {}).get("customer_success_manager"),
+             (account or {}).get("global_id")))
+
+    status = pending_for(r["resp"])
+    last = await q("SELECT MAX(id) AS n FROM tickets", one=True)
+    ref = f"SOF-{1300 + int((last or {}).get('n') or 0)}"
+
+    tid = await execute(
+        "INSERT INTO tickets (ticket_ref, opportunity_id, opportunity_name, stage, "
+        "parent_stage, shipper_id, service_type, potential_rev, status, resp, "
+        "needs_review, sales_email, sales_name, region, submitted_on) "
+        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+        (ref, plan["opportunity_id"], plan["opportunity_name"], plan["stage"],
+         plan["parent_stage"], shipper_id, plan["service"], plan["revenue"], status,
+         r["resp"], int(r["review"]), None, plan["sales_name"], "GJ", date.today()))
+
+    owner = await auto_assignee(plan["service"], tid) if r["resp"] == "PNS" else None
+    if owner:
+        await execute("UPDATE tickets SET owner_name=%s WHERE id=%s", (owner, tid))
+
+    # Sales still has to complete the intake in this app: Sales CRM carries none of the
+    # solutioning detail, and for FTL it cannot even say which line it is.
+    # A quarter of Sales CRM opportunities carry no potential revenue, and revenue
+    # decides both who prices the deal and which tier ceiling applies. Rather than let
+    # it route silently as zero, the ticket says so where whoever picks it up will read.
+    rev_note = ("\n\nNOTE: Sales CRM has no potential revenue on this opportunity, so it "
+                "has been routed at Rp 0. Set the real figure before pricing — it changes "
+                "both the routing and the pricing tier.") if not plan["revenue"] else ""
+    payload = {
+        "brief": (f"Imported from Sales CRM opportunity {plan['opportunity_id']}"
+                  f" — {plan['opportunity_name'] or ''}").strip() + rev_note,
+        "shipper": plan["shipper"],
+        "volume": str(o.get("expected_vol_mth") or o.get("total_potential_volume") or ""),
+        "dest": str(o.get("delivery_areas") or ""),
+        "pickSlot": str(o.get("pickup_timing") or ""),
+        "golive": str(o.get("expected_close_date") or ""),
+        "commodity": str((account or {}).get("industry") or ""),
+        "globalId": str((account or {}).get("global_id") or ""),
+        "sfid": str(o.get("salesforce_opportunity_id") or ""),
+    }
+    await execute("INSERT INTO ticket_input (ticket_id, payload, updated_by) VALUES (%s,%s,%s)",
+                  (tid, json.dumps({k: v for k, v in payload.items() if v}), u.email))
+    await execute("INSERT INTO ticket_history (ticket_id, status, actor, note) "
+                  "VALUES (%s,%s,%s,%s)",
+                  (tid, status, u.name, f"imported from Sales CRM ({plan['stage']})"))
+    await audit(u.email, "import", "ticket", ref, "opportunity_id", None,
+                plan["opportunity_id"])
+    return ref
+
+
 @app.get("/api/workload")
 async def workload(u: User = Depends(current_user)):
     """Who is carrying what, and how fast it clears.
@@ -984,6 +1287,12 @@ async def create_ticket(body: NewTicket, u: User = Depends(current_user)):
     owner = await auto_assignee(body.service, tid) if r["resp"] == "PNS" else None
     if owner:
         await execute("UPDATE tickets SET owner_name=%s WHERE id=%s", (owner, tid))
+    elif r["resp"] == "PNS":
+        # Everyone eligible is at the cap (or auto-assignment is off). Say so, rather
+        # than letting it look like the Head simply has not got to it yet.
+        await notify(f"{ref} — needs manual assignment: everyone eligible for "
+                     f"{body.service} is at the {PNS_WIP_CAP}-ticket cap",
+                     roles=["PNS - Head"], ticket_ref=ref)
 
     payload = dict(body.payload or {}); payload["brief"] = body.brief
     await execute("INSERT INTO ticket_input (ticket_id, payload, updated_by) VALUES (%s,%s,%s)",
