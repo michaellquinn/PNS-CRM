@@ -305,13 +305,17 @@ def head_for(t: dict) -> str:
 
 
 def may_go_to_psp(t: dict) -> bool:
-    """Whether this ticket is allowed to reach PSP at all.
+    """Whether a ticket may be *sent* to PSP by a person, as opposed to reaching it by rule.
 
-    PSP does not review every thin margin. It reviews the ones Alex (CSalesO) has granted
-    an exception for. Strategic and Hypercare accounts carry that exception by virtue of
-    being managed. Anything else needs the PNS Head to have recorded that Alex said so
-    verbatim in a meeting. Without this gate a below-bottom LTL deal at 8 Mio would land
-    in PSP's queue, which is not what PSP is for."""
+    Some paths are PSP's by rule and do not consult this: a manual-review band, and a
+    Sameday discount past 20%. This governs the discretionary routes instead, where
+    someone chooses to involve PSP: the optional escalation, and a below-bottom margin
+    the Sales Head has just acknowledged.
+
+    There, PSP takes only what Alex (CSalesO) has granted an exception for. Strategic and
+    Hypercare carry that exception by being managed; anything else needs the PNS Head to
+    have recorded that Alex granted it verbatim. Otherwise a below-bottom LTL deal at
+    8 Mio lands in PSP's queue, which is not what PSP is for."""
     return t.get("acct_type") in MANAGED_ACCTS or bool(t.get("psp_allowed"))
 
 
@@ -646,7 +650,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-08-10.19"
+BUILD = "2026-08-10.20"
 
 
 class Me(BaseModel):
@@ -1463,11 +1467,10 @@ async def submit_price(ref: str, body: PriceIn, u: User = Depends(current_user))
     # A margin floor is a bottom-rate question and the Sales Head owns it. Everything the
     # tier cannot authorise (a managed account, a band with no published ceiling, a
     # Sameday discount past 20%) is a PSP decision.
+    # These reach PSP on the rule itself, not on an exception: a manual-review band
+    # (a managed account, or either FTL line at or above 30 Mio) and a Sameday discount
+    # past 20%. A plain margin breach is different and belongs to the Sales Head.
     to_psp = g["kind"] == "manual" or (breach and g["kind"] in ("discount", "standard"))
-    # ...but only if this ticket is allowed into PSP's queue in the first place. A
-    # non-managed deal without Alex's exception stays with the Sales Head instead.
-    if to_psp and not may_go_to_psp(t):
-        to_psp, breach = False, True
 
     if to_psp:
         nxt, note = "Pending PSP Approval", g["why"]

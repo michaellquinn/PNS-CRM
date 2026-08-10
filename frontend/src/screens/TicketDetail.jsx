@@ -72,6 +72,7 @@ export default function TicketDetail({ ticketRef: initialRef, me, notify, onBack
   const [fCount, setFCount] = useState(0);
   const [photos, setPhotos] = useState([]);
   const [sending, setSending] = useState(false);
+  const [pspNote, setPspNote] = useState("");
   const opts = useOptions();
   const team = usePnsTeam();
   const psp = useDirectory().filter((x) => x.group === "PSP").map((x) => x.name);
@@ -256,6 +257,36 @@ export default function TicketDetail({ ticketRef: initialRef, me, notify, onBack
                 hint="Any PSP member can take any ticket — no head/staff split in PSP."
                 onSet={(v) => run(() => api.pspAssign(ref, v),
                   v ? `${ref} assigned to ${v}` : "PSP PIC cleared")} />
+            )}
+            {/* The one-off Alex grants in a meeting. Only the PNS Head sees this, and
+                only on a ticket that does not already carry the exception. */}
+            {p.allowPsp && t.acct_type !== "Strategic" && t.acct_type !== "Hypercare" && (
+              <div className="rounded-xl border border-slate-200 p-3">
+                <p className="mb-1 text-[12.5px] font-semibold">PSP exception</p>
+                <p className="mb-2 text-[11.5px] text-slate-500">
+                  {t.psp_allowed
+                    ? "Open to PSP. Recorded against this ticket."
+                    : "This ticket cannot go to PSP. Open it only if Alex granted it verbatim in a meeting."}
+                </p>
+                {!t.psp_allowed ? (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <input className={`${inputCls} max-w-[280px]`}
+                      placeholder="What Alex granted, and where (required)"
+                      value={pspNote} onChange={(e) => setPspNote(e.target.value)} />
+                    <Btn disabled={busy || !pspNote.trim()}
+                      onClick={() => run(() => api.allowPsp(ref, { allowed: true, note: pspNote }),
+                        `${ref} opened to PSP`)}>
+                      Open to PSP
+                    </Btn>
+                  </div>
+                ) : (
+                  <Btn disabled={busy}
+                    onClick={() => run(() => api.allowPsp(ref, { allowed: false }),
+                      `${ref} closed to PSP`)}>
+                    Withdraw
+                  </Btn>
+                )}
+              </div>
             )}
             {closed && p.reopen && (
               <Assigner label={`Reopen this ${t.status.toLowerCase()} deal`}

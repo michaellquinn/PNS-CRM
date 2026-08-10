@@ -26,22 +26,21 @@ const OWED = [
   ["Pending Head Review", "Head of the team that priced it", "Admin"],
 ];
 
-// PSP reviews deals carrying an exception from Alex, not every thin margin. Strategic
-// and Hypercare carry it by being managed; anything else needs the PNS Head to open it.
+// Some routes are PSP's by rule. The rest are discretionary, and there PSP only takes
+// what Alex has granted an exception for.
 const APPROVAL = [
   ["Inside the tier ceiling", "Nobody. Attach and go.", "—"],
-  ["Margin below the tier floor, ticket has no PSP exception",
-   "Sales Head. They are the sign-off, not a step on the way to PSP.",
+  ["Sameday discount over 20%", "PSP, by rule.", "Pending PSP Approval"],
+  ["Either FTL line at or above Rp 30 Mio", "PSP, by rule.", "Pending PSP Approval"],
+  ["Hypercare or Strategic account", "PSP, by rule. Manual review at every band.",
+   "Pending PSP Approval"],
+  ["Margin below the tier floor", "Sales Head. Sales owns the concession.",
    "Pending Head Review"],
-  ["Margin below the tier floor, Strategic or Hypercare",
-   "Sales Head acknowledges, then PSP signs off.",
-   "Pending Head Review → Pending PSP Approval"],
-  ["Sameday discount over 20%, or a standard-rate deviation",
-   "Sales Head, unless the ticket has a PSP exception.",
-   "Pending Head Review, or Pending PSP Approval"],
-  ["Hypercare / Strategic, or a manual-review band", "PSP", "Pending PSP Approval"],
+  ["Sales Head acknowledges a below-bottom price",
+   "Ends there, unless the ticket carries a PSP exception, in which case PSP signs off.",
+   "Proposal, or Pending PSP Approval"],
   ["Alex grants a one-off exception in a meeting",
-   "PNS Head records it against the ticket, which opens PSP for that ticket only.",
+   "PNS Head records it against that ticket, which opens PSP for that ticket only.",
    "Unlocks Pending PSP Approval"],
 ];
 

@@ -6,14 +6,15 @@ const ENTRIES = [
     title: "PSP entry gate",
     by: "Baskoro + Claude",
     changes: [
-      "PSP now only receives tickets that carry an exception from Alex (CSalesO). Strategic and Hypercare accounts carry it by being managed, so they reach PSP as before.",
-      "Any other ticket reaches PSP only if the PNS Head opens it, recording what Alex granted and where. The note is mandatory.",
+      "Three routes reach PSP on the rule itself: a Sameday discount over 20 percent, either FTL line at or above Rp 30 Mio, and any Hypercare or Strategic account.",
+      "The discretionary routes are gated instead. A below-bottom price the Sales Head has acknowledged, and the optional Escalate to PSP checkbox, only continue to PSP where Alex (CSalesO) has granted an exception.",
+      "Strategic and Hypercare carry that exception by being managed. Any other ticket needs the PNS Head to open it, recording what Alex granted and where. The note is mandatory.",
       "A below-bottom price on a ticket with no exception now ends with the Sales Head, who is the sign-off rather than a step on the way to PSP.",
-      "The Escalate to PSP checkbox is hidden on tickets that are not allowed into PSP's queue.",
     ],
     overruled: [
-      "Every below-bottom price was going to PSP after the Sales Head acknowledged it. That sent deals to PSP that carry no exception, which is not what PSP reviews. PSP is now gated on the exception, not on the margin.",
-      "The optional Escalate to PSP checkbox was open to anyone on any service. It is now subject to the same gate.",
+      "Every below-bottom price was going to PSP after the Sales Head acknowledged it. That sent deals to PSP that carry no exception, which is not what PSP reviews.",
+      "The gate was then applied too widely, which would have diverted Sameday over 20 percent and FTL at or above 30 Mio away from PSP. Those are PSP's by rule and were restored.",
+      "The optional Escalate to PSP checkbox was open to anyone on any service. It now follows the exception gate.",
     ],
   },
   {
