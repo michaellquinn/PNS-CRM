@@ -10,7 +10,7 @@ import Mine from "./screens/Mine";
 import Sync from "./screens/Sync";
 import { NewRequest, NewCapa } from "./screens/Forms";
 import {
-  AwaitingPrice, ToReview, HeadReview, PspApprovals, ExecSignoff,
+  AwaitingPrice, ToReview, HeadReview, PspPending, PspFinished, ExecSignoff,
   Proposals, ReadyToShip, RecycleBin, Meeting,
 } from "./screens/Queues";
 
@@ -34,8 +34,6 @@ const NAV = [
     // Named for the head who actually owes it — "Need review" told nobody whose it was.
     { id: "head", label: "Sales Head review", icon: "⚑", count: "Pending Head Review",
       when: (m) => m.permissions.headAck },
-    { id: "psp", label: "Price approvals", icon: "✓", count: "Pending PSP Approval",
-      when: (m) => m.permissions.pspDecide || m.permissions.pspOverride || m.permissions.sendToPsp },
     { id: "signoff", label: "Exec sign-off", icon: "★", count: "Pending Exec Sign-off",
       when: (m) => m.group === "PNS" || m.group === "Commercial" || m.group === "Admin" },
     { id: "proposals", label: "Proposal submitted", icon: "◫", count: "Proposal Submitted",
@@ -44,6 +42,11 @@ const NAV = [
     { id: "meeting", label: "Weekly meeting", icon: "☷", when: works },
     { id: "workload", label: "Workload", icon: "◴", when: (m) => m.permissions.assign },
     { id: "sync", label: "Sales CRM sync", icon: "⇄", when: (m) => m.permissions.syncSalesCrm },
+  ]],
+  ["PSP", [
+    { id: "psp-pending", label: "Pending", icon: "✓", count: "Pending PSP Approval",
+      when: works },
+    { id: "psp-finished", label: "Finished", icon: "◫", when: works },
   ]],
   ["CAPA", [
     { id: "capa-all", label: "All CAPA", icon: "▤", when: works },
@@ -195,8 +198,9 @@ export default function App() {
     awaiting: <AwaitingPrice me={me} notify={notify} onOpen={open} />,
     review: <ToReview me={me} notify={notify} onOpen={open} />,
     head: <HeadReview me={me} notify={notify} onOpen={open} />,
-    psp: <PspApprovals me={me} notify={notify} onOpen={open} />,
     signoff: <ExecSignoff me={me} notify={notify} onOpen={open} />,
+    "psp-pending": <PspPending me={me} notify={notify} onOpen={open} />,
+    "psp-finished": <PspFinished onOpen={open} />,
     proposals: <Proposals me={me} notify={notify} onOpen={open} />,
     ship: <ReadyToShip onOpen={open} />,
     meeting: <Meeting onOpen={open} />,

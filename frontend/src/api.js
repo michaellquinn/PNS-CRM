@@ -80,6 +80,9 @@ export const api = {
   workload: () => call("/workload"),
   syncSalesCrm: (body) =>
     call("/sync/salescrm", { method: "POST", body: JSON.stringify(body || {}) }),
+  pspAssign: (ref, assignee) =>
+    call(`/tickets/${ref}/psp-assign`, { method: "POST", body: JSON.stringify({ assignee }) }),
+  submitProposal: (ref) => call(`/tickets/${ref}/submit-proposal`, { method: "POST" }),
   remove: (ref) => call(`/tickets/${ref}`, { method: "DELETE" }),
   restore: (ref) => call(`/tickets/${ref}/restore`, { method: "POST" }),
   purge: (ref) => call(`/tickets/${ref}/purge`, { method: "DELETE" }),
@@ -162,3 +165,8 @@ export const LOSS_REASONS = [
 ];
 
 export const rp = (n) => "Rp " + Number(n || 0).toLocaleString("id-ID");
+
+// Mirrors backend BOTTOM_MARGIN. Only LTL and B2BR have a published floor today — this
+// is what decides whether the below-bottom checkbox even appears for a ticket's service;
+// the server rejects the flag for anything else regardless of what the UI shows.
+export const BOTTOM_MARGIN = { LTL: 5, B2BR: 10 };

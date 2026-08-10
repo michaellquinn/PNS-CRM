@@ -45,7 +45,8 @@
           { "name": "submitted_from", "in": "query", "schema": { "type": "string", "format": "date" } },
           { "name": "submitted_to", "in": "query", "schema": { "type": "string", "format": "date" } },
           { "name": "search", "in": "query", "description": "Matches shipper name or ticket ref", "schema": { "type": "string" } },
-          { "name": "awaiting", "in": "query", "description": "Restrict to the pricing queue", "schema": { "type": "boolean", "default": false } }
+          { "name": "awaiting", "in": "query", "description": "Restrict to the pricing queue", "schema": { "type": "boolean", "default": false } },
+          { "name": "psp_reviewed", "in": "query", "description": "Restrict to tickets PSP has decided on at least once, regardless of current status — feeds the PSP Finished queue", "schema": { "type": "boolean", "default": false } }
         ],
         "responses": {
           "200": {
@@ -77,7 +78,7 @@
     "/api/tickets/{ref}/price": {
       "post": {
         "summary": "Attach a price and advance the ticket to its next stage",
-        "description": "Only the side that owes the price may call this. Flagging below_bottom sends it to the head of whichever team priced it; otherwise it goes to PNS review when Sales priced a deal at or above 30 Mio, or straight to Proposal Submitted.",
+        "description": "Only the side that owes the price may call this. below_bottom is a manual flag, only accepted for services with a published floor (BOTTOM_MARGIN — 5% LTL, 10% B2BR; refused with 400 for anything else, including Sameday). Below-bottom routes to Pending Head Review, then always to Pending PSP Approval once the head acknowledges — PSP sign-off on margin is mandatory in that case. Otherwise ask_psp optionally sends it straight to Pending PSP Approval for a non-mandatory second opinion, available on any service. Failing both of those, it goes to PNS review when Sales priced a deal at or above 30 Mio, or straight to Proposal Submitted.",
         "operationId": "submitPrice",
         "parameters": [ { "$ref": "#/components/parameters/TicketRef" } ],
         "requestBody": {
@@ -97,7 +98,7 @@
     "/api/tickets/{ref}/status": {
       "post": {
         "summary": "Move a ticket to another status, accept it, or close it as lost",
-        "description": "Accepting or marking lost requires the acceptProposal permission (Commercial owns the shipper outcome). Sending back to a pending status requires a reason and reassigns who owes the re-quote; marking lost requires a loss_reason instead.",
+        "description": "Accepting or marking lost requires the acceptProposal permission (Commercial owns the shipper outcome). status=\"Pending PSP Approval\" is a forward for a margin check, not a send-back: it requires sendToPsp, no reason, and does not notify anyone as \"sent back to you\" — PSP as a group is notified instead. Every other status requires sendBackProposal and a reason, and reassigns who owes the re-quote.",
         "operationId": "changeStatus",
         "parameters": [ { "$ref": "#/components/parameters/TicketRef" } ],
         "requestBody": {
@@ -170,6 +171,42 @@
         "responses": {
           "200": {
             "description": "Reopened",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Ok" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/tickets/{ref}/psp-assign": {
+      "post": {
+        "summary": "Set or clear who in PSP is handling this ticket",
+        "description": "Requires pspAssign (any PSP member, or Admin). Flat by design — there is no PSP head/staff distinction, so any PSP member may assign a ticket to themselves or a teammate, on any ticket regardless of who else is assigned. Passing an empty or omitted assignee clears it. Notifies the new assignee unless they assigned it to themselves.",
+        "operationId": "pspAssign",
+        "parameters": [ { "$ref": "#/components/parameters/TicketRef" } ],
+        "requestBody": {
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PspAssignIn" } } }
+        },
+        "responses": {
+          "200": {
+            "description": "Assigned or cleared",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Ok" } } }
+          },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/tickets/{ref}/submit-proposal": {
+      "post": {
+        "summary": "Final submit after PSP clears a margin that needed no PNS review",
+        "description": "Requires the same ownership as attaching a price (whichever side owes it). Only valid when psp_ready is true on the ticket — otherwise 400. Does not re-enter the price; that already happened in POST .../price. Clears psp_ready and advances to Proposal Submitted.",
+        "operationId": "submitProposal",
+        "parameters": [ { "$ref": "#/components/parameters/TicketRef" } ],
+        "responses": {
+          "200": {
+            "description": "Submitted",
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Ok" } } }
           },
           "400": { "$ref": "#/components/responses/BadRequest" },
@@ -383,7 +420,7 @@
     "/api/tickets/{ref}/head-ack": {
       "post": {
         "summary": "Acknowledge a price flagged below the bottom rate",
-        "description": "Only the head of the team that priced it may acknowledge — Commercial Head for Sales-priced tickets, PNS Head for PNS-priced ones. Records an approval and advances the ticket.",
+        "description": "Only the head of the team that priced it may acknowledge — Commercial Head for Sales-priced tickets, PNS Head for PNS-priced ones. This is visibility, not the margin sign-off: it always advances to Pending PSP Approval, which is now mandatory for every below-bottom price. Records an approval.",
         "operationId": "headAck",
         "parameters": [ { "$ref": "#/components/parameters/TicketRef" } ],
         "responses": {
@@ -399,7 +436,7 @@
     "/api/tickets/{ref}/psp": {
       "post": {
         "summary": "Approve or reject a margin as the pricing desk",
-        "description": "PSP (or Admin) only. Approving advances to Proposal Submitted; rejecting requires a note and returns the ticket to whichever side submitted it.",
+        "description": "PSP (or Admin) only — any PSP member, no head/staff distinction. A ticket can arrive here three ways: mandatory after a below-bottom head acknowledgement, an optional early send from Awaiting price (ask_psp), or an optional send from mid-review. On approve: if the ticket was already Pending PNS Review, it goes straight to Proposal Submitted (that review is done); if it still needs PNS review, it goes to Pending PNS Review rather than skip that; otherwise it goes back to Pending PNS or Pending Sales (whoever priced it) with psp_ready set, for an explicit final submit via /submit-proposal — approval is not the same as the proposal being ready. Rejecting requires a note and returns the ticket to whichever side owes the price, to re-quote.",
         "operationId": "pspDecide",
         "parameters": [ { "$ref": "#/components/parameters/TicketRef" } ],
         "requestBody": {
@@ -1061,7 +1098,10 @@
           "margin": { "type": "number", "nullable": true, "description": "Percent. Omitted entirely for callers without the seeMargin permission." },
           "price_file": { "type": "string", "nullable": true, "description": "Human label for the attached price" },
           "price_url": { "type": "string", "nullable": true, "description": "http(s) link to the pricing spreadsheet; access is governed by the sheet itself, not by this app" },
-          "open_questions": { "type": "integer", "description": "Unanswered questions on this ticket's discussion thread" }
+          "open_questions": { "type": "integer", "description": "Unanswered questions on this ticket's discussion thread" },
+          "psp_assignee": { "type": "string", "nullable": true, "description": "Which PSP member is handling this. Flat — any PSP member may set this on any ticket, there is no head/staff distinction." },
+          "psp_ready": { "type": "boolean", "description": "PSP approved a margin that did not also need PNS review, so it is back with whoever priced it for an explicit final submit rather than a re-price." },
+          "psp_decision": { "type": "string", "nullable": true, "enum": ["approved", "rejected"], "description": "PSP's most recent decision on this ticket, if any — independent of psp_ready and of the ticket's current status" }
         }
       },
       "TicketList": {
@@ -1139,8 +1179,9 @@
           "price_file": { "type": "string", "description": "Human label shown next to the link, e.g. \"Rate card v2\". Required; the UI substitutes \"Pricing spreadsheet\" when only a link is given." },
           "price_url": { "type": "string", "nullable": true, "description": "Link to the pricing spreadsheet. Must be http(s) — any other scheme is refused with 400, because the value is rendered as an anchor other users click. Max 1000 characters." },
           "price_size": { "type": "integer", "nullable": true },
-          "margin_pct": { "type": "number", "nullable": true },
-          "below_bottom": { "type": "boolean", "default": false, "description": "Routes to the pricing team's head for acknowledgement" }
+          "margin_pct": { "type": "number", "nullable": true, "description": "Percent. Not collected by the Awaiting Price form; accepted for any caller with an existing integration, but does not affect routing." },
+          "below_bottom": { "type": "boolean", "default": false, "description": "Manual flag. Only accepted when the ticket's service has a published bottom margin (LTL, B2BR) — 400 otherwise. Routes to the pricing team's head for acknowledgement, then mandatorily to PSP." },
+          "ask_psp": { "type": "boolean", "default": false, "description": "Optional — send straight to Pending PSP Approval for a non-mandatory second opinion on margin. Ignored if below_bottom already applies." }
         }
       },
       "StatusIn": {
@@ -1193,6 +1234,12 @@
           "shippers": { "type": "array", "items": { "type": "string" } },
           "loss_reasons": { "type": "array", "items": { "type": "string" } },
           "pending_statuses": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "PspAssignIn": {
+        "type": "object",
+        "properties": {
+          "assignee": { "type": "string", "nullable": true, "description": "Display name of a PSP member; empty or omitted clears the assignment" }
         }
       },
       "PspIn": {
