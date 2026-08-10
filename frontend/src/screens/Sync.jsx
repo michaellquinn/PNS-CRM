@@ -23,7 +23,8 @@ function Table({ head, rows, render, empty }) {
 }
 
 export default function Sync({ notify }) {
-  const [pages, setPages] = useState(20);
+  const [days, setDays] = useState(7);
+  const [pages, setPages] = useState(0);
   const [busy, setBusy] = useState(false);
   const [res, setRes] = useState(null);
 
@@ -33,7 +34,8 @@ export default function Sync({ notify }) {
       `This writes to Solutions CRM. Sales CRM is never written to.`)) return;
     setBusy(true);
     try {
-      const d = await api.syncSalesCrm({ pages: Number(pages) || 20, dry_run: dry });
+      const d = await api.syncSalesCrm({
+        days: Number(days) || 7, pages: Number(pages) || 0, dry_run: dry });
       setRes(d);
       notify(dry
         ? `Dry run: ${d.counts.created} would be created, ${d.counts.skipped} skipped`
@@ -57,20 +59,39 @@ export default function Sync({ notify }) {
             Import for real
           </Btn>
           <label className="ml-auto flex items-center gap-2 text-[12px] text-slate-500">
-            Stop after
-            <input className={`${inputCls} w-20`} type="number" min="1" max="40"
-              value={pages} onChange={(e) => setPages(e.target.value)} />
-            pages
+            Last
+            <input className={`${inputCls} w-16`} type="number" min="1" max="60"
+              value={days} onChange={(e) => setDays(e.target.value)} />
+            days
           </label>
           <p className="w-full text-[11.5px] text-slate-400">
-            The sweep sizes itself: it reads from the newest opportunity and stops once it
-            reaches ones already imported, so a routine run reads a single page. The page
-            cap only bites on a first import or after a long gap. Run a dry run first;
-            &ldquo;Import for real&rdquo; stays disabled until you have. Only you can run
-            this sync, because the Sales CRM key is issued per person and reads with that
-            person&apos;s permissions.
+            Asks Sales CRM for the days that could hold something new, and separately
+            re-reads the opportunities behind tickets you already have, so their stage
+            and revenue stay current. It never reads the whole book: 72,000 opportunities
+            is 726 pages and no single request survives that. Run a dry run first;
+            &ldquo;Import for real&rdquo; stays disabled until you have.
           </p>
         </div>
+
+        <details className="border-t border-slate-100 px-4 py-3">
+          <summary className="cursor-pointer text-[12px] font-medium text-slate-600">
+            Backfill older opportunities
+          </summary>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <label className="flex items-center gap-2 text-[12px] text-slate-500">
+              Also read
+              <input className={`${inputCls} w-16`} type="number" min="0" max="40"
+                value={pages} onChange={(e) => setPages(e.target.value)} />
+              pages from the newest
+            </label>
+            <p className="w-full text-[11.5px] text-slate-400">
+              Only for a first import. Each page is 100 opportunities and costs a few
+              seconds, so a run stops when it runs out of time and tells you. Repeat until
+              you have gone back as far as you want. Nothing is duplicated: an opportunity
+              already imported is recognised and refreshed rather than created again.
+            </p>
+          </div>
+        </details>
       </Card>
 
       {res && (

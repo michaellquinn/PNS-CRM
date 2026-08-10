@@ -20,7 +20,7 @@ import re
 import os
 import time
 from contextlib import asynccontextmanager
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from email.message import EmailMessage
 from urllib.parse import unquote, urlparse
 
@@ -675,7 +675,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-08-10.24"
+BUILD = "2026-08-10.25"
 
 
 class Me(BaseModel):
@@ -987,6 +987,9 @@ SYNC_BUDGET_S = int(os.getenv("SYNC_BUDGET_S", "20") or 20)
 # Concurrent Sales CRM reads. At 16 a page of accounts resolves in about 5s instead of
 # 73s sequentially, which is the difference between finishing and being cut off.
 SYNC_CONCURRENCY = int(os.getenv("SYNC_CONCURRENCY", "16") or 16)
+# Ceiling on how many existing tickets get re-read in one run. Fine while PNS holds
+# hundreds; revisit if it ever holds thousands.
+SYNC_REFRESH_MAX = int(os.getenv("SYNC_REFRESH_MAX", "400") or 400)
 
 # Sales CRM product line -> our service line.
 PRODUCT_MAP = {
@@ -1121,23 +1124,32 @@ class SalesCrm:
 
 
 class SyncIn(BaseModel):
-    """`pages` is a safety cap, not the thing you tune.
+    """Three modes, because "sync everything" is not one job.
 
-    The sweep stops on its own once it reaches opportunities it already holds, so a
-    routine run reads one page and finishes. The cap only matters on a first import, or
-    after a long gap, where there is genuinely a lot to catch up on."""
-    pages: int = 20
-    dry_run: bool = True      # report what would happen without writing anything
-    refresh_existing: bool = True
+    `days`      look for opportunities raised in the last N days. This is the routine
+                run. `new_date` is an exact-match filter Sales CRM does support, and it
+                is populated on every opportunity, so a day costs one small query instead
+                of paging 72,000 records.
+    `refresh`   re-read the opportunities behind tickets we already hold, by id. Bounded
+                by how many tickets exist, not by the size of Sales CRM.
+    `pages`     backfill by paging from the newest. Only for a first import; leave at 0.
+    """
+    days: int = 7
+    refresh: bool = True
+    pages: int = 0
+    dry_run: bool = True
 
 
 @app.post("/api/sync/salescrm")
 async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
     """Pull new Sales CRM opportunities and raise the matching solutioning tickets.
 
-    Sales CRM has no webhooks and its API cannot filter or sort by date, so this walks
-    the newest-first list and stops at the first opportunity already imported. Default
-    is a dry run: nothing is written until you ask for it."""
+    Sales CRM has no webhooks, so this polls. It does not read the whole book: 72,000
+    opportunities is 726 pages and no HTTP request survives that. Instead it asks for
+    the days that could contain something new, and separately re-reads the handful of
+    opportunities behind tickets we already hold.
+
+    Default is a dry run: nothing is written until you ask for it."""
     require(u, "syncSalesCrm")
     if not SALESCRM_API_KEY:
         raise HTTPException(503, "SALESCRM_API_KEY is not set on this deployment")
@@ -1162,19 +1174,44 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
         async with httpx.AsyncClient(
                 timeout=12, headers={"X-API-Key": SALESCRM_API_KEY}) as client:
             crm = SalesCrm(client)
-            # The sweep sizes itself. Sales CRM returns newest first and cannot filter by
-            # date, so the way to find what is new is to read from the top until reaching
-            # opportunities already held. A whole page with nothing new means we have
-            # caught up; there is no point reading page 12 of 726 to reach 2023.
-            # `pages` is only the ceiling for a first import or a long gap.
             caught_up = False
-            for page in range(1, max(1, min(body.pages, 40)) + 1):
+            batches: list[tuple[str, list[dict]]] = []
+
+            # 1. Recent days. new_date is a plain date, it is populated on every
+            #    opportunity, and exact match on it is one of the few filters this API
+            #    accepts. A day is five or six opportunities, against a hundred a page.
+            today = date.today()
+            for back in range(max(0, min(body.days, 60))):
                 if time.monotonic() > deadline:
                     truncated = True
                     break
-                if caught_up:
+                day = str(today - timedelta(days=back))
+                d = await crm.records("Opportunity", new_date=day, page_size=100)
+                batches.append(("day " + day, d.get("items") or []))
+
+            # 2. Opportunities behind tickets we already hold, read directly by id so
+            #    their stage and revenue stay current. Bounded by our own ticket count.
+            if body.refresh and not truncated and known:
+                ids = sorted(known)[:SYNC_REFRESH_MAX]
+                sem = asyncio.Semaphore(SYNC_CONCURRENCY)
+
+                async def one(oid: str):
+                    async with sem:
+                        try:
+                            d = await crm.records("Opportunity", id=oid)
+                            items = d.get("items") or []
+                            return items[0] if items else None
+                        except Exception:
+                            return None
+
+                got = await asyncio.gather(*(one(i) for i in ids))
+                batches.append(("existing tickets", [g for g in got if g]))
+
+            # 3. Backfill, only when explicitly asked for. This is the expensive path.
+            for page in range(1, max(0, min(body.pages, 40)) + 1):
+                if time.monotonic() > deadline:
+                    truncated = True
                     break
-                new_on_this_page = 0
                 # record_type_name is NOT a filterable field, passing it returns
                 # 400 INVALID_FILTER_FIELD and the sweep finds nothing. The API accepts
                 # exact matches on a small set of fields only, so the record type is
@@ -1183,11 +1220,20 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
                 items = data.get("items") or []
                 if not items:
                     break
+                batches.append(("page %d" % page, items))
+                if not data.get("has_next"):
+                    break
+
+            for label, items in batches:
+                if time.monotonic() > deadline:
+                    truncated = True
+                    break
+                new_on_this_page = 0
 
                 # Only opportunities that will actually be created need an account: the
                 # tier comes from it. Already-imported ones are refreshed from fields the
-                # page already carries, and skipped ones are not looked at again. On a
-                # re-run most of a page is already held, so this is the difference
+                # record already carries, and skipped ones are never looked at again. On
+                # a re-run most of a batch is already held, so this is the difference
                 # between a slow sweep and an instant one.
                 fresh = [o for o in items
                          if str(o.get("id")) not in known
@@ -1214,7 +1260,7 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
                         # Already imported, so refresh the fields Sales CRM owns rather
                         # than skipping it. Stage, committed revenue and the close date
                         # are theirs, ours are only ever a copy, so theirs wins.
-                        if body.refresh_existing:
+                        if body.refresh and not any(x["id"] == oid for x in refreshed):
                             if not body.dry_run:
                                 n = await _refresh_from_salescrm(o)
                                 if n:
@@ -1275,12 +1321,12 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
                         log.exception("sync failed for opportunity %s", oid)
                         errors.append({"id": oid, "name": o.get("name"), "error": str(e)[:200]})
 
-                # A full page with nothing new means everything below it is older and
-                # already held. Stop rather than reading toward 2023.
-                if new_on_this_page == 0 and page > 1:
-                    caught_up = True
-                if not data.get("has_next"):
-                    break
+                if new_on_this_page:
+                    log.info("sync: %d new in %s", new_on_this_page, label)
+
+            # Nothing new across every day asked for means we are current. Said out loud
+            # because "0 created" otherwise reads as a failure rather than as caught up.
+            caught_up = not truncated and not created
 
     if not body.dry_run:
         await audit(u.email, "sync", "salescrm", None, "created", None, str(len(created)))
