@@ -18,6 +18,10 @@ const SECTIONS = [
     ["volume", "Shipment volume"], ["pickSlot", "Pickup time"], ["pickWait", "Pickup waiting time"],
     ["delSlot", "Delivery time"], ["delWait", "Delivery waiting time"],
     ["sfid", "Salesforce Opportunity ID"], ["globalId", "Global ID"], ["jiraId", "Jira ID"],
+    // Ops cannot onboard a shipper they cannot find in the account systems, so these
+    // three travel with the go-live date rather than being chased afterwards.
+    ["parentShipperId", "Parent shipper ID"], ["shipperId", "Shipper ID"],
+    ["branchId", "Corporate branch ID"],
   ]],
   ["2 · Cargo knowledge", [
     ["commodity", "Product"], ["product", "Specific product"],

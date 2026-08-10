@@ -122,6 +122,9 @@ export const api = {
   addComment: (ref, body) =>
     call(`/tickets/${encodeURIComponent(ref)}/comments`, { method: "POST", body: JSON.stringify(body) }),
   resolveComment: (id) => call(`/comments/${id}/resolve`, { method: "POST" }),
+  recapComments: (ref, body) =>
+    call(`/tickets/${encodeURIComponent(ref)}/comments/recap`,
+      { method: "POST", body: JSON.stringify(body || {}) }),
 
   users: () => call("/users"),
   directory: () => call("/users/directory"),

@@ -324,7 +324,9 @@ class User(BaseModel):
 # so they get no mutating permission at all — see can() below.
 ROLE_GROUPS = ["Commercial", "PNS", "PSP", "Legal", "Finance", "Sales Planning",
                "CSO", "QC", "Visitor", "Admin"]
-READ_ONLY_GROUPS = ("Legal", "Finance", "Sales Planning", "Visitor")
+# Legal, Finance and Visitor look and never touch. Sales Planning is different: they
+# correct what Sales submitted, so they get the intake edit and nothing else.
+READ_ONLY_GROUPS = ("Legal", "Finance", "Visitor")
 ROLE_LEVELS = ["staff", "head"]
 TEAMS = ["Team1", "Team2"]
 
@@ -380,7 +382,10 @@ def can(u: User, action: str, t: dict | None = None) -> bool:
         "assign":           pns_head,
         "assignReviewer":   pns_head,
         "markReviewed":     u.group == "PNS" or admin,
-        "editInput":        u.group == "Commercial" or admin,
+        # Sales Planning corrects submissions on Sales' behalf — the one thing they may
+        # change. Account type and revenue stay behind editAcctOrRev, so they cannot
+        # re-route a ticket by editing it.
+        "editInput":        u.group in ("Commercial", "Sales Planning") or admin,
         "editAcctOrRev":    com_head,
         "setAcct":          com_head,
         "setSales":         com_head,
@@ -1166,6 +1171,11 @@ async def _import_opportunity(o: dict, account: dict | None, plan: dict,
         "commodity": str((account or {}).get("industry") or ""),
         "globalId": str((account or {}).get("global_id") or ""),
         "sfid": str(o.get("salesforce_opportunity_id") or ""),
+        # The tracking sheet reports on committed revenue as well as potential, and they
+        # are different numbers — potential is what routing uses, committed is what Sales
+        # has actually promised. Carry both so the sheet's view can be reproduced.
+        "committedRev": str(o.get("committed_revenue_mth") or ""),
+        "sfCloseDate": str(o.get("closed_won_date") or o.get("close_date") or ""),
     }
     await execute("INSERT INTO ticket_input (ticket_id, payload, updated_by) VALUES (%s,%s,%s)",
                   (tid, json.dumps({k: v for k, v in payload.items() if v}), u.email))
@@ -1640,6 +1650,10 @@ CHARTER_SECTIONS = [
         ("pickSlot", "Pickup time"), ("pickWait", "Pickup waiting time"),
         ("delSlot", "Delivery time"), ("delWait", "Delivery waiting time"),
         ("sfid", "Salesforce Opportunity ID"), ("globalId", "Global ID"), ("jiraId", "Jira ID"),
+        # Ops cannot onboard a shipper they cannot find in the account systems, so these
+        # three travel with the go-live date rather than being chased afterwards.
+        ("parentShipperId", "Parent shipper ID"), ("shipperId", "Shipper ID"),
+        ("branchId", "Corporate branch ID"),
     ]),
     ("2 · Cargo knowledge", [
         ("commodity", "Product"), ("product", "Specific product"), ("dim", "Dimension"),
@@ -1653,6 +1667,10 @@ CHARTER_SECTIONS = [
     ]),
 ]
 CHARTER_HOURS = ("pickWait", "delWait")
+
+# key -> human label, so a field comment can name the field it is about without the
+# frontend having to send the label along with it.
+CHARTER_FIELD_LABELS = {k: label for _, fields in CHARTER_SECTIONS for k, label in fields}
 
 _CS = {
     "table": "border-collapse:collapse;width:100%;max-width:760px;font-family:Arial,Helvetica,"
@@ -2527,6 +2545,7 @@ class Comment(BaseModel):
     author_email: str
     group: str
     body: str
+    field_key: str | None = None     # None = the ticket thread; otherwise an intake field
     is_question: bool
     mentions: list[str]
     resolved_by: str | None
@@ -2544,12 +2563,14 @@ class NewComment(BaseModel):
     body: str
     is_question: bool = False
     mentions: list[str] = []      # emails; @name@domain in the body is picked up too
+    field_key: str | None = None  # an intake field key, or None for the ticket thread
 
 
 def shape_comment(r: dict, u: User) -> Comment:
     return Comment(
         id=r["id"], author=r["author_name"], author_email=r["author_email"],
-        group=r["author_group"], body=r["body"], is_question=bool(r["is_question"]),
+        group=r["author_group"], body=r["body"], field_key=r.get("field_key"),
+        is_question=bool(r["is_question"]),
         mentions=[m for m in (r["mentions"] or "").split(",") if m],
         resolved_by=r["resolved_by"],
         resolved_at=str(r["resolved_at"]) if r["resolved_at"] else None,
@@ -2585,10 +2606,14 @@ async def add_comment(ref: str, body: NewComment, u: User = Depends(current_user
         tagged = await q(f"SELECT email, name FROM users WHERE active=1 "
                          f"AND LOWER(email) IN ({marks})", tuple(wanted))
 
+    field = (body.field_key or "").strip() or None
+    if field and field not in CHARTER_FIELD_LABELS:
+        raise HTTPException(400, f"'{field}' is not an intake field")
+
     cid = await execute(
-        "INSERT INTO ticket_comments (ticket_id, author_email, author_name, author_group, "
-        "body, is_question, mentions) VALUES (%s,%s,%s,%s,%s,%s,%s)",
-        (t["id"], u.email, u.name, u.group, text, int(body.is_question),
+        "INSERT INTO ticket_comments (ticket_id, field_key, author_email, author_name, "
+        "author_group, body, is_question, mentions) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+        (t["id"], field, u.email, u.name, u.group, text, int(body.is_question),
          ",".join(r["email"] for r in tagged) or None))
 
     # Whoever was tagged, plus the two people accountable for the ticket. A question
@@ -2609,6 +2634,59 @@ async def add_comment(ref: str, body: NewComment, u: User = Depends(current_user
     if unknown:
         parts.append("not registered, nobody notified: " + ", ".join(unknown))
     return {"ok": True, "ref": ref, "status": " · ".join(parts) or None}
+
+
+class RecapIn(BaseModel):
+    open_only: bool = True        # unanswered field questions only, or every field note
+    intro: str | None = None
+
+
+@app.post("/api/tickets/{ref}/comments/recap", status_code=201, response_model=Ok)
+async def recap_field_comments(ref: str, body: RecapIn, u: User = Depends(current_user)):
+    """Collect the per-field notes into one comment on the ticket thread.
+
+    Field comments are for working: they sit beside the field being questioned. But
+    Sales reads the thread, not the form, so at some point the scattered notes have to
+    become one message. This writes that message as a normal comment — it is not a new
+    kind of object, so mentions, notifications and the unanswered count all keep working.
+
+    The recap is a snapshot, not a live view. It says what was open when it was sent,
+    which is what makes it quotable in an email or a call."""
+    t = await get_ticket(ref)
+    sql = ("SELECT * FROM ticket_comments WHERE ticket_id=%s AND field_key IS NOT NULL"
+           + (" AND is_question=1 AND resolved_at IS NULL" if body.open_only else "")
+           + " ORDER BY created_at, id")
+    rows = await q(sql, (t["id"],))
+    if not rows:
+        raise HTTPException(400, "there are no open field comments to recap"
+                                 if body.open_only else "there are no field comments yet")
+
+    # Group by field, in the charter's own order, so the recap reads like the form.
+    order = list(CHARTER_FIELD_LABELS)
+    by_field: dict[str, list[dict]] = {}
+    for r in rows:
+        by_field.setdefault(r["field_key"], []).append(r)
+
+    lines = [body.intro.strip() if body.intro else
+             ("Open questions on the intake, by field:" if body.open_only
+              else "Notes on the intake, by field:")]
+    for key in sorted(by_field, key=lambda k: order.index(k) if k in order else 999):
+        lines.append(f"\n**{CHARTER_FIELD_LABELS.get(key, key)}**")
+        for r in by_field[key]:
+            mark = "?" if r["is_question"] and not r["resolved_at"] else "-"
+            lines.append(f"  {mark} {r['author_name']}: {r['body'].strip()}")
+    text = "\n".join(lines)[:4000]
+
+    cid = await execute(
+        "INSERT INTO ticket_comments (ticket_id, field_key, author_email, author_name, "
+        "author_group, body, is_question) VALUES (%s,NULL,%s,%s,%s,%s,0)",
+        (t["id"], u.email, u.name, u.group, text))
+    await tell_owed(t, t["status"], u.name,
+                    f"{ref} — {t['shipper']}: {u.name} sent a recap of "
+                    f"{len(rows)} field note{'' if len(rows) == 1 else 's'}",
+                    f"Intake questions — {t['shipper']}", ref)
+    await audit(u.email, "recap", "ticket", ref, "comments", None, str(len(rows)))
+    return {"ok": True, "ref": ref, "status": t["status"], "id": cid}
 
 
 @app.post("/api/comments/{cid}/resolve", response_model=Ok)
