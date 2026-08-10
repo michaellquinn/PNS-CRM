@@ -87,6 +87,11 @@ VENDOR_SERVICES = ("FTL on-call", "FTL monthly")
 # solutioned by PNS and priced under manual review. Everything else is Non-Strategic.
 ACCT_TYPES = ["Hypercare", "Strategic", "Non-Strategic"]
 MANAGED_ACCTS = ("Hypercare", "Strategic")
+
+# Sales CRM API keys are issued per person and inherit that person's permissions, so a
+# sync run reads whatever its trigger can see. Until Ninja issues a service account, one
+# named owner runs it. Override per environment rather than editing this default.
+SYNC_OWNER_EMAIL = os.getenv("SYNC_OWNER_EMAIL", "baskoro.nugroho@ninjavan.co").lower()
 LOSS_REASONS = ["pricing", "shipper", "solution", "ops", "no_vendor", "billing", "pns"]
 AWAIT_STATUSES = ("Pending Sales", "Pending PNS", "Pending Vendor")
 PENDING_STATUSES = ["Pending Sales", "Pending PNS", "Pending PNS Review",
@@ -118,31 +123,63 @@ SERVICE_SPECIALIST = {
     "Complex Logistics": "adila.kestibawani@ninjavan.co",
     "Sameday":           "annisa.sophieamalia@ninjavan.co",
 }
-PNS_GENERALISTS = ["m.ramdhani@ninjavan.co",
-                   "michael.quinnfarand@ninjavan.co",
-                   "niko.yannova@ninjavan.co"]
+# Everything without a specialist goes to this pair by default, whichever of them is
+# carrying less. Michael takes the overflow only once both are at the cap, so he stays
+# free for whatever the pair cannot absorb rather than taking a third of everything.
+PNS_DEFAULT_PAIR = ["m.ramdhani@ninjavan.co", "niko.yannova@ninjavan.co"]
+PNS_OVERFLOW = "michael.quinnfarand@ninjavan.co"
+PNS_WIP_CAP = 10          # tickets one person may hold at Pending PNS before overflow
+
+
+async def pending_pns_load(names: list[str]) -> dict[str, int]:
+    """How many tickets each named person is holding at Pending PNS right now."""
+    if not names:
+        return {}
+    ph = ",".join(["%s"] * len(names))
+    rows = await q(f"SELECT owner_name, COUNT(*) AS n FROM tickets "
+                   f"WHERE owner_name IN ({ph}) AND status='Pending PNS' "
+                   f"AND deleted_at IS NULL GROUP BY owner_name", tuple(names))
+    load = {n: 0 for n in names}
+    for r in rows:
+        load[r["owner_name"]] = int(r["n"])
+    return load
 
 
 async def auto_assignee(service: str, seed: int) -> str | None:
     """The PNS member who should own a new ticket, or None to leave it for the head.
 
-    Rotation is by ticket id rather than by counting open tickets: it is deterministic,
-    so a retried request cannot hand the same ticket to two people, and it needs no
-    lock. Anyone not registered or not active is skipped — assigning work to someone
-    who cannot open the app is worse than leaving it unassigned, because it looks done."""
+    A specialist takes their own line outright. Everything else goes to the lighter of
+    the default pair, and only spills to the overflow owner once both are at the cap —
+    so work is levelled rather than sprayed round-robin at whoever is next in line.
+
+    Anyone not registered or not active is skipped. Assigning work to someone who cannot
+    open the app is worse than leaving it unassigned, because it looks handled."""
     email = SERVICE_SPECIALIST.get(service)
     if email:
         row = await q("SELECT name FROM users WHERE email=%s AND active=1", (email,), one=True)
         if row:
             return row["name"]
-        # Specialist is away or unregistered — fall through to the pool rather than
-        # stranding the ticket on a name nobody is watching.
-    ph = ",".join(["%s"] * len(PNS_GENERALISTS))
-    pool = await q(f"SELECT name FROM users WHERE email IN ({ph}) AND active=1 ORDER BY email",
-                   tuple(PNS_GENERALISTS))
-    if not pool:
-        return None
-    return pool[seed % len(pool)]["name"]
+        # Specialist away or unregistered — fall through rather than stranding the
+        # ticket on a name nobody is watching.
+
+    ph = ",".join(["%s"] * len(PNS_DEFAULT_PAIR))
+    pair = await q(f"SELECT name FROM users WHERE email IN ({ph}) AND active=1 ORDER BY email",
+                   tuple(PNS_DEFAULT_PAIR))
+    names = [r["name"] for r in pair]
+    if names:
+        load = await pending_pns_load(names)
+        # Ties break on name so the choice is stable for a retried request.
+        lightest = min(names, key=lambda n: (load[n], n))
+        if load[lightest] < PNS_WIP_CAP:
+            return lightest
+
+    over = await q("SELECT name FROM users WHERE email=%s AND active=1",
+                   (PNS_OVERFLOW,), one=True)
+    if over:
+        return over["name"]
+    # Both the pair and the overflow owner are unavailable: leave it for the head to
+    # place by hand rather than pushing it onto someone already over the cap.
+    return names[0] if names else None
 
 
 def tier_of(rev: int) -> str:
@@ -331,6 +368,11 @@ def can(u: User, action: str, t: dict | None = None) -> bool:
         # agreed. Granting the Admin group itself is narrower — see grant_admin.
         "manageUsers":      pns_head,     # pns_head already includes Admin
         "grantAdmin":       admin,
+        # Pulling from Sales CRM runs under a personal API key, so whoever triggers it
+        # reads with that person's Sales CRM permissions. Until a service account exists
+        # it stays with one named owner — otherwise the same sync returns different
+        # results depending on who pressed the button.
+        "syncSalesCrm":     u.email.lower() == SYNC_OWNER_EMAIL or admin,
     }.get(action, False)
 
 
@@ -723,6 +765,7 @@ async def list_tickets(
     submitted_to: str | None = None,
     search: str | None = None,
     awaiting: bool = False,
+    mine: bool = False,
 ):
     sql = ("SELECT t.*, s.name AS shipper, s.acct_type, p.margin_pct, p.price_file, p.price_url, "
            "(SELECT COUNT(*) FROM ticket_comments c WHERE c.ticket_id=t.id "
@@ -743,6 +786,15 @@ async def list_tickets(
     # they just cannot browse the pipeline.
     if u.group == "Legal":
         sql += " AND t.status=%s"; args.append("Proposal Accepted / Ready to Ship")
+
+    # "Mine" means the tickets this person is answerable for, which differs by role:
+    # a salesperson owns what they raised, a PNS member owns what they were assigned.
+    # Matching on email rather than name — names get re-typed, addresses do not.
+    if mine:
+        if u.group == "PNS":
+            sql += " AND t.owner_name=%s"; args.append(u.name)
+        else:
+            sql += " AND t.sales_email=%s"; args.append(u.email)
 
     if awaiting:
         sql += " AND t.status IN (%s,%s,%s)"; args += list(AWAIT_STATUSES)
@@ -798,6 +850,84 @@ class NewTicket(BaseModel):
     acct_type: str = "Non-Strategic"
     region: str = "GJ"
     payload: dict = {}
+
+
+@app.get("/api/workload")
+async def workload(u: User = Depends(current_user)):
+    """Who is carrying what, and how fast it clears.
+
+    Two questions in one call because they are only useful together: a big queue on a
+    fast closer is not the same problem as a small queue on a stalled one.
+
+    Lead time is measured from first assignment to the ticket leaving PNS hands, taken
+    from ticket_history rather than the ticket row — status_since only remembers the
+    latest move, so it cannot answer 'how long did this take'."""
+    require(u, "assign")
+
+    pns = await q(
+        "SELECT u.name, "
+        "  SUM(t.status='Pending PNS') AS pending_pns, "
+        "  SUM(t.status IN ('Pending PNS','Pending PNS Review','Pending Vendor')) AS open_total, "
+        "  SUM(t.outcome='accepted') AS won, "
+        "  SUM(t.outcome IS NOT NULL) AS decided "
+        "FROM users u LEFT JOIN tickets t "
+        "  ON t.owner_name=u.name AND t.deleted_at IS NULL "
+        "WHERE u.role_group='PNS' AND u.active=1 "
+        "GROUP BY u.name ORDER BY pending_pns DESC, u.name")
+
+    # Median would be the honest average here, but MySQL has no median and the volumes
+    # are small enough that a mean plus the worst case tells the same story.
+    lead = await q(
+        "SELECT t.owner_name AS name, "
+        "  ROUND(AVG(TIMESTAMPDIFF(DAY, first_seen.at, done.at)),1) AS avg_days, "
+        "  MAX(TIMESTAMPDIFF(DAY, first_seen.at, done.at)) AS worst_days, "
+        "  COUNT(*) AS finished "
+        "FROM tickets t "
+        "JOIN (SELECT ticket_id, MIN(at) AS at FROM ticket_history "
+        "      WHERE status='Pending PNS' GROUP BY ticket_id) first_seen "
+        "  ON first_seen.ticket_id=t.id "
+        "JOIN (SELECT ticket_id, MIN(at) AS at FROM ticket_history "
+        "      WHERE status IN ('Proposal Submitted','Pending PNS Review') GROUP BY ticket_id) done "
+        "  ON done.ticket_id=t.id AND done.at >= first_seen.at "
+        "WHERE t.deleted_at IS NULL AND t.owner_name IS NOT NULL "
+        "GROUP BY t.owner_name")
+    lead_by = {r["name"]: r for r in lead}
+
+    team = []
+    for r in pns:
+        l = lead_by.get(r["name"], {})
+        team.append({
+            "name": r["name"],
+            "pending_pns": int(r["pending_pns"] or 0),
+            "open_total": int(r["open_total"] or 0),
+            "at_cap": int(r["pending_pns"] or 0) >= PNS_WIP_CAP,
+            "won": int(r["won"] or 0),
+            "decided": int(r["decided"] or 0),
+            "avg_days_to_clear": float(l["avg_days"]) if l.get("avg_days") is not None else None,
+            "worst_days_to_clear": int(l["worst_days"]) if l.get("worst_days") is not None else None,
+            "finished": int(l.get("finished") or 0),
+        })
+
+    # Salespeople ranked by how much they currently have sitting on PNS. This is the
+    # demand side of the same picture — a spike here explains a queue over there.
+    sales = await q(
+        "SELECT t.sales_name AS name, t.sales_email AS email, COUNT(*) AS open_tickets, "
+        "  SUM(t.status='Pending Sales') AS waiting_on_them, "
+        "  ROUND(AVG(TIMESTAMPDIFF(DAY, t.status_since, NOW())),1) AS avg_age_days "
+        "FROM tickets t WHERE t.deleted_at IS NULL AND t.outcome IS NULL "
+        "  AND t.sales_name IS NOT NULL "
+        "GROUP BY t.sales_name, t.sales_email "
+        "ORDER BY open_tickets DESC LIMIT 20")
+
+    return {
+        "cap": PNS_WIP_CAP,
+        "pns": team,
+        "sales": [{"name": r["name"], "email": r["email"],
+                   "open_tickets": int(r["open_tickets"] or 0),
+                   "waiting_on_them": int(r["waiting_on_them"] or 0),
+                   "avg_age_days": float(r["avg_age_days"]) if r["avg_age_days"] is not None else None}
+                  for r in sales],
+    }
 
 
 @app.post("/api/tickets", status_code=201, response_model=Ok)
