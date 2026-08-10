@@ -26,8 +26,26 @@ const OWED = [
 const APPROVAL = [
   ["Within rate card", "Nobody — attach and go", "—"],
   ["Discount inside the tier", "Priced-by team", "—"],
-  ["Below product bottom rate", "Head of the team that priced it", "Pending Head Review"],
-  ["Margin needs sign-off", "PSP", "Pending PSP Approval"],
+  ["Below the product bottom margin", "Head acknowledges, then PSP signs off — mandatory, both steps", "Pending Head Review → Pending PSP Approval"],
+  ["Anyone wants a second opinion on margin", "PSP — optional, from Awaiting price or To review", "Pending PSP Approval"],
+];
+
+const PSP_AFTER = [
+  ["Was already Pending PNS Review", "Proposal Submitted", "That review already covers it — PSP was consulted mid-review."],
+  ["Still needs PNS review (Sales priced, ≥30 Mio)", "Pending PNS Review", "PSP clearing the margin doesn't stand in for the review this ticket already needed."],
+  ["No review needed either way", "Back to whoever priced it — Pending PNS or Pending Sales", "PSP approving isn't the same as the proposal being ready. They confirm with a plain Submit — nothing about the price is re-entered."],
+  ["Rejected", "Back to whoever priced it, to re-quote", "Same as any send-back."],
+];
+
+const BOTTOM_MARGIN = [
+  ["LTL", "5%"],
+  ["B2BR", "10%"],
+  ["B2C, FTL on-call, FTL monthly, Sameday", "Not published — no below-bottom checkbox for these yet"],
+];
+
+const SAMEDAY_RATE = [
+  ["Regular", "Rp 20.000 / 5kg"],
+  ["Premium", "Rp 35.000 / 5kg"],
 ];
 
 function Table({ head, rows, align }) {
@@ -89,6 +107,24 @@ export default function Matrix() {
         <Block title="3 · Price approval"
           sub="Cost and margin stay with PNS, PSP and CSO. Nothing on the Project Charter carries them.">
           <Table head={["Situation", "Who approves", "Status it enters"]} rows={APPROVAL} />
+          <div className="border-t border-slate-100 px-4 py-3">
+            <p className="mb-2 text-[12px] font-semibold text-slate-600">
+              Bottom margin — a manual flag, only offered where a floor is published
+            </p>
+            <Table head={["Service", "Floor"]} rows={BOTTOM_MARGIN} />
+          </div>
+          <div className="border-t border-slate-100 px-4 py-3">
+            <p className="mb-2 text-[12px] font-semibold text-slate-600">
+              Sameday base rate — no rate-card link, so the number is stated here
+            </p>
+            <Table head={["Tier", "Rate"]} rows={SAMEDAY_RATE} />
+          </div>
+          <div className="border-t border-slate-100 px-4 py-3">
+            <p className="mb-2 text-[12px] font-semibold text-slate-600">
+              After PSP decides
+            </p>
+            <Table head={["Where the ticket was", "Goes to", "Why"]} rows={PSP_AFTER} />
+          </div>
         </Block>
 
         <Block title="4 · Who gets told when a ticket comes back"
@@ -99,8 +135,9 @@ export default function Matrix() {
         <Block title="5 · Known gaps"
           sub="Carried from the PRD's open dependencies — these are decisions still outstanding.">
           <ul className="list-disc space-y-1.5 px-8 py-4 text-[13px] text-slate-600">
-            <li>Sameday has no published product bottom margin, so "below bottom rate" can't be
-                checked automatically for it — the flag is manual.</li>
+            <li>B2C, FTL on-call, FTL monthly and Sameday have no published bottom margin,
+                so those services get no below-bottom checkbox at all — a thin margin on
+                one of them only reaches PSP if someone chooses to Escalate.</li>
             <li>The LTL rate card is marked Commercial Head + PNS only, yet Sales prices LTL
                 under Rp 30 Mio. Access needs widening or the routing needs changing.</li>
             <li>CAPA has no revenue tier, so sections 1–3 above don't apply to it.</li>

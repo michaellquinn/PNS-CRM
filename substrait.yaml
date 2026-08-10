@@ -11,6 +11,11 @@ description: >
   potential revenue, then tracks it from intake through pricing, review and approval to
   a signed contract. Used by the Commercial, PNS, PSP and Legal teams.
 
+# The app already ships Flyway migrations under backend/resources/db/migration/ and has
+# used OceanBase (MySQL wire) since the first deploy — this just makes that declaration
+# explicit, since DATABASE_URL is only injected for what's declared here.
+database: oceanbase
+
 # Backing services — declare what your app needs and the platform provisions it
 # next to the app, injecting the connection env var. Installing a client library
 # alone does nothing; this manifest is the only trigger. Ephemeral by default

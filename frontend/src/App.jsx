@@ -7,7 +7,7 @@ import Users from "./screens/Users";
 import TicketDetail from "./screens/TicketDetail";
 import { NewRequest, NewCapa } from "./screens/Forms";
 import {
-  AwaitingPrice, ToReview, HeadReview, PspApprovals,
+  AwaitingPrice, ToReview, HeadReview, PspPending, PspFinished,
   Proposals, ReadyToShip, RecycleBin, Meeting,
 } from "./screens/Queues";
 
@@ -22,12 +22,15 @@ const NAV = [
       when: (m) => m.group === "PNS" || m.group === "Admin" },
     { id: "head", label: "Need review", icon: "⚑", count: "Pending Head Review",
       when: (m) => m.permissions.headAck },
-    { id: "psp", label: "Price approvals", icon: "✓", count: "Pending PSP Approval",
-      when: (m) => m.group !== "Legal" },
     { id: "proposals", label: "Proposal submitted", icon: "◫", count: "Proposal Submitted" },
     { id: "ship", label: "Ready to ship", icon: "➔", count: "Proposal Accepted / Ready to Ship" },
     { id: "meeting", label: "Weekly meeting", icon: "☷" },
     { id: "detail", label: "Ticket detail", icon: "⋯" },
+  ]],
+  ["PSP", [
+    { id: "psp-pending", label: "Pending", icon: "✓", count: "Pending PSP Approval",
+      when: (m) => m.group !== "Legal" },
+    { id: "psp-finished", label: "Finished", icon: "◫", when: (m) => m.group !== "Legal" },
   ]],
   ["CAPA", [
     { id: "capa-all", label: "All CAPA", icon: "▤" },
@@ -175,7 +178,8 @@ export default function App() {
     awaiting: <AwaitingPrice me={me} notify={notify} onOpen={open} />,
     review: <ToReview me={me} notify={notify} onOpen={open} />,
     head: <HeadReview me={me} notify={notify} onOpen={open} />,
-    psp: <PspApprovals me={me} notify={notify} onOpen={open} />,
+    "psp-pending": <PspPending me={me} notify={notify} onOpen={open} />,
+    "psp-finished": <PspFinished onOpen={open} />,
     proposals: <Proposals me={me} notify={notify} onOpen={open} />,
     ship: <ReadyToShip onOpen={open} />,
     meeting: <Meeting onOpen={open} />,

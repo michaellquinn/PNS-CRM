@@ -5,7 +5,7 @@ import Discussion from "./Discussion";
 import Attachments from "./Attachments";
 import {
   Btn, Card, Combo, Confirm, Head, Pill, PriceChip, Sla, inputCls,
-  useOptions, usePnsTeam, refreshOptions,
+  useDirectory, useOptions, usePnsTeam, refreshOptions,
 } from "../ui";
 
 const SECTIONS = [
@@ -68,6 +68,7 @@ export default function TicketDetail({ ticketRef: initialRef, me, notify, onBack
   const [photos, setPhotos] = useState([]);
   const opts = useOptions();
   const team = usePnsTeam();
+  const psp = useDirectory().filter((x) => x.group === "PSP").map((x) => x.name);
 
   const loadList = () => api.tickets({}).then((x) => setAll(x.tickets)).catch(() => {});
   useEffect(() => { loadList(); }, []);
@@ -188,6 +189,7 @@ export default function TicketDetail({ ticketRef: initialRef, me, notify, onBack
           Submitted {t.submitted_on} &middot; <Sla elapsed={t.sla_elapsed} target={t.sla_target} />
           {t.owner && <> &middot; PNS {t.owner}</>}
           {t.reviewer && <> &middot; reviewer {t.reviewer}</>}
+          {t.psp_assignee && <> &middot; PSP {t.psp_assignee}</>}
         </span>
       </div>
 
@@ -205,7 +207,7 @@ export default function TicketDetail({ ticketRef: initialRef, me, notify, onBack
       )}
 
       {/* ---------------------------------------------------------------- actions */}
-      {(p.assign || p.assignReviewer || p.setSales || (closed && p.reopen)) && (
+      {(p.assign || p.assignReviewer || p.setSales || p.pspAssign || (closed && p.reopen)) && (
         <Card className="mb-4 p-4">
           <div className="mb-3 text-[10.5px] font-bold uppercase tracking-wider text-slate-400">
             Ownership
@@ -227,6 +229,12 @@ export default function TicketDetail({ ticketRef: initialRef, me, notify, onBack
               <Assigner label="Sales PIC" current={t.sales} options={opts?.sales || []} busy={busy}
                 allowClear={false} hint="Commercial Head can hand the ticket to another salesperson."
                 onSet={(v) => run(() => api.setSales(ref, v), `${ref} reassigned to ${v}`)} />
+            )}
+            {p.pspAssign && (
+              <Assigner label="PSP PIC" current={t.psp_assignee} options={psp} busy={busy}
+                hint="Any PSP member can take any ticket — no head/staff split in PSP."
+                onSet={(v) => run(() => api.pspAssign(ref, v),
+                  v ? `${ref} assigned to ${v}` : "PSP PIC cleared")} />
             )}
             {closed && p.reopen && (
               <Assigner label={`Reopen this ${t.status.toLowerCase()} deal`}

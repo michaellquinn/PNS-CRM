@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { api, PENDING, LOSS_REASONS, SERVICES, rp } from "../api";
+import { api, BOTTOM_MARGIN, PENDING, LOSS_REASONS, SERVICES, rp } from "../api";
 import {
-  Btn, Card, Confirm, Empty, Head, Pill, PriceChip, TicketCard, inputCls, usePnsTeam,
+  Btn, Card, Confirm, Empty, Head, Pill, PriceChip, TicketCard, inputCls,
+  useDirectory, usePnsTeam,
 } from "../ui";
 
 function useTickets(filters, dep = []) {
@@ -61,13 +62,19 @@ function Shell({ title, sub, right, rows, err, empty, bar, filtered, children })
   );
 }
 
+// Sameday has no rate-card link to point at, so the base rate is stated here directly
+// rather than being one more thing to look up while pricing.
+const SAMEDAY_RATE = "Regular Rp 20.000 / 5kg · Premium Rp 35.000 / 5kg";
+
 function RateCard({ service }) {
   return (
     <div className="mb-3 flex items-start gap-2.5 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-[13px]">
       <span className="opacity-60">🔗</span>
       <div>
         <b className="underline decoration-slate-300 underline-offset-2">Rate card — {service}</b>
-        <p className="text-[11.5px] text-slate-500">Build the price from the published card.</p>
+        <p className="text-[11.5px] text-slate-500">
+          {service === "Sameday" ? SAMEDAY_RATE : "Build the price from the published card."}
+        </p>
       </div>
     </div>
   );
@@ -79,6 +86,7 @@ export function AwaitingPrice({ me, onOpen, notify }) {
   const [file, setFile] = useState({});
   const [link, setLink] = useState({});
   const [below, setBelow] = useState({});
+  const [askPsp, setAskPsp] = useState({});
   const [busy, setBusy] = useState(null);
   const [list, f, set, clear] = useFilter(rows, { resp: "" });
 
@@ -115,8 +123,22 @@ export function AwaitingPrice({ me, onOpen, notify }) {
               Priced by {t.priced_by}
             </Pill>,
             t.needs_review && <Pill key="r" tone="bg-violet-50 text-violet-700">PNS review after</Pill>,
+            t.psp_ready && <Pill key="psp" tone="bg-emerald-50 text-emerald-700">PSP approved</Pill>,
           ].filter(Boolean)}
         >
+          {t.psp_ready ? (
+            <div className="flex flex-wrap items-center gap-3">
+              <p className="text-[13px] text-slate-600">
+                PSP approved this margin. The price and link don't change — confirm and
+                the proposal goes out.
+              </p>
+              <Btn kind="primary" className="ml-auto" disabled={busy === t.ref}
+                onClick={() => act(t.ref, () => api.submitProposal(t.ref))}>
+                Submit proposal
+              </Btn>
+            </div>
+          ) : (
+            <>
           <RateCard service={t.service} />
           {(t.price_file || t.price_url) && (
             <p className="mb-3 text-[12.5px]">
@@ -136,12 +158,27 @@ export function AwaitingPrice({ me, onOpen, notify }) {
             it cannot grant access. Keep cost and margin workings out of any sheet a
             shipper or Commercial will open.
           </p>
+          {BOTTOM_MARGIN[t.service] != null && (
+            <p className="mb-2 text-[11px] text-slate-400">
+              {t.service} floor is {BOTTOM_MARGIN[t.service]}% — e.g. a margin of{" "}
+              {Math.max(0, BOTTOM_MARGIN[t.service] - 1)}% would be below it.
+            </p>
+          )}
           <div className="flex flex-wrap items-center gap-2">
-            <label className="flex items-center gap-2 rounded-lg bg-amber-50 px-3 py-1.5 text-[12.5px] font-medium text-amber-800">
-              <input type="checkbox" checked={!!below[t.ref]}
-                onChange={(e) => setBelow({ ...below, [t.ref]: e.target.checked })} />
-              Below bottom rate
-            </label>
+            {BOTTOM_MARGIN[t.service] != null && (
+              <label className="flex items-center gap-2 rounded-lg bg-amber-50 px-3 py-1.5 text-[12.5px] font-medium text-amber-800">
+                <input type="checkbox" checked={!!below[t.ref]}
+                  onChange={(e) => setBelow({ ...below, [t.ref]: e.target.checked })} />
+                Below bottom rate ({BOTTOM_MARGIN[t.service]}% floor)
+              </label>
+            )}
+            {me.permissions.sendToPsp && (
+              <label className="flex items-center gap-2 rounded-lg bg-sky-50 px-3 py-1.5 text-[12.5px] font-medium text-sky-800">
+                <input type="checkbox" checked={!!askPsp[t.ref]}
+                  onChange={(e) => setAskPsp({ ...askPsp, [t.ref]: e.target.checked })} />
+                Escalate to PSP
+              </label>
+            )}
             {me.permissions.vendorToggle && t.status !== "Pending Vendor" && (
               <Btn onClick={() => act(t.ref, () => api.status(t.ref, { status: "Pending Vendor", reason: "waiting on vendor cost" }))}>
                 Waiting vendor cost
@@ -165,11 +202,14 @@ export function AwaitingPrice({ me, onOpen, notify }) {
                   price_file: label || "Pricing spreadsheet",
                   price_url: url || null,
                   below_bottom: !!below[t.ref],
+                  ask_psp: !!askPsp[t.ref],
                 }));
               }}>
               Attach price
             </Btn>
           </div>
+            </>
+          )}
         </TicketCard>
       ))}
     </Shell>
@@ -239,7 +279,7 @@ export function HeadReview({ me, onOpen, notify }) {
 
   return (
     <Shell title="Need review"
-      sub="Prices flagged below the bottom rate. The head of the team that priced it acknowledges before it goes out."
+      sub="Prices below the product bottom margin — checked automatically, or flagged by hand. The head of the team that priced it acknowledges, then PSP signs off on the margin before it goes out."
       right={<span className="text-[12px] text-slate-500">Head only</span>}
       rows={rows} err={err} empty="Nothing needs your review.">
       {(list) => list.map((t) => (
@@ -252,11 +292,13 @@ export function HeadReview({ me, onOpen, notify }) {
           <div className="flex flex-wrap items-center gap-2">
             <input className={`${inputCls} max-w-[320px]`} placeholder="Note (required to send back)"
               value={note[t.ref] || ""} onChange={(e) => setNote({ ...note, [t.ref]: e.target.value })} />
-            <Btn onClick={() => act(() => api.status(t.ref, { status: "Pending Sales", reason: note[t.ref] }))}>
-              Send back to Sales
+            <Btn onClick={() => act(() => api.status(t.ref, {
+              status: t.priced_by === "PNS" ? "Pending PNS" : "Pending Sales", reason: note[t.ref],
+            }))}>
+              Send back to {t.priced_by === "PNS" ? "PNS" : "Sales"}
             </Btn>
             <Btn kind="primary" className="ml-auto" onClick={() => act(() => api.headAck(t.ref))}>
-              Acknowledge
+              Acknowledge — send to PSP
             </Btn>
           </div>
         </TicketCard>
@@ -266,20 +308,40 @@ export function HeadReview({ me, onOpen, notify }) {
 }
 
 /* ---------------------------------------------------------------- PSP */
-export function PspApprovals({ me, onOpen, notify }) {
+export function PspPending({ me, onOpen, notify }) {
   const [rows, err, reload] = useTickets({ status: "Pending PSP Approval" });
   const [note, setNote] = useState({});
+  const [pick, setPick] = useState({});
+  const people = useDirectory();
+  const psp = people.filter((p) => p.group === "PSP");
   const act = async (fn) => { try { await fn(); notify("Done"); await reload(); } catch (e) { notify(e.message); } };
 
   return (
-    <Shell title="Price approvals"
-      sub="PSP reviews the margin and approves or rejects. PNS and Sales send prices here."
+    <Shell title="PSP — Pending"
+      sub="PSP reviews the margin and approves or rejects. Mandatory for anything below the product bottom margin (after the Head acknowledges it); anyone can also ask for a second opinion from Awaiting price. Any PSP member can take any ticket — there's no head/staff split here."
       rows={rows} err={err} empty="Nothing awaiting price approval.">
       {(list) => list.map((t) => (
-        <TicketCard key={t.ref} t={t} onOpen={onOpen}>
+        <TicketCard key={t.ref} t={t} onOpen={onOpen}
+          badges={[t.psp_assignee && <Pill key="pic" tone="bg-amber-50 text-amber-700">PIC: {t.psp_assignee}</Pill>].filter(Boolean)}>
           {(t.price_file || t.price_url) && <p className="mb-2 text-[13px]"><PriceChip file={t.price_file} url={t.price_url} /></p>}
           {t.margin != null && (
             <p className="mb-3 text-[13px]">Margin: <b className="font-mono">{t.margin}%</b></p>
+          )}
+          {me.permissions.pspAssign && (
+            <div className="mb-3 flex flex-wrap items-center gap-2 border-b border-slate-100 pb-3">
+              <select className={`${inputCls} max-w-[190px]`}
+                value={pick[t.ref] ?? t.psp_assignee ?? ""}
+                onChange={(e) => setPick({ ...pick, [t.ref]: e.target.value })}>
+                <option value="">Unassigned</option>
+                {psp.map((p) => <option key={p.email} value={p.name}>{p.name}</option>)}
+              </select>
+              <Btn onClick={() => act(() => api.pspAssign(t.ref, pick[t.ref] ?? t.psp_assignee ?? ""))}>
+                Set PIC
+              </Btn>
+              {psp.some((p) => p.name === me.name) && t.psp_assignee !== me.name && (
+                <Btn onClick={() => act(() => api.pspAssign(t.ref, me.name))}>Assign to me</Btn>
+              )}
+            </div>
           )}
           {me.permissions.pspDecide ? (
             <div className="flex flex-wrap items-center gap-2">
@@ -294,6 +356,37 @@ export function PspApprovals({ me, onOpen, notify }) {
             </div>
           ) : (
             <p className="text-[12.5px] text-slate-500">Only PSP can approve or reject here.</p>
+          )}
+        </TicketCard>
+      ))}
+    </Shell>
+  );
+}
+
+/* ---------------------------------------------------------------- PSP finished */
+export function PspFinished({ onOpen }) {
+  const [rows, err] = useTickets({ psp_reviewed: true });
+  const [list, f, set, clear] = useFilter(rows);
+
+  return (
+    <Shell title="PSP — Finished"
+      sub="Every ticket PSP has decided on, with what they decided and where it stands now — including which ones went on to win or lose."
+      rows={rows} err={err} empty="PSP hasn't decided on anything yet."
+      bar={<FilterBar f={f} set={set} clear={clear} shown={list.length} total={(rows || []).length} />}
+      filtered={list}>
+      {(list) => list.map((t) => (
+        <TicketCard key={t.ref} t={t} onOpen={onOpen}
+          badges={[
+            t.psp_decision && (
+              <Pill key="d" tone={t.psp_decision === "approved" ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}>
+                PSP {t.psp_decision}
+              </Pill>
+            ),
+            t.psp_assignee && <Pill key="pic" tone="bg-amber-50 text-amber-700">PIC: {t.psp_assignee}</Pill>,
+          ].filter(Boolean)}>
+          {(t.price_file || t.price_url) && <p className="text-[13px]"><PriceChip file={t.price_file} url={t.price_url} /></p>}
+          {t.margin != null && (
+            <p className="mt-1 text-[13px]">Margin: <b className="font-mono">{t.margin}%</b></p>
           )}
         </TicketCard>
       ))}

@@ -77,8 +77,11 @@ async def execute(sql: str, args: tuple = ()) -> int:
 
 # ------------------------------------------------------------------ business rules
 SERVICES = ["LTL", "B2BR", "B2C", "FTL on-call", "FTL monthly", "Sameday"]
-BOTTOM_MARGIN = {"LTL": 5.0, "B2BR": 10.0, "B2C": 10.0,
-                 "FTL on-call": 10.0, "FTL monthly": 10.0}   # Sameday: not yet defined
+# Only LTL and B2BR have a published bottom margin today. B2C, FTL on-call, FTL monthly
+# and Sameday don't — the below-bottom mechanism (checkbox, mandatory Head + PSP gate)
+# is only offered for services in this dict; everything else skips straight to the
+# optional "Escalate to PSP" path instead, since there's no floor to check it against.
+BOTTOM_MARGIN = {"LTL": 5.0, "B2BR": 10.0}
 LOSS_REASONS = ["pricing", "shipper", "solution", "ops", "no_vendor", "billing", "pns"]
 AWAIT_STATUSES = ("Pending Sales", "Pending PNS", "Pending Vendor")
 PENDING_STATUSES = ["Pending Sales", "Pending PNS", "Pending PNS Review",
@@ -190,6 +193,9 @@ def can(u: User, action: str, t: dict | None = None) -> bool:
         # agreed. Granting the Admin group itself is narrower — see grant_admin.
         "manageUsers":      pns_head,     # pns_head already includes Admin
         "grantAdmin":       admin,
+        # PSP has no staff/head split — any PSP member assigns a ticket to themselves
+        # or a teammate, same as any PSP member may approve or reject.
+        "pspAssign":        u.group == "PSP" or admin,
     }.get(action, False)
 
 
@@ -399,7 +405,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-07-30.15"
+BUILD = "2026-08-10.19"
 
 
 class Me(BaseModel):
@@ -436,6 +442,9 @@ class Ticket(BaseModel):
     price_file: str | None = None
     price_url: str | None = None
     open_questions: int = 0
+    psp_assignee: str | None = None
+    psp_ready: bool = False   # PSP cleared it without needing PNS review — awaiting final submit
+    psp_decision: str | None = None   # approved | rejected | None — PSP's latest decision, if any
 
 
 class TicketList(BaseModel):
@@ -548,7 +557,7 @@ async def me(u: User = Depends(current_user)):
                "assign", "assignReviewer", "markReviewed", "editInput", "editAcctOrRev",
                "setAcct", "setSales", "reopen", "pspDecide", "vendorToggle", "sendToPsp",
                "acceptProposal", "sendBackProposal", "seeMargin", "capaRaise",
-               "capaClose", "capaSubmit", "headAck", "manageUsers", "grantAdmin"]
+               "capaClose", "capaSubmit", "headAck", "manageUsers", "grantAdmin", "pspAssign"]
     return Me(email=u.email, name=u.name, group=u.group, level=u.level, team=u.team,
               permissions={a: can(u, a) for a in actions},
               sso=u.sso, dev_fallback=not u.sso and bool(DEV_USER))
@@ -564,6 +573,8 @@ def shape(t: dict, u: User) -> Ticket:
         sla_elapsed=sla_days_elapsed(t), sla_target=int(t["sla_days"]),
         price_file=t.get("price_file"), price_url=t.get("price_url"),
         open_questions=int(t.get("open_q") or 0),
+        psp_assignee=t.get("psp_assignee"), psp_ready=bool(t.get("psp_ready")),
+        psp_decision=t.get("psp_decision"),
     )
     # Margin is restricted at the API, not by hiding a column in the UI.
     if can(u, "seeMargin") and t.get("margin_pct") is not None:
@@ -582,15 +593,25 @@ async def list_tickets(
     submitted_to: str | None = None,
     search: str | None = None,
     awaiting: bool = False,
+    psp_reviewed: bool = False,
 ):
     sql = ("SELECT t.*, s.name AS shipper, s.acct_type, p.margin_pct, p.price_file, p.price_url, "
            "(SELECT COUNT(*) FROM ticket_comments c WHERE c.ticket_id=t.id "
            "AND c.is_question=1 AND c.resolved_at IS NULL) AS open_q, "
+           "(SELECT a.decision FROM approvals a WHERE a.ticket_id=t.id AND a.kind='psp' "
+           "ORDER BY a.decided_at DESC LIMIT 1) AS psp_decision, "
            "TIMESTAMPDIFF(DAY, t.status_since, NOW()) AS sla_days_db "
            "FROM tickets t JOIN shippers s ON s.id=t.shipper_id "
            "LEFT JOIN pricing p ON p.ticket_id=t.id "
            "WHERE t.deleted_at IS NULL")
     args: list = []
+
+    # The "Finished" PSP queue: every ticket PSP has ever decided on, regardless of where
+    # it sits now — a ticket can be back in Pending PSP Approval for a fresh round and
+    # still show up here with its prior outcome.
+    if psp_reviewed:
+        sql += (" AND EXISTS (SELECT 1 FROM approvals a WHERE a.ticket_id=t.id "
+               "AND a.kind='psp')")
 
     # PSP reads the whole pipeline: judging a rate needs the context around it, and PSP
     # is pulled into cross-department discussion long after approving. Their Price
@@ -703,8 +724,10 @@ class PriceIn(BaseModel):
     price_file: str                      # human label, e.g. "Rate card - Sinar Kencana v2"
     price_url: str | None = None         # link to the spreadsheet holding the actual price
     price_size: int | None = None
-    margin_pct: float | None = None
-    below_bottom: bool = False
+    margin_pct: float | None = None      # kept for anyone with an existing integration; the
+                                          # Awaiting Price form no longer collects it
+    below_bottom: bool = False           # manual — LTL and B2BR only, checked server-side
+    ask_psp: bool = False                # optional — a second opinion on margin, not mandatory
 
 
 def clean_url(raw: str | None) -> str | None:
@@ -737,12 +760,30 @@ async def submit_price(ref: str, body: PriceIn, u: User = Depends(current_user))
         "price_size=VALUES(price_size), margin_pct=VALUES(margin_pct), "
         "priced_by=VALUES(priced_by), priced_at=NOW()",
         (t["id"], body.price_file, url, body.price_size, body.margin_pct, u.name))
+    # A fresh price starts a fresh cycle — any earlier PSP clearance no longer applies.
+    await execute("UPDATE tickets SET psp_ready=0 WHERE id=%s", (t["id"],))
 
-    if body.below_bottom:
+    # Below bottom is a manual flag, not a computed one — only offered for services with
+    # a published floor (LTL, B2BR today). Rejected server-side too, not just hidden in
+    # the UI, so a client can't set it on a service with nothing to check it against.
+    if body.below_bottom and t["service_type"] not in BOTTOM_MARGIN:
+        raise HTTPException(
+            400, f"{t['service_type']} has no published bottom margin — "
+                 f"below-bottom isn't available for it yet")
+    below = bool(body.below_bottom)
+
+    if below:
         nxt, note = "Pending Head Review", "flagged below bottom rate"
         await execute("UPDATE tickets SET below_bottom=1 WHERE id=%s", (t["id"],))
         await notify(f"{ref} — price attached by {u.name} and flagged BELOW BOTTOM RATE",
                      roles=[f"{head_for(t)} - Head"], ticket_ref=ref)
+    elif body.ask_psp:
+        # Optional — the pricer wants a second opinion even though nothing forces one.
+        # Open to every service, including the ones with no published floor at all.
+        # needs_pns_review is not lost: psp_decide re-applies it once PSP has answered.
+        nxt, note = "Pending PSP Approval", "escalated to PSP for a margin check"
+        await notify(f"{ref} — {t['shipper']}: escalated to PSP by {u.name}",
+                     groups=["PSP"], ticket_ref=ref)
     elif needs_pns_review(t):
         nxt, note = "Pending PNS Review", ""
         await notify(f"{ref} — priced by Sales, needs PNS review",
@@ -775,6 +816,10 @@ async def change_status(ref: str, body: StatusIn, u: User = Depends(current_user
             raise HTTPException(400, f"loss_reason must be one of {LOSS_REASONS}")
     elif nxt == "Proposal Accepted / Ready to Ship":
         require(u, "acceptProposal")
+    elif nxt == "Pending PSP Approval":
+        # Forwarding for a margin check, not a send-back — no reason required, and this
+        # is not "the ticket came back to you", so it skips the send-back notification.
+        require(u, "sendToPsp")
     else:
         require(u, "sendBackProposal")
         # A send-back needs a reason; marking Lost carries its own.
@@ -792,7 +837,9 @@ async def change_status(ref: str, body: StatusIn, u: User = Depends(current_user
         await execute("UPDATE tickets SET outcome='accepted' WHERE id=%s", (t["id"],))
         await notify(f"{ref} — {t['shipper']} ACCEPTED. Contract needed.",
                      groups=["Legal", "PNS", "Commercial"], ticket_ref=ref)
-
+    elif nxt == "Pending PSP Approval":
+        await notify(f"{ref} — {t['shipper']}: sent to PSP for a margin check by {u.name}",
+                     groups=["PSP"], ticket_ref=ref)
     else:
         # A send-back told nobody at all before this: the ticket just reappeared in a
         # queue. resp has already been rewritten above, so pass the new value through.
@@ -976,12 +1023,17 @@ async def reopen(ref: str, body: ReopenIn, u: User = Depends(current_user)):
 
 @app.post("/api/tickets/{ref}/head-ack", response_model=Ok)
 async def head_ack(ref: str, u: User = Depends(current_user)):
+    """The head's acknowledgement is visibility, not the margin sign-off — a below-bottom
+    price always goes to PSP next. Head Review only ever holds below-bottom tickets, so
+    that is the only path this route needs to handle."""
     t = await get_ticket(ref)
     require(u, "headAck", t)   # the head of the team that priced it — not the other one
-    nxt = "Pending PNS Review" if needs_pns_review(t) else "Proposal Submitted"
-    await log_status(t["id"], nxt, u.name, "below bottom rate acknowledged")
+    nxt = "Pending PSP Approval"
+    await log_status(t["id"], nxt, u.name, "below bottom rate acknowledged — sent to PSP")
     await execute("INSERT INTO approvals (ticket_id, kind, decision, actor, actor_role) "
                   "VALUES (%s,'head_ack','approved',%s,%s)", (t["id"], u.name, u.group))
+    await notify(f"{ref} — {t['shipper']}: below-bottom price acknowledged by {u.name}, "
+                f"needs your margin sign-off", groups=["PSP"], ticket_ref=ref)
     return {"ok": True, "ref": ref, "status": nxt}
 
 
@@ -994,8 +1046,25 @@ class PspIn(BaseModel):
 async def psp_decide(ref: str, body: PspIn, u: User = Depends(current_user)):
     require(u, "pspDecide")
     t = await get_ticket(ref)
+    ready_to_submit = False
     if body.approve:
-        nxt = "Proposal Submitted"
+        # A ticket can reach PSP three ways: mandatory after a below-bottom head
+        # acknowledgement, an optional early send from Awaiting price, or an optional
+        # send from mid-review.
+        if t["status"] == "Pending PNS Review":
+            # PNS was already reviewing when it went to PSP — that review still counts.
+            nxt = "Proposal Submitted"
+        elif needs_pns_review(t):
+            # Hasn't been reviewed yet and still needs to be — PSP clearing the margin
+            # does not stand in for that. A Sales-priced ≥30 Mio deal must not skip it.
+            nxt = "Pending PNS Review"
+        else:
+            # No review needed either way — but PSP approving is not the same as the
+            # proposal being ready. It goes back to whoever priced it for an explicit
+            # final submit; nothing about the price itself is re-entered.
+            nxt = pending_for(t["resp"])
+            ready_to_submit = True
+            await execute("UPDATE tickets SET psp_ready=1 WHERE id=%s", (t["id"],))
     else:
         if not body.note:
             raise HTTPException(400, "a note is required to reject a price")
@@ -1012,7 +1081,53 @@ async def psp_decide(ref: str, body: PspIn, u: User = Depends(current_user)):
         await tell_owed(t, nxt, u.name,
                         f"{ref} — {t['shipper']}: PSP rejected the price. {body.note}",
                         f"Price rejected — {t['shipper']}", ref)
+    elif ready_to_submit:
+        # Approved and cleared to submit — the pricer needs to know it's their move, not
+        # just that PSP acted (the broadcast above doesn't name anyone).
+        await tell_owed(t, nxt, u.name,
+                        f"{ref} — {t['shipper']}: PSP approved the margin. Submit the proposal.",
+                        f"Ready to submit — {t['shipper']}", ref)
     return {"ok": True, "ref": ref, "status": nxt}
+
+
+class PspAssignIn(BaseModel):
+    assignee: str | None = None   # "" or None clears it
+
+
+@app.post("/api/tickets/{ref}/psp-assign", response_model=Ok)
+async def psp_assign(ref: str, body: PspAssignIn, u: User = Depends(current_user)):
+    """Who in PSP is handling this. Flat — any PSP member may set or clear it, on any
+    ticket, for themselves or a teammate. There is no PSP head to gate this on."""
+    require(u, "pspAssign")
+    t = await get_ticket(ref)
+    assignee = (body.assignee or "").strip() or None
+    await execute("UPDATE tickets SET psp_assignee=%s WHERE id=%s", (assignee, t["id"]))
+    await log_note(t["id"], t["status"], u.name,
+                   f"PSP PIC {'set to ' + assignee if assignee else 'cleared'}")
+    if assignee and assignee != u.name:
+        await notify(f"{ref} — {t['shipper']}: assigned to you for PSP review by {u.name}",
+                     people=[assignee], ticket_ref=ref)
+    await audit(u.email, "assign", "ticket", ref, "psp_assignee", t.get("psp_assignee"), assignee)
+    return {"ok": True, "ref": ref}
+
+
+@app.post("/api/tickets/{ref}/submit-proposal", response_model=Ok)
+async def submit_proposal(ref: str, u: User = Depends(current_user)):
+    """The final step after PSP clears a margin that did not also need PNS review. PSP
+    approving the price is not the same as the proposal being ready — the side that
+    priced it confirms explicitly. Nothing about the price is re-entered here; that
+    already happened in submit_price."""
+    t = await get_ticket(ref)
+    if not t.get("psp_ready"):
+        raise HTTPException(400, f"{ref} is not waiting on a final submit")
+    if not attach_price(u, t):
+        raise HTTPException(403, f"{t['resp']} owns {ref}")
+    await execute("UPDATE tickets SET psp_ready=0 WHERE id=%s", (t["id"],))
+    await log_status(t["id"], "Proposal Submitted", u.name, "submitted after PSP approval")
+    await notify(f"{ref} — {t['shipper']}: proposal is ready",
+                 groups=["Commercial"], ticket_ref=ref)
+    await audit(u.email, "submit", "ticket", ref, "status", t["status"], "Proposal Submitted")
+    return {"ok": True, "ref": ref, "status": "Proposal Submitted"}
 
 
 @app.delete("/api/tickets/{ref}", response_model=Ok)
@@ -1122,7 +1237,7 @@ RATE_CARDS = {
     "B2C": "[ID] Ninja Xpress 2025 Rate Card — B2BR (B2C prices off this card)",
     "FTL on-call": "[ID] Ninja Xpress 2026 Rate Card FTL",
     "FTL monthly": "FTL monthly — PNS costing (no published card)",
-    "Sameday": "Sameday calculator",
+    "Sameday": "Sameday calculator — Regular Rp 20.000 / 5kg, Premium Rp 35.000 / 5kg",
 }
 
 
@@ -1134,6 +1249,8 @@ async def list_deleted(u: User = Depends(current_user)):
         "SELECT t.*, s.name AS shipper, s.acct_type, p.margin_pct, p.price_file, p.price_url, "
            "(SELECT COUNT(*) FROM ticket_comments c WHERE c.ticket_id=t.id "
            "AND c.is_question=1 AND c.resolved_at IS NULL) AS open_q, "
+           "(SELECT a.decision FROM approvals a WHERE a.ticket_id=t.id AND a.kind='psp' "
+           "ORDER BY a.decided_at DESC LIMIT 1) AS psp_decision, "
         "TIMESTAMPDIFF(DAY, t.status_since, NOW()) AS sla_days_db "
         "FROM tickets t JOIN shippers s ON s.id=t.shipper_id "
         "LEFT JOIN pricing p ON p.ticket_id=t.id "
@@ -1147,7 +1264,9 @@ async def ticket_detail(ref: str, u: User = Depends(current_user)):
     t = await q("SELECT t.*, s.name AS shipper, s.acct_type, p.margin_pct, p.cost, "
                 "p.price_file, p.price_url, TIMESTAMPDIFF(DAY, t.status_since, NOW()) AS sla_days_db, "
                 "(SELECT COUNT(*) FROM ticket_comments c WHERE c.ticket_id=t.id "
-                "AND c.is_question=1 AND c.resolved_at IS NULL) AS open_q "
+                "AND c.is_question=1 AND c.resolved_at IS NULL) AS open_q, "
+                "(SELECT a.decision FROM approvals a WHERE a.ticket_id=t.id AND a.kind='psp' "
+                "ORDER BY a.decided_at DESC LIMIT 1) AS psp_decision "
                 "FROM tickets t JOIN shippers s ON s.id=t.shipper_id "
                 "LEFT JOIN pricing p ON p.ticket_id=t.id "
                 "WHERE t.ticket_ref=%s AND t.deleted_at IS NULL", (ref,), one=True)
