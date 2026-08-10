@@ -76,9 +76,17 @@ async def execute(sql: str, args: tuple = ()) -> int:
 
 
 # ------------------------------------------------------------------ business rules
-SERVICES = ["LTL", "B2BR", "B2C", "FTL on-call", "FTL monthly", "Sameday"]
-BOTTOM_MARGIN = {"LTL": 5.0, "B2BR": 10.0, "B2C": 10.0,
-                 "FTL on-call": 10.0, "FTL monthly": 10.0}   # Sameday: not yet defined
+SERVICES = ["LTL", "B2BR", "B2C", "FTL on-call", "FTL monthly", "Sameday",
+            "Fulfillment", "Complex Logistics"]
+
+# Vendor cost is a haulage question. Only the FTL lines ever wait on a vendor quote,
+# so the "waiting vendor cost" detour is offered for those and nothing else.
+VENDOR_SERVICES = ("FTL on-call", "FTL monthly")
+
+# Hypercare and Strategic are the two managed tiers in the ID book; both are
+# solutioned by PNS and priced under manual review. Everything else is Non-Strategic.
+ACCT_TYPES = ["Hypercare", "Strategic", "Non-Strategic"]
+MANAGED_ACCTS = ("Hypercare", "Strategic")
 LOSS_REASONS = ["pricing", "shipper", "solution", "ops", "no_vendor", "billing", "pns"]
 AWAIT_STATUSES = ("Pending Sales", "Pending PNS", "Pending Vendor")
 PENDING_STATUSES = ["Pending Sales", "Pending PNS", "Pending PNS Review",
@@ -89,14 +97,147 @@ REMEMBERED_FIELDS = ["commodity", "product", "pallet", "destType", "truck", "fre
 
 
 def route(acct: str, svc: str, rev: int) -> dict:
-    """Who prices it, and whether PNS reviews afterwards."""
-    if acct == "Strategic":
+    """Who prices it, and whether PNS reviews afterwards (5A responsibility matrix).
+
+    Service is tested before revenue on purpose: FTL monthly and Sameday go to PNS at
+    *every* revenue band. Testing revenue first made that branch unreachable above
+    30 Mio and quietly handed the two most complex products to Sales."""
+    if acct in MANAGED_ACCTS:
+        return {"resp": "PNS", "review": False}
+    if svc in ("FTL monthly", "Sameday"):
         return {"resp": "PNS", "review": False}
     if rev >= 30_000_000:
         return {"resp": "Sales", "review": True}
-    if svc in ("FTL monthly", "Sameday"):
-        return {"resp": "PNS", "review": False}
     return {"resp": "Sales", "review": False}
+
+
+# PNS ownership by service line. Two lines have named specialists; everything else
+# rotates through the generalists. Baskoro is Head and is deliberately not in the pool —
+# assigning the head his own queue is how oversight quietly turns into a caseload.
+SERVICE_SPECIALIST = {
+    "Complex Logistics": "adila.kestibawani@ninjavan.co",
+    "Sameday":           "annisa.sophieamalia@ninjavan.co",
+}
+PNS_GENERALISTS = ["m.ramdhani@ninjavan.co",
+                   "michael.quinnfarand@ninjavan.co",
+                   "niko.yannova@ninjavan.co"]
+
+
+async def auto_assignee(service: str, seed: int) -> str | None:
+    """The PNS member who should own a new ticket, or None to leave it for the head.
+
+    Rotation is by ticket id rather than by counting open tickets: it is deterministic,
+    so a retried request cannot hand the same ticket to two people, and it needs no
+    lock. Anyone not registered or not active is skipped — assigning work to someone
+    who cannot open the app is worse than leaving it unassigned, because it looks done."""
+    email = SERVICE_SPECIALIST.get(service)
+    if email:
+        row = await q("SELECT name FROM users WHERE email=%s AND active=1", (email,), one=True)
+        if row:
+            return row["name"]
+        # Specialist is away or unregistered — fall through to the pool rather than
+        # stranding the ticket on a name nobody is watching.
+    ph = ",".join(["%s"] * len(PNS_GENERALISTS))
+    pool = await q(f"SELECT name FROM users WHERE email IN ({ph}) AND active=1 ORDER BY email",
+                   tuple(PNS_GENERALISTS))
+    if not pool:
+        return None
+    return pool[seed % len(pool)]["name"]
+
+
+def tier_of(rev: int) -> str:
+    """5A revenue bands: =< 10 Mio, 10 < x < 30 Mio, >= 30 Mio."""
+    if rev <= 10_000_000:
+        return "low"
+    return "mid" if rev < 30_000_000 else "high"
+
+
+# The "Max. Discount / Min. Margin" row of each 5A Revenue & Customization table,
+# by service then revenue band. Each entry is (kind, limit):
+#   margin   — the priced margin must be at or above `limit` %
+#   discount — the discount must be at or below `limit` %
+#   standard — published rate card only, no deviation
+#   manual   — no automatic ceiling; a person decides (routes to PSP)
+# Sameday carries no bottom margin at all: the only self-serve lever is a 20% discount,
+# and anything past that is a PSP call. B2C prices off the B2BR card, so it follows B2BR.
+PRICING_GUARD = {
+    "LTL":         {"low": ("margin", 20.0), "mid": ("margin", 5.0),  "high": ("margin", 5.0)},
+    "B2BR":        {"low": ("margin", 20.0), "mid": ("margin", 10.0), "high": ("margin", 10.0)},
+    "B2C":         {"low": ("margin", 20.0), "mid": ("margin", 10.0), "high": ("margin", 10.0)},
+    # FTL on-call mirrors FTL monthly: same dedicated line, same vendor cost question,
+    # so the same ceilings apply. (5A published "Standard rate" for on-call, which left
+    # it with no floor to check at all.)
+    "FTL on-call": {"low": ("margin", 15.0), "mid": ("margin", 10.0), "high": ("manual", None)},
+    "FTL monthly": {"low": ("margin", 15.0), "mid": ("margin", 10.0), "high": ("manual", None)},
+    "Sameday":     {"low": ("discount", 20.0), "mid": ("discount", 20.0), "high": ("discount", 20.0)},
+    # New lines carried over from Sales CRM. 5A predates them and publishes no ceiling,
+    # so every band is a decision until Commercial issues one.
+    "Fulfillment":       {"low": ("manual", None), "mid": ("manual", None), "high": ("manual", None)},
+    "Complex Logistics": {"low": ("manual", None), "mid": ("manual", None), "high": ("manual", None)},
+}
+
+
+# Sales CRM stage -> what it means here. Anything before the shipper accepts is still
+# an open solutioning job, so it does not force our status; routing decides that.
+# Future Opportunity is a loss for PNS purposes: the deal is not being solutioned now.
+CLOSED_LOST_STAGES = ("Closed-Lost", "Closed Lost", "Future Opportunity", "Future Oppurtunity")
+ACCEPTED_STAGES = ("Agreed to Ship", "Onboarding", "Ready to Ship", "Closed-Won", "Closed Won")
+
+
+def stage_blocks_work(t: dict) -> str | None:
+    """Sales CRM outranks us. If the opportunity is dead there, no PNS work proceeds.
+
+    Sales owns the commercial reality: if the shipper walked away or the deal was parked
+    as a future opportunity, solutioning it is wasted effort and a priced proposal would
+    be misleading. Returns the reason to refuse, or None to allow."""
+    stage = t.get("stage")
+    if stage in CLOSED_LOST_STAGES:
+        return (f"Sales CRM has this opportunity at '{stage}'. Reopen it there first — "
+                f"Sales CRM leads on stage and this ticket follows it.")
+    return None
+
+
+def status_for_stage(stage: str | None, resp: str) -> str | None:
+    """The PNS status a Sales CRM stage implies, or None to leave ours alone.
+
+    Deliberately one-way and coarse. Sales CRM owns the commercial stage; this app owns
+    the solutioning status. The only stages that override ours are the terminal ones —
+    there is no point solutioning a deal the shipper has already declined."""
+    if not stage:
+        return None
+    if stage in CLOSED_LOST_STAGES:
+        return "Lost"
+    if stage in ACCEPTED_STAGES:
+        return "Proposal Accepted / Ready to Ship"
+    return None          # New, Negotiation, Proposal Submitted, EKYC, Contract Sent…
+
+
+def guard_for(acct: str, svc: str, rev: int) -> dict:
+    """The pricing ceiling that applies to one ticket."""
+    if acct in MANAGED_ACCTS:
+        return {"kind": "manual", "limit": None,
+                "why": f"{acct} account — priced under manual review"}
+    kind, limit = PRICING_GUARD.get(svc, {}).get(tier_of(rev), ("manual", None))
+    why = {
+        "margin":   f"minimum margin {limit}%" if limit is not None else "",
+        "discount": f"maximum discount {limit}%" if limit is not None else "",
+        "standard": "published rate card only — no deviation",
+        "manual":   "no published ceiling at this tier — needs a decision",
+    }[kind]
+    return {"kind": kind, "limit": limit, "why": why}
+
+
+def guard_breached(g: dict, margin_pct: float | None, discount_pct: float | None) -> bool:
+    """True when the attached price exceeds what the tier allows.
+
+    An unstated figure is never treated as a breach — the pricer may be attaching a
+    standard rate card with nothing to declare. The manual/standard tiers are handled
+    by the caller, not here, because they need a decision rather than a comparison."""
+    if g["kind"] == "margin" and margin_pct is not None:
+        return margin_pct < g["limit"]
+    if g["kind"] == "discount" and discount_pct is not None:
+        return discount_pct > g["limit"]
+    return False
 
 
 def pending_for(resp: str) -> str:
@@ -607,13 +748,19 @@ async def create_ticket(body: NewTicket, u: User = Depends(current_user)):
         (ref, shipper_id, body.service, body.revenue, status, r["resp"], int(r["review"]),
          body.sales_email or u.email, u.name, body.region, date.today()))
 
+    # Only PNS-owned tickets get an owner here. A Sales-priced ticket has no PNS work
+    # yet, and pre-assigning one would put it in someone's queue before it is theirs.
+    owner = await auto_assignee(body.service, tid) if r["resp"] == "PNS" else None
+    if owner:
+        await execute("UPDATE tickets SET owner_name=%s WHERE id=%s", (owner, tid))
+
     payload = dict(body.payload or {}); payload["brief"] = body.brief
     await execute("INSERT INTO ticket_input (ticket_id, payload, updated_by) VALUES (%s,%s,%s)",
                   (tid, json.dumps(payload), u.email))
     await execute("INSERT INTO ticket_history (ticket_id, status, actor, note) VALUES (%s,%s,%s,%s)",
                   (tid, status, u.name, "submitted"))
     await notify(f"New ticket {ref} — {body.shipper} ({body.service}, Rp {body.revenue:,})"
-                 f" raised by {u.name}",
+                 f" raised by {u.name}" + (f", assigned to {owner}" if owner else ""),
                  roles=["PNS - Head"] if r["resp"] == "PNS" else [],
                  groups=[] if r["resp"] == "PNS" else ["Commercial"], ticket_ref=ref)
     await audit(u.email, "create", "ticket", ref)
@@ -625,7 +772,8 @@ class PriceIn(BaseModel):
     price_url: str | None = None         # link to the spreadsheet holding the actual price
     price_size: int | None = None
     margin_pct: float | None = None
-    below_bottom: bool = False
+    discount_pct: float | None = None    # the lever Sameday is capped on, not margin
+    below_bottom: bool = False           # manual override — still honoured alongside the guard
 
 
 def clean_url(raw: str | None) -> str | None:
@@ -647,22 +795,43 @@ def clean_url(raw: str | None) -> str | None:
 @app.post("/api/tickets/{ref}/price", response_model=Ok)
 async def submit_price(ref: str, body: PriceIn, u: User = Depends(current_user)):
     t = await get_ticket(ref)
+    blocked = stage_blocks_work(t)
+    if blocked:
+        raise HTTPException(409, blocked)
     if not attach_price(u, t):
         raise HTTPException(403, f"{t['resp']} owes the price on {ref}")
     url = clean_url(body.price_url)
 
     await execute(
         "INSERT INTO pricing (ticket_id, price_file, price_url, price_size, margin_pct, "
-        "priced_by, priced_at) VALUES (%s,%s,%s,%s,%s,%s,NOW()) ON DUPLICATE KEY UPDATE "
+        "discount_pct, priced_by, priced_at) VALUES (%s,%s,%s,%s,%s,%s,%s,NOW()) "
+        "ON DUPLICATE KEY UPDATE "
         "price_file=VALUES(price_file), price_url=VALUES(price_url), "
         "price_size=VALUES(price_size), margin_pct=VALUES(margin_pct), "
-        "priced_by=VALUES(priced_by), priced_at=NOW()",
-        (t["id"], body.price_file, url, body.price_size, body.margin_pct, u.name))
+        "discount_pct=VALUES(discount_pct), priced_by=VALUES(priced_by), priced_at=NOW()",
+        (t["id"], body.price_file, url, body.price_size, body.margin_pct,
+         body.discount_pct, u.name))
 
-    if body.below_bottom:
-        nxt, note = "Pending Head Review", "flagged below bottom rate"
+    g = guard_for(t["acct_type"], t["service_type"], int(t["potential_rev"] or 0))
+    breach = guard_breached(g, body.margin_pct, body.discount_pct)
+    # "Standard rate" tiers allow no deviation at all, so any declared discount is one.
+    if g["kind"] == "standard" and (body.discount_pct or 0) > 0:
+        breach = True
+    # A margin floor is a bottom-rate question and the pricing team's own head owns it.
+    # Everything else the tier can't authorise — a managed account, a band with no
+    # published ceiling, a Sameday discount past 20% — is a PSP decision.
+    to_psp = g["kind"] == "manual" or (breach and g["kind"] in ("discount", "standard"))
+
+    if to_psp:
+        nxt, note = "Pending PSP Approval", g["why"]
+        await execute("UPDATE tickets SET manual_review=1 WHERE id=%s", (t["id"],))
+        await notify(f"{ref} — price attached by {u.name}; needs PSP approval ({g['why']})",
+                     groups=["PSP"], ticket_ref=ref)
+    elif breach or body.below_bottom:
+        nxt, note = "Pending Head Review", g["why"] or "flagged below bottom rate"
         await execute("UPDATE tickets SET below_bottom=1 WHERE id=%s", (t["id"],))
-        await notify(f"{ref} — price attached by {u.name} and flagged BELOW BOTTOM RATE",
+        await notify(f"{ref} — price attached by {u.name} and flagged BELOW BOTTOM RATE"
+                     f" ({g['why']})",
                      roles=[f"{head_for(t)} - Head"], ticket_ref=ref)
     elif needs_pns_review(t):
         nxt, note = "Pending PNS Review", ""
@@ -701,6 +870,12 @@ async def change_status(ref: str, body: StatusIn, u: User = Depends(current_user
         # A send-back needs a reason; marking Lost carries its own.
         if not body.reason:
             raise HTTPException(400, f"a reason is required to send {ref} back to {nxt}")
+        # Only the FTL lines ever wait on a vendor quote — the rest are priced off
+        # Ninja's own network, so there is no vendor to wait for.
+        if nxt == "Pending Vendor" and t["service_type"] not in VENDOR_SERVICES:
+            raise HTTPException(
+                400, f"{t['service_type']} is not priced through a vendor — "
+                     f"only {' and '.join(VENDOR_SERVICES)} can wait on vendor cost")
         if nxt == "Pending PNS":
             await execute("UPDATE tickets SET resp='PNS' WHERE id=%s", (t["id"],))
         elif nxt == "Pending Sales":
@@ -790,8 +965,8 @@ async def edit_input(ref: str, body: InputPatch, u: User = Depends(current_user)
     if revenue < 0:
         raise HTTPException(400, "potential revenue cannot be negative")
     acct = body.acct_type or t["acct_type"]
-    if acct not in ("Strategic", "Non-Strategic"):
-        raise HTTPException(400, "account type must be Strategic or Non-Strategic")
+    if acct not in ACCT_TYPES:
+        raise HTTPException(400, f"account type must be one of {ACCT_TYPES}")
 
     routing_changed = (acct != t["acct_type"] or int(revenue) != int(t["potential_rev"]))
     if routing_changed:
@@ -904,6 +1079,92 @@ async def head_ack(ref: str, u: User = Depends(current_user)):
     await execute("INSERT INTO approvals (ticket_id, kind, decision, actor, actor_role) "
                   "VALUES (%s,'head_ack','approved',%s,%s)", (t["id"], u.name, u.group))
     return {"ok": True, "ref": ref, "status": nxt}
+
+
+class SignoffIn(BaseModel):
+    done: bool
+    note: str | None = None
+
+
+@app.post("/api/tickets/{ref}/exec-signoff", response_model=Ok)
+async def exec_signoff(ref: str, body: SignoffIn, u: User = Depends(current_user)):
+    """Record that Alex (CSalesO) and Dhinesh (COO) have signed off the solution.
+
+    The approval itself happens over email for now — this only records that it
+    happened, so the charter can state it and the audit trail is not a gap. Managed
+    accounts only; nothing else needs an executive sign-off."""
+    t = await get_ticket(ref)
+    if t["acct_type"] not in MANAGED_ACCTS:
+        raise HTTPException(400, f"{ref} is {t['acct_type']} — executive sign-off applies "
+                                 f"to {' and '.join(MANAGED_ACCTS)} accounts only")
+    require(u, "markReviewed")
+    await execute("UPDATE tickets SET exec_signoff=%s, exec_signoff_by=%s, "
+                  "exec_signoff_at=%s WHERE id=%s",
+                  (int(body.done), u.name if body.done else None,
+                   datetime.now() if body.done else None, t["id"]))
+    await log_note(t["id"], t["status"], u.name,
+                   ("executive sign-off recorded" if body.done
+                    else "executive sign-off withdrawn")
+                   + (f" — {body.note}" if body.note else ""))
+    await audit(u.email, "exec_signoff", "ticket", ref, "exec_signoff",
+                str(t.get("exec_signoff")), str(int(body.done)))
+    return {"ok": True, "ref": ref, "status": t["status"]}
+
+
+@app.get("/api/tickets/{ref}/signoff-draft")
+async def signoff_draft(ref: str, u: User = Depends(current_user)):
+    """A ready-to-send draft for the sign-off email PNS currently writes by hand.
+
+    Returned as text for the author to copy, edit and send from their own mailbox —
+    the app does not send it. An approval this senior should leave the building from a
+    person's own address, and PNS routinely adds context no template can guess."""
+    t = await get_ticket(ref)
+    if t["acct_type"] not in MANAGED_ACCTS:
+        raise HTTPException(400, f"{ref} is {t['acct_type']} — no executive sign-off needed")
+    row = await q("SELECT payload FROM ticket_input WHERE ticket_id=%s", (t["id"],), one=True)
+    p = {}
+    if row and row["payload"]:
+        p = row["payload"] if isinstance(row["payload"], dict) else json.loads(row["payload"])
+    pr = await q("SELECT price_url, margin_pct, discount_pct FROM pricing WHERE ticket_id=%s",
+                 (t["id"],), one=True) or {}
+
+    def line(label, value):
+        return f"{label}: {value}" if value not in (None, "", "-") else None
+
+    body = [
+        f"Subject: Solution sign-off — {t['shipper']} ({t['service_type']}) — {ref}",
+        "",
+        "Hi Alex, Dhinesh,",
+        "",
+        f"Requesting your sign-off on the solution below. {t['shipper']} is a "
+        f"{t['acct_type']} account.",
+        "",
+        *filter(None, [
+            line("Ticket", ref),
+            line("Shipper", t["shipper"]),
+            line("Account type", t["acct_type"]),
+            line("Service", t["service_type"]),
+            line("Potential revenue", f"Rp {int(t['potential_rev'] or 0):,}"),
+            line("Pickup", p.get("pickup")),
+            line("Destination", p.get("dest")),
+            line("Volume", p.get("volume")),
+            line("Frequency", p.get("freq")),
+            line("Target go-live", p.get("golive")),
+            line("Margin", f"{pr.get('margin_pct')}%" if pr.get("margin_pct") is not None else None),
+            line("Discount", f"{pr.get('discount_pct')}%" if pr.get("discount_pct") is not None else None),
+            line("Pricing sheet", pr.get("price_url")),
+        ]),
+        "",
+        "Summary of the requirement:",
+        (p.get("brief") or "(add the brief here)").strip(),
+        "",
+        "Please reply to confirm and I will record the sign-off against the ticket.",
+        "",
+        f"Thanks,\n{u.name}",
+    ]
+    return {"ref": ref, "to": ["Alex (CSalesO)", "Dhinesh (COO)"],
+            "subject": f"Solution sign-off — {t['shipper']} ({t['service_type']}) — {ref}",
+            "body": "\n".join(body)}
 
 
 class PspIn(BaseModel):

@@ -114,7 +114,12 @@ export const api = {
     call(`/users/${encodeURIComponent(email)}`, { method: "DELETE" }),
 };
 
-export const SERVICES = ["LTL", "B2BR", "B2C", "FTL on-call", "FTL monthly", "Sameday"];
+export const SERVICES = ["LTL", "B2BR", "B2C", "FTL on-call", "FTL monthly", "Sameday",
+  "Fulfillment", "Complex Logistics"];
+
+// Only the FTL lines are priced through a haulage vendor, so only they can wait on
+// vendor cost. Keep in step with VENDOR_SERVICES in the backend.
+export const FTL = ["FTL on-call", "FTL monthly"];
 
 export const STATUSES = [
   "Pending Sales", "Pending Head Review", "Pending PNS", "Pending PNS Review",

@@ -1,17 +1,20 @@
 import { Card, Head, Pill } from "../ui";
 
 const ROUTING = [
-  ["Strategic", "any service", "any revenue", "PNS", "no"],
-  ["Non-Strategic", "any service", "≥ Rp 30 Mio", "Sales", "yes — PNS reviews before it goes out"],
-  ["Non-Strategic", "FTL monthly / Sameday", "< Rp 30 Mio", "PNS", "no"],
+  ["Hypercare / Strategic", "any service", "any revenue", "PNS", "no"],
+  ["Non-Strategic", "FTL monthly / Sameday", "any revenue", "PNS", "no"],
+  ["Non-Strategic", "LTL / B2BR / B2C / FTL on-call", "≥ Rp 30 Mio", "Sales", "yes — PNS reviews before it goes out"],
   ["Non-Strategic", "LTL / B2BR / B2C / FTL on-call", "< Rp 30 Mio", "Sales", "no"],
 ];
 
+// The "Max. Discount / Min. Margin" row of each 5A Revenue & Customization table.
+// Bands are 5A's own: =< 10 Mio, 10 < x < 30 Mio, >= 30 Mio.
 const LADDER = [
-  ["< Rp 30 Mio", "Standard only", "Published rate card. No deviation.", "—"],
-  ["Rp 30–100 Mio", "Light customization", "Time slot, packaging, reporting cadence.", "PNS review"],
-  ["Rp 100–500 Mio", "Moderate", "Dedicated route, DWS handling, custom SLA.", "PNS + PSP"],
-  ["> Rp 500 Mio", "Full", "Dedicated fleet, hub space, bespoke integration.", "PNS + PSP + Head"],
+  ["LTL", "Margin ≥ 20%", "Margin ≥ 5%", "Margin ≥ 5%"],
+  ["B2BR / B2C", "Margin ≥ 20%", "Margin ≥ 10%", "Margin ≥ 10%"],
+  ["FTL on-call", "Standard rate", "Standard rate", "Manual review"],
+  ["FTL monthly", "Margin ≥ 15%", "Margin ≥ 10%", "Manual review"],
+  ["Sameday", "Discount ≤ 20%", "Discount ≤ 20%", "Discount ≤ 20%"],
 ];
 
 const OWED = [
@@ -24,10 +27,11 @@ const OWED = [
 ];
 
 const APPROVAL = [
-  ["Within rate card", "Nobody — attach and go", "—"],
-  ["Discount inside the tier", "Priced-by team", "—"],
-  ["Below product bottom rate", "Head of the team that priced it", "Pending Head Review"],
-  ["Margin needs sign-off", "PSP", "Pending PSP Approval"],
+  ["Inside the tier ceiling", "Nobody — attach and go", "—"],
+  ["Margin below the product floor", "Head of the team that priced it", "Pending Head Review"],
+  ["Sameday discount over 20%", "PSP", "Pending PSP Approval"],
+  ["Deviation on a standard-rate tier", "PSP", "Pending PSP Approval"],
+  ["Hypercare / Strategic, or a manual-review band", "PSP", "Pending PSP Approval"],
 ];
 
 function Table({ head, rows, align }) {
@@ -81,9 +85,9 @@ export default function Matrix() {
             rows={ROUTING} align={{ 4: "text-slate-600" }} />
         </Block>
 
-        <Block title="2 · How much customization the revenue buys"
-          sub="Ask for more than the tier allows and it comes back — the tier is the cap, not a target.">
-          <Table head={["Potential revenue", "Level", "What's on the table", "Sign-off"]} rows={LADDER} />
+        <Block title="2 · The pricing ceiling for the tier"
+          sub="Checked automatically when a price is attached. Hypercare and Strategic accounts are manual review at every band, whatever this table says.">
+          <Table head={["Service", "≤ Rp 10 Mio", "Rp 10–30 Mio", "≥ Rp 30 Mio"]} rows={LADDER} />
         </Block>
 
         <Block title="3 · Price approval"
@@ -99,10 +103,13 @@ export default function Matrix() {
         <Block title="5 · Known gaps"
           sub="Carried from the PRD's open dependencies — these are decisions still outstanding.">
           <ul className="list-disc space-y-1.5 px-8 py-4 text-[13px] text-slate-600">
-            <li>Sameday has no published product bottom margin, so "below bottom rate" can't be
-                checked automatically for it — the flag is manual.</li>
+            <li>Sameday has no published bottom margin. It is capped on discount instead —
+                over 20% goes to PSP rather than to a margin check.</li>
             <li>The LTL rate card is marked Commercial Head + PNS only, yet Sales prices LTL
                 under Rp 30 Mio. Access needs widening or the routing needs changing.</li>
+            <li>Sales CRM carries one "Trucking" product and cannot say whether a deal is
+                FTL on-call or FTL monthly — yet the two route differently. Imported tickets
+                land as on-call and need a human to correct them.</li>
             <li>CAPA has no revenue tier, so sections 1–3 above don't apply to it.</li>
             <li>Declared vs. DWS weights differ by roughly 20% — billing basis is still open.</li>
           </ul>

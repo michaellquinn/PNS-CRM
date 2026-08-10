@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, PENDING, LOSS_REASONS, SERVICES, rp } from "../api";
+import { api, PENDING, LOSS_REASONS, SERVICES, FTL, rp } from "../api";
 import {
   Btn, Card, Confirm, Empty, Head, Pill, PriceChip, TicketCard, inputCls, usePnsTeam,
 } from "../ui";
@@ -79,6 +79,8 @@ export function AwaitingPrice({ me, onOpen, notify }) {
   const [file, setFile] = useState({});
   const [link, setLink] = useState({});
   const [below, setBelow] = useState({});
+  const [margin, setMargin] = useState({});
+  const [disc, setDisc] = useState({});
   const [busy, setBusy] = useState(null);
   const [list, f, set, clear] = useFilter(rows, { resp: "" });
 
@@ -136,18 +138,31 @@ export function AwaitingPrice({ me, onOpen, notify }) {
             it cannot grant access. Keep cost and margin workings out of any sheet a
             shipper or Commercial will open.
           </p>
+          {/* The tier ceiling is checked against these. Leaving one blank is not a breach —
+              a standard rate card has nothing to declare — but then nothing is checked either. */}
+          <div className="mb-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <input className={inputCls} type="number" step="0.1" min="0" max="100"
+              placeholder="Margin % (leave blank if standard)"
+              value={margin[t.ref] ?? ""}
+              onChange={(e) => setMargin({ ...margin, [t.ref]: e.target.value })} />
+            <input className={inputCls} type="number" step="0.1" min="0" max="100"
+              placeholder="Discount % (leave blank if none)"
+              value={disc[t.ref] ?? ""}
+              onChange={(e) => setDisc({ ...disc, [t.ref]: e.target.value })} />
+          </div>
           <div className="flex flex-wrap items-center gap-2">
             <label className="flex items-center gap-2 rounded-lg bg-amber-50 px-3 py-1.5 text-[12.5px] font-medium text-amber-800">
               <input type="checkbox" checked={!!below[t.ref]}
                 onChange={(e) => setBelow({ ...below, [t.ref]: e.target.checked })} />
               Below bottom rate
             </label>
-            {me.permissions.vendorToggle && t.status !== "Pending Vendor" && (
+            {/* Vendor cost is an FTL-only detour — nothing else is priced through a vendor. */}
+            {me.permissions.vendorToggle && FTL.includes(t.service) && t.status !== "Pending Vendor" && (
               <Btn onClick={() => act(t.ref, () => api.status(t.ref, { status: "Pending Vendor", reason: "waiting on vendor cost" }))}>
                 Waiting vendor cost
               </Btn>
             )}
-            {me.permissions.vendorToggle && t.status === "Pending Vendor" && (
+            {me.permissions.vendorToggle && FTL.includes(t.service) && t.status === "Pending Vendor" && (
               <Btn onClick={() => act(t.ref, () => api.status(t.ref, { status: t.priced_by === "PNS" ? "Pending PNS" : "Pending Sales", reason: "vendor cost received" }))}>
                 Vendor cost received
               </Btn>
@@ -160,10 +175,13 @@ export function AwaitingPrice({ me, onOpen, notify }) {
                 const label = (file[t.ref] || "").trim();
                 if (url && !/^https?:\/\//i.test(url))
                   return notify("The link must start with http:// or https://");
+                const num = (v) => (v === "" || v == null ? null : Number(v));
                 act(t.ref, () => api.price(t.ref, {
                   // A bare link with no label still needs something to show in lists.
                   price_file: label || "Pricing spreadsheet",
                   price_url: url || null,
+                  margin_pct: num(margin[t.ref]),
+                  discount_pct: num(disc[t.ref]),
                   below_bottom: !!below[t.ref],
                 }));
               }}>
