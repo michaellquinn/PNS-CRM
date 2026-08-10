@@ -56,6 +56,9 @@ const TONE = {
   "Pending Head Review": "bg-amber-50 text-amber-700",
   "Pending PSP Approval": "bg-amber-50 text-amber-700",
   "Pending Vendor": "bg-slate-100 text-slate-600",
+  // Executive sign-off is the last gate before a proposal goes out — coloured apart
+  // from the other approvals so it reads as the end of the queue, not another step.
+  "Pending Exec Sign-off": "bg-fuchsia-50 text-fuchsia-700",
   "Proposal Submitted": "bg-teal-50 text-teal-700",
   "Proposal Accepted / Ready to Ship": "bg-emerald-50 text-emerald-700",
   Lost: "bg-rose-50 text-rose-700",

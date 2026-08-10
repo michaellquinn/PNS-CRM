@@ -5,9 +5,11 @@ import Matrix from "./screens/Matrix";
 import Capa from "./screens/Capa";
 import Users from "./screens/Users";
 import TicketDetail from "./screens/TicketDetail";
+import Workload from "./screens/Workload";
+import Mine from "./screens/Mine";
 import { NewRequest, NewCapa } from "./screens/Forms";
 import {
-  AwaitingPrice, ToReview, HeadReview, PspApprovals,
+  AwaitingPrice, ToReview, HeadReview, PspApprovals, ExecSignoff,
   Proposals, ReadyToShip, RecycleBin, Meeting,
 } from "./screens/Queues";
 
@@ -16,22 +18,27 @@ import {
 const NAV = [
   ["Solutioning", [
     { id: "dashboard", label: "Dashboard", icon: "▤" },
+    { id: "mine", label: "My requests", icon: "◐" },
     { id: "new", label: "New request", icon: "＋", when: (m) => m.permissions.createTicket },
     { id: "awaiting", label: "Awaiting price", icon: "◷", count: "awaiting" },
     { id: "review", label: "To review", icon: "◎", count: "Pending PNS Review",
       when: (m) => m.group === "PNS" || m.group === "Admin" },
-    { id: "head", label: "Need review", icon: "⚑", count: "Pending Head Review",
+    // Named for the head who actually owes it — "Need review" told nobody whose it was.
+    { id: "head", label: "Sales Head review", icon: "⚑", count: "Pending Head Review",
       when: (m) => m.permissions.headAck },
     { id: "psp", label: "Price approvals", icon: "✓", count: "Pending PSP Approval",
       when: (m) => m.group !== "Legal" },
+    { id: "signoff", label: "Exec sign-off", icon: "★", count: "Pending Exec Sign-off",
+      when: (m) => m.group === "PNS" || m.group === "Commercial" || m.group === "Admin" },
     { id: "proposals", label: "Proposal submitted", icon: "◫", count: "Proposal Submitted" },
     { id: "ship", label: "Ready to ship", icon: "➔", count: "Proposal Accepted / Ready to Ship" },
     { id: "meeting", label: "Weekly meeting", icon: "☷" },
-    { id: "detail", label: "Ticket detail", icon: "⋯" },
+    { id: "workload", label: "Workload", icon: "◴", when: (m) => m.permissions.assign },
   ]],
   ["CAPA", [
     { id: "capa-all", label: "All CAPA", icon: "▤" },
-    { id: "capa-new", label: "New", icon: "◷", when: (m) => m.group === "PNS" || m.group === "Admin" },
+    { id: "capa-new", label: "New", icon: "◷",
+      when: (m) => ["PNS", "QC", "Admin"].includes(m.group) },
     { id: "capa-submitted", label: "Submitted", icon: "◫" },
     { id: "capa-closed", label: "Closed", icon: "✓" },
     { id: "capa-raise", label: "Raise CAPA", icon: "＋", when: (m) => m.permissions.capaRaise },
@@ -171,11 +178,14 @@ export default function App() {
 
   const screens = {
     dashboard: <Dashboard me={me} onOpen={open} />,
+    mine: <Mine me={me} onOpen={open} />,
+    workload: <Workload />,
     new: <NewRequest me={me} notify={notify} onCreated={open} />,
     awaiting: <AwaitingPrice me={me} notify={notify} onOpen={open} />,
     review: <ToReview me={me} notify={notify} onOpen={open} />,
     head: <HeadReview me={me} notify={notify} onOpen={open} />,
     psp: <PspApprovals me={me} notify={notify} onOpen={open} />,
+    signoff: <ExecSignoff me={me} notify={notify} onOpen={open} />,
     proposals: <Proposals me={me} notify={notify} onOpen={open} />,
     ship: <ReadyToShip onOpen={open} />,
     meeting: <Meeting onOpen={open} />,

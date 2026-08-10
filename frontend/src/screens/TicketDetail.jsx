@@ -66,6 +66,7 @@ export default function TicketDetail({ ticketRef: initialRef, me, notify, onBack
   const [qCount, setQCount] = useState(null);
   const [fCount, setFCount] = useState(0);
   const [photos, setPhotos] = useState([]);
+  const [sending, setSending] = useState(false);
   const opts = useOptions();
   const team = usePnsTeam();
 
@@ -149,6 +150,21 @@ export default function TicketDetail({ ticketRef: initialRef, me, notify, onBack
         ? "Charter copied — paste into your email and the table comes with it"
         : "Charter copied");
     } catch (e) { notify(e.message); }
+  };
+
+  // Publishing the charter is the app doing what PNS used to do by hand in Gmail. The
+  // server renders and sends it so the record of who received it lives with the ticket.
+  const sendCharter = async () => {
+    if (!window.confirm(
+      `Email the Project Charter for ${t.shipper} to Legal, Sales Admin and ${t.sales || "the sales PIC"}?`))
+      return;
+    setSending(true);
+    try {
+      await api.sendCharter(ref);
+      notify("Charter sent");
+      await load();
+    } catch (e) { notify(e.message); }
+    finally { setSending(false); }
   };
 
   const openQ = qCount ?? t.open_questions;
@@ -264,7 +280,17 @@ export default function TicketDetail({ ticketRef: initialRef, me, notify, onBack
                   Generated from the intake. {d.input_cleared ? "Input cleared." : "Input not yet cleared."}
                   {" "}Price only — the charter never carries cost or margin.
                 </p>
-                <Btn onClick={copyCharter}>Copy for email</Btn>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Btn onClick={copyCharter}>Copy for email</Btn>
+                  {/* Publishing is gated on the intake being cleared: the charter is the
+                      official record and Legal will act on whatever it says, gaps included. */}
+                  {me.permissions.markReviewed && (
+                    <Btn kind="primary" disabled={!d.input_cleared || sending}
+                      onClick={sendCharter}>
+                      {sending ? "Sending…" : "Send to Legal & Sales Admin"}
+                    </Btn>
+                  )}
+                </div>
               </div>
               {SECTIONS.map(([label, fields]) => (
                 <div key={label} className="mb-5 last:mb-0">

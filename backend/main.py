@@ -95,7 +95,8 @@ SYNC_OWNER_EMAIL = os.getenv("SYNC_OWNER_EMAIL", "baskoro.nugroho@ninjavan.co").
 LOSS_REASONS = ["pricing", "shipper", "solution", "ops", "no_vendor", "billing", "pns"]
 AWAIT_STATUSES = ("Pending Sales", "Pending PNS", "Pending Vendor")
 PENDING_STATUSES = ["Pending Sales", "Pending PNS", "Pending PNS Review",
-                    "Pending Head Review", "Pending PSP Approval", "Pending Vendor"]
+                    "Pending Head Review", "Pending PSP Approval", "Pending Vendor",
+                    "Pending Exec Sign-off"]
 # Fields the intake keeps as free text but remembers: the dropdown would otherwise have
 # to predict every commodity Ninja ever carries (a shipper turned up with medicine).
 REMEMBERED_FIELDS = ["commodity", "product", "pallet", "destType", "truck", "freq"]
@@ -287,8 +288,23 @@ def needs_pns_review(t: dict) -> bool:
 
 
 def head_for(t: dict) -> str:
-    """Below the bottom rate, the head of whichever team priced it acknowledges."""
-    return "PNS" if t.get("resp") == "PNS" else "Commercial"
+    """Who acknowledges a price below the product floor: always the Sales Head.
+
+    It used to be the head of whichever team priced it, which meant PNS reviewed its own
+    discount. Sales owns the commercial concession regardless of who typed the number,
+    so the acknowledgement sits with them."""
+    return "Commercial"
+
+
+def proposal_or_signoff(t: dict) -> str:
+    """Where a fully-approved ticket goes next.
+
+    Hypercare and Strategic solutions need Alex (CSalesO) and Dhinesh (COO). That is the
+    *last* gate — it runs after PSP and the Sales Head have cleared, never instead of
+    them — so every other approval still has to happen first."""
+    if t.get("acct_type") in MANAGED_ACCTS and not t.get("exec_signoff"):
+        return "Pending Exec Sign-off"
+    return "Proposal Submitted"
 
 
 # ------------------------------------------------------------------ identity
@@ -301,7 +317,7 @@ class User(BaseModel):
     sso: bool = False        # True when identity came from the proxy, not DEV_USER_EMAIL
 
 
-ROLE_GROUPS = ["Commercial", "PNS", "PSP", "Legal", "CSO", "Admin"]
+ROLE_GROUPS = ["Commercial", "PNS", "PSP", "Legal", "CSO", "QC", "Admin"]
 ROLE_LEVELS = ["staff", "head"]
 TEAMS = ["Team1", "Team2"]
 
@@ -356,14 +372,20 @@ def can(u: User, action: str, t: dict | None = None) -> bool:
         "setSales":         com_head,
         "reopen":           com_head,
         "pspDecide":        u.group == "PSP" or admin,
+        # Standing delegation so an absent PSP cannot stall the pipeline. Used through
+        # the same endpoint, recorded as an override — see psp_decide.
+        "pspOverride":      pns_head,
         "vendorToggle":     u.group == "PNS" or admin,
         "sendToPsp":        u.group in ("PNS", "Commercial") or admin,
         "acceptProposal":   u.group == "Commercial" or admin,
         "sendBackProposal": u.group in ("Commercial", "PNS") or admin,
         "seeMargin":        u.group in ("PNS", "PSP", "CSO") or admin,
-        "capaRaise":        u.group == "Commercial" or admin,
-        "capaClose":        u.group == "Commercial" or admin,
-        "capaSubmit":       u.group == "PNS" or admin,
+        # CAPA is the QC team's process. Commercial can still raise one — they hear the
+        # complaint first — and PNS still writes the proposal, but QC decides when it is
+        # actually closed, which is the part that makes it theirs.
+        "capaRaise":        u.group in ("Commercial", "QC") or admin,
+        "capaClose":        u.group == "QC" or admin,
+        "capaSubmit":       u.group in ("PNS", "QC") or admin,
         # Registering people and setting roles: the PNS Admin and the PNS Head, as
         # agreed. Granting the Admin group itself is narrower — see grant_admin.
         "manageUsers":      pns_head,     # pns_head already includes Admin
@@ -1047,9 +1069,13 @@ async def submit_price(ref: str, body: PriceIn, u: User = Depends(current_user))
         await notify(f"{ref} — priced by Sales, needs PNS review",
                      roles=["PNS - Head"], groups=["PNS"], ticket_ref=ref)
     else:
-        nxt, note = "Proposal Submitted", ""
-        await notify(f"{ref} — {t['shipper']}: proposal is ready",
-                     groups=["Commercial"], ticket_ref=ref)
+        nxt, note = proposal_or_signoff(t), ""
+        if nxt == "Pending Exec Sign-off":
+            await notify(f"{ref} — {t['shipper']} ({t['acct_type']}): priced and awaiting "
+                         f"Alex and Dhinesh sign-off", groups=["PNS"], ticket_ref=ref)
+        else:
+            await notify(f"{ref} — {t['shipper']}: proposal is ready",
+                         groups=["Commercial"], ticket_ref=ref)
 
     await log_status(t["id"], nxt, u.name, note)
     await audit(u.email, "price", "ticket", ref, "price_file", None, body.price_file)
@@ -1282,12 +1308,166 @@ async def reopen(ref: str, body: ReopenIn, u: User = Depends(current_user)):
 @app.post("/api/tickets/{ref}/head-ack", response_model=Ok)
 async def head_ack(ref: str, u: User = Depends(current_user)):
     t = await get_ticket(ref)
-    require(u, "headAck", t)   # the head of the team that priced it — not the other one
-    nxt = "Pending PNS Review" if needs_pns_review(t) else "Proposal Submitted"
+    require(u, "headAck", t)   # the Sales Head — Sales owns the commercial concession
+    nxt = "Pending PNS Review" if needs_pns_review(t) else proposal_or_signoff(t)
     await log_status(t["id"], nxt, u.name, "below bottom rate acknowledged")
     await execute("INSERT INTO approvals (ticket_id, kind, decision, actor, actor_role) "
                   "VALUES (%s,'head_ack','approved',%s,%s)", (t["id"], u.name, u.group))
     return {"ok": True, "ref": ref, "status": nxt}
+
+
+# The Project Charter field map. This mirrors SECTIONS in frontend/src/screens/
+# TicketDetail.jsx — the screen renders its own copy for display and copy-to-clipboard,
+# and this one is what gets emailed. Keep the two in step: a charter that reads
+# differently depending on whether it was pasted or sent is worse than either alone.
+CHARTER_SECTIONS = [
+    ("1 · Shipper profile", [
+        ("shipper", "Shipper name"), ("shipperStatus", "Status"), ("brief", "Brief summary"),
+        ("shipperPic", "Shipper PIC"), ("shipperContact", "Contact shipper PIC"),
+        ("invPic", "Invoicing PIC"), ("invContact", "Contact invoicing PIC"),
+        ("invAddr", "Invoicing address"), ("pickPic", "Pickup PIC"),
+        ("pickContact", "Contact pickup PIC"), ("pickup", "Pickup address"),
+        ("dest", "Destination"), ("freq", "Shipment frequency"), ("volume", "Shipment volume"),
+        ("pickSlot", "Pickup time"), ("pickWait", "Pickup waiting time"),
+        ("delSlot", "Delivery time"), ("delWait", "Delivery waiting time"),
+        ("sfid", "Salesforce Opportunity ID"), ("globalId", "Global ID"), ("jiraId", "Jira ID"),
+    ]),
+    ("2 · Cargo knowledge", [
+        ("commodity", "Product"), ("product", "Specific product"), ("dim", "Dimension"),
+        ("wt", "Weight (kg)"), ("pallet", "Palletized"),
+    ]),
+    ("3 · Ninja's service", [
+        ("destType", "Delivery destination type"), ("sla", "SLA"), ("mps", "MPS"),
+        ("rdo", "RDO"), ("cod", "COD"), ("tkbmO", "TKBM origin"), ("tkbmD", "TKBM destination"),
+        ("ins", "Insurance"), ("truck", "Vehicle request"), ("golive", "Go live"),
+        ("handling", "Custom handling request"), ("notes", "Notes"),
+    ]),
+]
+CHARTER_HOURS = ("pickWait", "delWait")
+
+_CS = {
+    "table": "border-collapse:collapse;width:100%;max-width:760px;font-family:Arial,Helvetica,"
+             "sans-serif;font-size:13px;color:#111827",
+    "section": "background:#f1f5f9;font-weight:bold;font-size:12px;letter-spacing:.4px;"
+               "text-transform:uppercase;color:#334155;padding:8px 10px;border:1px solid #cbd5e1",
+    "label": "width:34%;background:#f8fafc;padding:7px 10px;border:1px solid #e2e8f0;"
+             "vertical-align:top;color:#475569",
+    "value": "padding:7px 10px;border:1px solid #e2e8f0;vertical-align:top",
+}
+
+
+def _charter_value(key: str, raw) -> str:
+    """Waiting time is the one field where blank is an answer, not a gap: 'None' means
+    the driver does not wait, which is a costed fact."""
+    s = str(raw if raw is not None else "").strip()
+    if key in CHARTER_HOURS:
+        return "None" if s == "" else f"{s} hour{'' if s == '1' else 's'}"
+    return s
+
+
+def render_charter(t: dict, inp: dict, extras: list[tuple[str, str]]) -> tuple[str, str]:
+    """Build the charter as (html, plain text). No cost, no margin — ever."""
+    esc = lambda v: (str(v if v is not None else "").replace("&", "&amp;")
+                     .replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;"))
+    rp = lambda n: "Rp " + f"{int(n or 0):,}".replace(",", ".")
+
+    head = [("Ticket", t["ticket_ref"]), ("Shipper", t["shipper"]),
+            ("Account type", t["acct_type"]), ("Service", t["service_type"]),
+            ("Potential revenue", rp(t["potential_rev"])), ("Region", t.get("region") or "—"),
+            ("Status", t["status"]), ("Submitted", str(t["submitted_on"])),
+            ("Sales PIC", t.get("sales_name") or "—"),
+            ("PNS owner", t.get("owner_name") or "unassigned")]
+
+    rows, text = [], [f"PROJECT CHARTER — {t['shipper']}",
+                      f"{t['ticket_ref']} · {t['service_type']} · {rp(t['potential_rev'])}", ""]
+    rows.append(f'<tr><td colspan="2" style="{_CS["section"]}">Ticket</td></tr>')
+    text.append("TICKET")
+    for label, value in head:
+        rows.append(f'<tr><td style="{_CS["label"]}">{esc(label)}</td>'
+                    f'<td style="{_CS["value"]}">{esc(value)}</td></tr>')
+        text.append(f"{label:<28}: {value}")
+
+    for section, fields in CHARTER_SECTIONS:
+        rows.append(f'<tr><td colspan="2" style="{_CS["section"]}">{esc(section)}</td></tr>')
+        text += ["", section.upper()]
+        for key, label in fields:
+            v = _charter_value(key, inp.get(key))
+            cell = esc(v).replace("\n", "<br>") if v else "&mdash;"
+            rows.append(f'<tr><td style="{_CS["label"]}">{esc(label)}</td>'
+                        f'<td style="{_CS["value"]}">{cell}</td></tr>')
+            text.append(f"{label:<28}: {v or '—'}")
+
+    for label, value in extras:
+        rows.append(f'<tr><td style="{_CS["label"]}">{esc(label)}</td>'
+                    f'<td style="{_CS["value"]}">{esc(value)}</td></tr>')
+        text.append(f"{label:<28}: {value}")
+
+    html = (f'<div><p style="font-family:Arial,Helvetica,sans-serif;font-size:17px;'
+            f'font-weight:bold;margin:0 0 2px">Project Charter &mdash; {esc(t["shipper"])}</p>'
+            f'<p style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#64748b;'
+            f'margin:0 0 14px">{esc(t["ticket_ref"])} &middot; {esc(t["service_type"])} '
+            f'&middot; {esc(rp(t["potential_rev"]))}</p>'
+            f'<table style="{_CS["table"]}" cellspacing="0" cellpadding="0"><tbody>'
+            f'{"".join(rows)}</tbody></table>'
+            f'<p style="font-family:Arial,Helvetica,sans-serif;font-size:11px;color:#94a3b8;'
+            f'margin:14px 0 0">Sent from Ninja PNS. Price only &mdash; this charter carries '
+            f'no cost or margin.</p></div>')
+    text += ["", "Price only — this charter carries no cost or margin."]
+    return html, "\n".join(text)
+
+
+class CharterSend(BaseModel):
+    to: list[str] = []            # extra addresses beyond Legal and the sales PIC
+    note: str | None = None
+
+
+@app.post("/api/tickets/{ref}/charter/send", response_model=Ok)
+async def send_charter(ref: str, body: CharterSend, u: User = Depends(current_user)):
+    """Publish the Project Charter by email to Legal, Sales Admin and the sales PIC.
+
+    Only once PNS has cleared the intake: the charter is the official record, and one
+    sent with gaps in it is what Legal and Sales Admin will act on regardless."""
+    require(u, "markReviewed")
+    t = await get_ticket(ref)
+    if not email_configured():
+        raise HTTPException(503, "email is not configured on this deployment — "
+                                 "use Copy for email on the ticket instead")
+    row = await q("SELECT payload, cleared_at FROM ticket_input WHERE ticket_id=%s",
+                  (t["id"],), one=True)
+    if not row or not row["cleared_at"]:
+        raise HTTPException(409, f"{ref} has not been cleared yet — clear the intake first, "
+                                 f"the charter is the official record and cannot go out with gaps")
+    inp = row["payload"] if isinstance(row["payload"], dict) else json.loads(row["payload"] or "{}")
+
+    pr = await q("SELECT price_file, price_url FROM pricing WHERE ticket_id=%s",
+                 (t["id"],), one=True) or {}
+    extras = [(k, v) for k, v in (("Pricing", pr.get("price_file")),
+                                  ("Rate card link", pr.get("price_url"))) if v]
+    if t.get("exec_signoff"):
+        extras.append(("Executive sign-off", f"recorded by {t.get('exec_signoff_by')}"))
+
+    # Legal and Sales Admin consume the charter; the sales PIC is copied because they
+    # own the shipper conversation that follows it.
+    legal = await q("SELECT email FROM users WHERE role_group IN ('Legal','CSO') AND active=1")
+    to = {r["email"] for r in legal} | set(body.to or [])
+    if t.get("sales_email"):
+        to.add(t["sales_email"])
+    to.discard("")
+    if not to:
+        raise HTTPException(400, "nobody to send to — register Legal users or pass addresses")
+
+    html, text = render_charter(t, inp, extras)
+    if body.note:
+        html = f'<p style="font-family:Arial,Helvetica,sans-serif;font-size:13px">' \
+               f'{body.note}</p>' + html
+        text = body.note + "\n\n" + text
+    subject = f"Project Charter - {t['shipper']}"
+    await asyncio.to_thread(_send_sync, sorted(to), subject, text, html)
+
+    await log_note(t["id"], t["status"], u.name,
+                   f"charter emailed to {len(to)} recipient{'' if len(to) == 1 else 's'}")
+    await audit(u.email, "charter_sent", "ticket", ref, "recipients", None, ",".join(sorted(to)))
+    return {"ok": True, "ref": ref, "status": t["status"]}
 
 
 class SignoffIn(BaseModel):
@@ -1311,13 +1491,22 @@ async def exec_signoff(ref: str, body: SignoffIn, u: User = Depends(current_user
                   "exec_signoff_at=%s WHERE id=%s",
                   (int(body.done), u.name if body.done else None,
                    datetime.now() if body.done else None, t["id"]))
-    await log_note(t["id"], t["status"], u.name,
-                   ("executive sign-off recorded" if body.done
-                    else "executive sign-off withdrawn")
-                   + (f" — {body.note}" if body.note else ""))
+
+    note = ("executive sign-off recorded" if body.done else "executive sign-off withdrawn") \
+        + (f" — {body.note}" if body.note else "")
+    status = t["status"]
+    if body.done and status == "Pending Exec Sign-off":
+        # This was the last gate, so recording it releases the proposal.
+        status = "Proposal Submitted"
+        await log_status(t["id"], status, u.name, note)
+        await notify(f"{ref} — {t['shipper']}: signed off by Alex and Dhinesh, proposal is ready",
+                     groups=["Commercial"], ticket_ref=ref)
+    else:
+        await log_note(t["id"], status, u.name, note)
+
     await audit(u.email, "exec_signoff", "ticket", ref, "exec_signoff",
                 str(t.get("exec_signoff")), str(int(body.done)))
-    return {"ok": True, "ref": ref, "status": t["status"]}
+    return {"ok": True, "ref": ref, "status": status}
 
 
 @app.get("/api/tickets/{ref}/signoff-draft")
@@ -1383,18 +1572,33 @@ class PspIn(BaseModel):
 
 @app.post("/api/tickets/{ref}/psp", response_model=Ok)
 async def psp_decide(ref: str, body: PspIn, u: User = Depends(current_user)):
-    require(u, "pspDecide")
     t = await get_ticket(ref)
+    # PSP being unavailable should not stall a deal, so the PNS Head may decide in their
+    # place — but a note is mandatory and the record says it was an override, so how
+    # often this happens stays visible instead of quietly becoming the norm.
+    on_behalf = not can(u, "pspDecide")
+    if on_behalf:
+        require(u, "pspOverride")
+        if not body.note:
+            raise HTTPException(
+                400, "a note is required when PNS approves in PSP's place — say why PSP "
+                     "could not decide and what you relied on")
+    else:
+        require(u, "pspDecide")
+
     if body.approve:
-        nxt = "Proposal Submitted"
+        nxt = proposal_or_signoff(t)
     else:
         if not body.note:
             raise HTTPException(400, "a note is required to reject a price")
         nxt = pending_for(t["resp"])
-    await log_status(t["id"], nxt, "PSP", body.note or "price approved")
+    actor_role = f"{u.group} (on behalf of PSP)" if on_behalf else "PSP"
+    await log_status(t["id"], nxt, u.name if on_behalf else "PSP",
+                     (body.note or "price approved") + (" [PSP override]" if on_behalf else ""))
     await execute("INSERT INTO approvals (ticket_id, kind, decision, actor, actor_role, note) "
-                  "VALUES (%s,'psp',%s,%s,'PSP',%s)",
-                  (t["id"], "approved" if body.approve else "rejected", u.name, body.note))
+                  "VALUES (%s,'psp',%s,%s,%s,%s)",
+                  (t["id"], "approved" if body.approve else "rejected", u.name,
+                   actor_role[:30], body.note))
     await notify(f"{ref} — PSP {'approved' if body.approve else 'rejected'} the price"
                  f"{': ' + body.note if body.note else ''}",
                  groups=[t["resp"] == "PNS" and "PNS" or "Commercial"], ticket_ref=ref)

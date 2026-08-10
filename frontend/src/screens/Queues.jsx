@@ -299,20 +299,84 @@ export function PspApprovals({ me, onOpen, notify }) {
           {t.margin != null && (
             <p className="mb-3 text-[13px]">Margin: <b className="font-mono">{t.margin}%</b></p>
           )}
-          {me.permissions.pspDecide ? (
-            <div className="flex flex-wrap items-center gap-2">
-              <input className={`${inputCls} max-w-[320px]`} placeholder="Note (required to reject)"
-                value={note[t.ref] || ""} onChange={(e) => setNote({ ...note, [t.ref]: e.target.value })} />
-              <Btn kind="danger" onClick={() => act(() => api.psp(t.ref, { approve: false, note: note[t.ref] }))}>
-                Reject
-              </Btn>
-              <Btn kind="primary" className="ml-auto" onClick={() => act(() => api.psp(t.ref, { approve: true }))}>
-                Approve price
-              </Btn>
-            </div>
+          {me.permissions.pspDecide || me.permissions.pspOverride ? (
+            <>
+              {!me.permissions.pspDecide && (
+                <p className="mb-2 rounded-lg bg-amber-50 px-3 py-2 text-[12.5px] text-amber-800">
+                  You are deciding in PSP&apos;s place. A note is required and the approval
+                  is recorded as an override, not as a PSP decision.
+                </p>
+              )}
+              <div className="flex flex-wrap items-center gap-2">
+                <input className={`${inputCls} max-w-[320px]`}
+                  placeholder={me.permissions.pspDecide
+                    ? "Note (required to reject)"
+                    : "Why PSP could not decide (required)"}
+                  value={note[t.ref] || ""} onChange={(e) => setNote({ ...note, [t.ref]: e.target.value })} />
+                <Btn kind="danger" onClick={() => act(() => api.psp(t.ref, { approve: false, note: note[t.ref] }))}>
+                  Reject
+                </Btn>
+                <Btn kind="primary" className="ml-auto"
+                  onClick={() => act(() => api.psp(t.ref, { approve: true, note: note[t.ref] }))}>
+                  {me.permissions.pspDecide ? "Approve price" : "Approve on behalf of PSP"}
+                </Btn>
+              </div>
+            </>
           ) : (
             <p className="text-[12.5px] text-slate-500">Only PSP can approve or reject here.</p>
           )}
+        </TicketCard>
+      ))}
+    </Shell>
+  );
+}
+
+/* ---------------------------------------------------------------- exec sign-off */
+// The last gate. Alex and Dhinesh sign off over email; this screen records that it
+// happened and releases the proposal. The draft button exists because writing that
+// email by hand, per ticket, is the job this app is meant to remove.
+export function ExecSignoff({ me, onOpen, notify }) {
+  const [rows, err, reload] = useTickets({ status: "Pending Exec Sign-off" });
+  const [note, setNote] = useState({});
+  const [draft, setDraft] = useState({});
+  const act = async (fn) => { try { await fn(); notify("Done"); await reload(); } catch (e) { notify(e.message); } };
+
+  const showDraft = async (ref) => {
+    try {
+      const d = await api.signoffDraft(ref);
+      setDraft({ ...draft, [ref]: d.body });
+    } catch (e) { notify(e.message); }
+  };
+
+  return (
+    <Shell title="Executive sign-off"
+      sub="Hypercare and Strategic solutions need Alex (CSalesO) and Dhinesh (COO). Every other approval has already cleared — this is the last gate before the proposal goes out."
+      rows={rows} err={err} empty="Nothing awaiting executive sign-off.">
+      {(list) => list.map((t) => (
+        <TicketCard key={t.ref} t={t} onOpen={onOpen}>
+          <div className="mb-3 flex flex-wrap items-center gap-2 text-[13px]">
+            <Pill tone="bg-fuchsia-50 text-fuchsia-700">{t.acct_type}</Pill>
+            {(t.price_file || t.price_url) && <PriceChip file={t.price_file} url={t.price_url} />}
+          </div>
+          {draft[t.ref] && (
+            <textarea readOnly rows={12}
+              className="mb-3 w-full rounded-lg border border-slate-300 bg-slate-50 p-3 font-mono text-[12px]"
+              value={draft[t.ref]}
+              onFocus={(e) => e.target.select()} />
+          )}
+          <div className="flex flex-wrap items-center gap-2">
+            <Btn onClick={() => showDraft(t.ref)}>
+              {draft[t.ref] ? "Refresh draft" : "Draft the email"}
+            </Btn>
+            <input className={`${inputCls} max-w-[300px]`} placeholder="Note (optional)"
+              value={note[t.ref] || ""} onChange={(e) => setNote({ ...note, [t.ref]: e.target.value })} />
+            {me.permissions.markReviewed && (
+              <Btn kind="primary" className="ml-auto"
+                onClick={() => act(() => api.execSignoff(t.ref, { done: true, note: note[t.ref] }))}>
+                Record sign-off
+              </Btn>
+            )}
+          </div>
         </TicketCard>
       ))}
     </Shell>

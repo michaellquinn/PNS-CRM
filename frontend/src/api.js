@@ -71,6 +71,13 @@ export const api = {
   reopen: (ref, status) => call(`/tickets/${ref}/reopen`, { method: "POST", body: JSON.stringify({ status }) }),
   headAck: (ref) => call(`/tickets/${ref}/head-ack`, { method: "POST" }),
   psp: (ref, body) => call(`/tickets/${ref}/psp`, { method: "POST", body: JSON.stringify(body) }),
+  execSignoff: (ref, body) =>
+    call(`/tickets/${ref}/exec-signoff`, { method: "POST", body: JSON.stringify(body) }),
+  signoffDraft: (ref) => call(`/tickets/${encodeURIComponent(ref)}/signoff-draft`),
+  sendCharter: (ref, body) =>
+    call(`/tickets/${encodeURIComponent(ref)}/charter/send`,
+      { method: "POST", body: JSON.stringify(body || {}) }),
+  workload: () => call("/workload"),
   remove: (ref) => call(`/tickets/${ref}`, { method: "DELETE" }),
   restore: (ref) => call(`/tickets/${ref}/restore`, { method: "POST" }),
   purge: (ref) => call(`/tickets/${ref}/purge`, { method: "DELETE" }),
@@ -133,7 +140,7 @@ export const FTL = ["FTL on-call", "FTL monthly"];
 
 export const STATUSES = [
   "Pending Sales", "Pending Head Review", "Pending PNS", "Pending PNS Review",
-  "Pending PSP Approval", "Pending Vendor", "Proposal Submitted",
+  "Pending PSP Approval", "Pending Vendor", "Pending Exec Sign-off", "Proposal Submitted",
   "Proposal Accepted / Ready to Ship", "Lost", "Cancel",
 ];
 
