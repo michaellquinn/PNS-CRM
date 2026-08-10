@@ -25,7 +25,7 @@ const ENTRIES = [
     by: "Baskoro + Claude",
     changes: [
       "Three routes reach PSP on the rule itself: a Sameday discount over 20 percent, either FTL line at or above Rp 30 Mio, and any Hypercare or Strategic account.",
-      "The discretionary routes are gated instead. A below-bottom price the Sales Head has acknowledged, and the optional Escalate to PSP checkbox, only continue to PSP where Alex (CSalesO) has granted an exception.",
+      "The discretionary routes are gated instead. A below-bottom price the Sales Head has acknowledged, and the optional Escalate to PSP checkbox, only continue to PSP where Alex (CSO) has granted an exception.",
       "Strategic and Hypercare carry that exception by being managed. Any other ticket needs the PNS Head to open it, recording what Alex granted and where. The note is mandatory.",
       "A below-bottom price on a ticket with no exception now ends with the Sales Head, who is the sign-off rather than a step on the way to PSP.",
     ],

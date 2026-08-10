@@ -416,7 +416,7 @@ export function ExecSignoff({ me, onOpen, notify }) {
 
   return (
     <Shell title="Executive sign-off"
-      sub="Hypercare and Strategic solutions need Alex (CSalesO) and Dhinesh (COO). Every other approval has already cleared; this is the last gate before the proposal goes out."
+      sub="Hypercare and Strategic solutions need Alex (CSO) and Dhinesh (COO). Every other approval has already cleared; this is the last gate before the proposal goes out."
       rows={rows} err={err} empty="Nothing awaiting executive sign-off.">
       {(list) => list.map((t) => (
         <TicketCard key={t.ref} t={t} onOpen={onOpen}>

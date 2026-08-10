@@ -335,7 +335,7 @@ def may_go_to_psp(t: dict) -> bool:
     someone chooses to involve PSP: the optional escalation, and a below-bottom margin
     the Sales Head has just acknowledged.
 
-    There, PSP takes only what Alex (CSalesO) has granted an exception for. Strategic and
+    There, PSP takes only what Alex (CSO) has granted an exception for. Strategic and
     Hypercare carry that exception by being managed; anything else needs the PNS Head to
     have recorded that Alex granted it verbatim. Otherwise a below-bottom LTL deal at
     8 Mio lands in PSP's queue, which is not what PSP is for."""
@@ -345,7 +345,7 @@ def may_go_to_psp(t: dict) -> bool:
 def proposal_or_signoff(t: dict) -> str:
     """Where a fully-approved ticket goes next.
 
-    Hypercare and Strategic solutions need Alex (CSalesO) and Dhinesh (COO). That is the
+    Hypercare and Strategic solutions need Alex (CSO) and Dhinesh (COO). That is the
     *last* gate, it runs after PSP and the Sales Head have cleared, never instead of
     them, so every other approval still has to happen first."""
     if t.get("acct_type") in MANAGED_ACCTS and not t.get("exec_signoff"):
@@ -2209,7 +2209,7 @@ class SignoffIn(BaseModel):
 
 @app.post("/api/tickets/{ref}/exec-signoff", response_model=Ok)
 async def exec_signoff(ref: str, body: SignoffIn, u: User = Depends(current_user)):
-    """Record that Alex (CSalesO) and Dhinesh (COO) have signed off the solution.
+    """Record that Alex (CSO) and Dhinesh (COO) have signed off the solution.
 
     The approval itself happens over email for now, this only records that it
     happened, so the charter can state it and the audit trail is not a gap. Managed
@@ -2292,7 +2292,7 @@ async def signoff_draft(ref: str, u: User = Depends(current_user)):
         "",
         f"Thanks,\n{u.name}",
     ]
-    return {"ref": ref, "to": ["Alex (CSalesO)", "Dhinesh (COO)"],
+    return {"ref": ref, "to": ["Alex (CSO)", "Dhinesh (COO)"],
             "subject": f"Solution sign-off, {t['shipper']} ({t['service_type']}), {ref}",
             "body": "\n".join(body)}
 
