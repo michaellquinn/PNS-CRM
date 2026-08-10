@@ -7,6 +7,7 @@ import Users from "./screens/Users";
 import TicketDetail from "./screens/TicketDetail";
 import Workload from "./screens/Workload";
 import Mine from "./screens/Mine";
+import Sync from "./screens/Sync";
 import { NewRequest, NewCapa } from "./screens/Forms";
 import {
   AwaitingPrice, ToReview, HeadReview, PspApprovals, ExecSignoff,
@@ -15,32 +16,41 @@ import {
 
 // One nav entry per screen. `when` reads the permission map the backend sends, so the
 // sidebar and the API agree on who may do what — there is no second rule set here.
+
+// Legal, Finance, Sales Planning and Visitor consume the pipeline rather than working
+// it. They get the reference and reporting screens; the action queues would only show
+// them buttons the backend refuses anyway.
+const READ_ONLY = ["Legal", "Finance", "Sales Planning", "Visitor"];
+const works = (m) => !READ_ONLY.includes(m.group);
+
 const NAV = [
   ["Solutioning", [
     { id: "dashboard", label: "Dashboard", icon: "▤" },
-    { id: "mine", label: "My requests", icon: "◐" },
+    { id: "mine", label: "My requests", icon: "◐", when: works },
     { id: "new", label: "New request", icon: "＋", when: (m) => m.permissions.createTicket },
-    { id: "awaiting", label: "Awaiting price", icon: "◷", count: "awaiting" },
+    { id: "awaiting", label: "Awaiting price", icon: "◷", count: "awaiting", when: works },
     { id: "review", label: "To review", icon: "◎", count: "Pending PNS Review",
       when: (m) => m.group === "PNS" || m.group === "Admin" },
     // Named for the head who actually owes it — "Need review" told nobody whose it was.
     { id: "head", label: "Sales Head review", icon: "⚑", count: "Pending Head Review",
       when: (m) => m.permissions.headAck },
     { id: "psp", label: "Price approvals", icon: "✓", count: "Pending PSP Approval",
-      when: (m) => m.group !== "Legal" },
+      when: (m) => m.permissions.pspDecide || m.permissions.pspOverride || m.permissions.sendToPsp },
     { id: "signoff", label: "Exec sign-off", icon: "★", count: "Pending Exec Sign-off",
       when: (m) => m.group === "PNS" || m.group === "Commercial" || m.group === "Admin" },
-    { id: "proposals", label: "Proposal submitted", icon: "◫", count: "Proposal Submitted" },
+    { id: "proposals", label: "Proposal submitted", icon: "◫", count: "Proposal Submitted",
+      when: works },
     { id: "ship", label: "Ready to ship", icon: "➔", count: "Proposal Accepted / Ready to Ship" },
-    { id: "meeting", label: "Weekly meeting", icon: "☷" },
+    { id: "meeting", label: "Weekly meeting", icon: "☷", when: works },
     { id: "workload", label: "Workload", icon: "◴", when: (m) => m.permissions.assign },
+    { id: "sync", label: "Sales CRM sync", icon: "⇄", when: (m) => m.permissions.syncSalesCrm },
   ]],
   ["CAPA", [
-    { id: "capa-all", label: "All CAPA", icon: "▤" },
+    { id: "capa-all", label: "All CAPA", icon: "▤", when: works },
     { id: "capa-new", label: "New", icon: "◷",
       when: (m) => ["PNS", "QC", "Admin"].includes(m.group) },
-    { id: "capa-submitted", label: "Submitted", icon: "◫" },
-    { id: "capa-closed", label: "Closed", icon: "✓" },
+    { id: "capa-submitted", label: "Submitted", icon: "◫", when: works },
+    { id: "capa-closed", label: "Closed", icon: "✓", when: works },
     { id: "capa-raise", label: "Raise CAPA", icon: "＋", when: (m) => m.permissions.capaRaise },
   ]],
   ["Reference", [
@@ -180,6 +190,7 @@ export default function App() {
     dashboard: <Dashboard me={me} onOpen={open} />,
     mine: <Mine me={me} onOpen={open} />,
     workload: <Workload />,
+    sync: <Sync notify={notify} />,
     new: <NewRequest me={me} notify={notify} onCreated={open} />,
     awaiting: <AwaitingPrice me={me} notify={notify} onOpen={open} />,
     review: <ToReview me={me} notify={notify} onOpen={open} />,

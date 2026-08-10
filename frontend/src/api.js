@@ -78,6 +78,8 @@ export const api = {
     call(`/tickets/${encodeURIComponent(ref)}/charter/send`,
       { method: "POST", body: JSON.stringify(body || {}) }),
   workload: () => call("/workload"),
+  syncSalesCrm: (body) =>
+    call("/sync/salescrm", { method: "POST", body: JSON.stringify(body || {}) }),
   remove: (ref) => call(`/tickets/${ref}`, { method: "DELETE" }),
   restore: (ref) => call(`/tickets/${ref}/restore`, { method: "POST" }),
   purge: (ref) => call(`/tickets/${ref}/purge`, { method: "DELETE" }),
