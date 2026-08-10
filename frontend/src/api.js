@@ -83,6 +83,8 @@ export const api = {
   pspAssign: (ref, assignee) =>
     call(`/tickets/${ref}/psp-assign`, { method: "POST", body: JSON.stringify({ assignee }) }),
   submitProposal: (ref) => call(`/tickets/${ref}/submit-proposal`, { method: "POST" }),
+  allowPsp: (ref, body) =>
+    call(`/tickets/${ref}/allow-psp`, { method: "POST", body: JSON.stringify(body) }),
   remove: (ref) => call(`/tickets/${ref}`, { method: "DELETE" }),
   restore: (ref) => call(`/tickets/${ref}/restore`, { method: "POST" }),
   purge: (ref) => call(`/tickets/${ref}/purge`, { method: "DELETE" }),

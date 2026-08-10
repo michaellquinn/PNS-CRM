@@ -304,6 +304,17 @@ def head_for(t: dict) -> str:
     return "Commercial"
 
 
+def may_go_to_psp(t: dict) -> bool:
+    """Whether this ticket is allowed to reach PSP at all.
+
+    PSP does not review every thin margin. It reviews the ones Alex (CSalesO) has granted
+    an exception for. Strategic and Hypercare accounts carry that exception by virtue of
+    being managed. Anything else needs the PNS Head to have recorded that Alex said so
+    verbatim in a meeting. Without this gate a below-bottom LTL deal at 8 Mio would land
+    in PSP's queue, which is not what PSP is for."""
+    return t.get("acct_type") in MANAGED_ACCTS or bool(t.get("psp_allowed"))
+
+
 def proposal_or_signoff(t: dict) -> str:
     """Where a fully-approved ticket goes next.
 
@@ -423,6 +434,9 @@ def can(u: User, action: str, t: dict | None = None) -> bool:
         # PSP has no staff/head split: any PSP member assigns a ticket to themselves
         # or a teammate, same as any PSP member may approve or reject.
         "pspAssign":        u.group == "PSP" or admin,
+        # Only the PNS Head may open a non-managed ticket to PSP, and only on an
+        # exception Alex granted verbatim. See allow_psp.
+        "allowPsp":         pns_head,
     }.get(action, False)
 
 
@@ -670,7 +684,8 @@ class Ticket(BaseModel):
     price_url: str | None = None
     open_questions: int = 0
     psp_assignee: str | None = None
-    psp_ready: bool = False   # PSP cleared it without needing PNS review — awaiting final submit
+    psp_ready: bool = False   # PSP cleared it without needing PNS review, awaiting final submit
+    psp_allowed: bool = False # non-managed ticket opened to PSP on Alex's exception
     psp_decision: str | None = None   # approved | rejected | None — PSP's latest decision, if any
 
 
@@ -801,6 +816,7 @@ def shape(t: dict, u: User) -> Ticket:
         price_file=t.get("price_file"), price_url=t.get("price_url"),
         open_questions=int(t.get("open_q") or 0),
         psp_assignee=t.get("psp_assignee"), psp_ready=bool(t.get("psp_ready")),
+        psp_allowed=bool(t.get("psp_allowed")),
         psp_decision=t.get("psp_decision"),
     )
     # Margin is restricted at the API, not by hiding a column in the UI.
@@ -1448,6 +1464,10 @@ async def submit_price(ref: str, body: PriceIn, u: User = Depends(current_user))
     # tier cannot authorise (a managed account, a band with no published ceiling, a
     # Sameday discount past 20%) is a PSP decision.
     to_psp = g["kind"] == "manual" or (breach and g["kind"] in ("discount", "standard"))
+    # ...but only if this ticket is allowed into PSP's queue in the first place. A
+    # non-managed deal without Alex's exception stays with the Sales Head instead.
+    if to_psp and not may_go_to_psp(t):
+        to_psp, breach = False, True
 
     if to_psp:
         nxt, note = "Pending PSP Approval", g["why"]
@@ -1461,8 +1481,14 @@ async def submit_price(ref: str, body: PriceIn, u: User = Depends(current_user))
                      f" ({g['why']})",
                      roles=[f"{head_for(t)} - Head"], ticket_ref=ref)
     elif body.ask_psp:
-        # Optional — the pricer wants a second opinion even though nothing forces one.
-        # Open to every service, including the ones with no published floor at all.
+        # Optional second opinion, but still subject to the same entry gate: PSP takes
+        # managed accounts and tickets the PNS Head has opened on Alex's say-so, not
+        # anything a pricer feels uncertain about.
+        if not may_go_to_psp(t):
+            raise HTTPException(
+                400, f"{ref} cannot go to PSP. PSP takes Strategic and Hypercare "
+                     f"accounts, or a ticket the PNS Head has opened after Alex granted "
+                     f"an exception. Ask the PNS Head to open it first.")
         # needs_pns_review is not lost: psp_decide re-applies it once PSP has answered.
         nxt, note = "Pending PSP Approval", "escalated to PSP for a margin check"
         await notify(f"{ref} — {t['shipper']}: escalated to PSP by {u.name}",
@@ -1727,18 +1753,60 @@ async def reopen(ref: str, body: ReopenIn, u: User = Depends(current_user)):
 
 @app.post("/api/tickets/{ref}/head-ack", response_model=Ok)
 async def head_ack(ref: str, u: User = Depends(current_user)):
-    """The head's acknowledgement is visibility, not the margin sign-off: a below-bottom
-    price always goes to PSP next. Head Review only ever holds below-bottom tickets, so
-    that is the only path this route needs to handle."""
+    """The Sales Head acknowledges a below-bottom price. Where it goes next depends on
+    whether the ticket is allowed into PSP's queue.
+
+    For a managed account, or one the PNS Head has opened on Alex's exception, the
+    acknowledgement is visibility and PSP still signs off the margin. For everything
+    else the Sales Head IS the sign-off, because PSP does not review deals that carry
+    no exception."""
     t = await get_ticket(ref)
     require(u, "headAck", t)   # the Sales Head: Sales owns the commercial concession
-    nxt = "Pending PSP Approval"
-    await log_status(t["id"], nxt, u.name, "below bottom rate acknowledged, sent to PSP")
+    if may_go_to_psp(t):
+        nxt, note = "Pending PSP Approval", "below bottom rate acknowledged, sent to PSP"
+        await notify(f"{ref} — {t['shipper']}: below-bottom price acknowledged by "
+                     f"{u.name}, needs your margin sign-off",
+                     groups=["PSP"], ticket_ref=ref)
+    else:
+        nxt = "Pending PNS Review" if needs_pns_review(t) else proposal_or_signoff(t)
+        note = "below bottom rate acknowledged by the Sales Head"
+    await log_status(t["id"], nxt, u.name, note)
     await execute("INSERT INTO approvals (ticket_id, kind, decision, actor, actor_role) "
                   "VALUES (%s,'head_ack','approved',%s,%s)", (t["id"], u.name, u.group))
-    await notify(f"{ref} — {t['shipper']}: below-bottom price acknowledged by {u.name}, "
-                f"needs your margin sign-off", groups=["PSP"], ticket_ref=ref)
     return {"ok": True, "ref": ref, "status": nxt}
+
+
+class AllowPspIn(BaseModel):
+    allowed: bool = True
+    note: str | None = None      # what Alex said, and where
+
+
+@app.post("/api/tickets/{ref}/allow-psp", response_model=Ok)
+async def allow_psp(ref: str, body: AllowPspIn, u: User = Depends(current_user)):
+    """Open a non-managed ticket to PSP, on the PNS Head's authority.
+
+    Strategic and Hypercare accounts never need this: they carry Alex's exception by
+    being managed. This is the narrow path for the one-off Alex grants verbatim in a
+    meeting, and the note is mandatory because an exception with no recorded reason is
+    indistinguishable, months later, from a misclick."""
+    require(u, "allowPsp")
+    t = await get_ticket(ref)
+    if t["acct_type"] in MANAGED_ACCTS:
+        raise HTTPException(400, f"{ref} is {t['acct_type']} and already reaches PSP "
+                                 f"without an exception")
+    if body.allowed and not (body.note or "").strip():
+        raise HTTPException(400, "a note is required: record what Alex granted and where")
+    await execute("UPDATE tickets SET psp_allowed=%s, psp_allowed_by=%s, "
+                  "psp_allowed_note=%s, psp_allowed_at=%s WHERE id=%s",
+                  (int(body.allowed), u.name if body.allowed else None,
+                   (body.note or "").strip()[:500] if body.allowed else None,
+                   datetime.now() if body.allowed else None, t["id"]))
+    await log_note(t["id"], t["status"], u.name,
+                   (f"opened to PSP on Alex's exception: {body.note}" if body.allowed
+                    else "PSP exception withdrawn"))
+    await audit(u.email, "allow_psp", "ticket", ref, "psp_allowed",
+                str(t.get("psp_allowed")), str(int(body.allowed)))
+    return {"ok": True, "ref": ref, "status": t["status"]}
 
 
 # The Project Charter field map. This mirrors SECTIONS in frontend/src/screens/

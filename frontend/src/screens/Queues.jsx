@@ -187,7 +187,10 @@ export function AwaitingPrice({ me, onOpen, notify }) {
                 Below bottom rate ({BOTTOM_MARGIN[t.service]}% floor)
               </label>
             )}
-            {me.permissions.sendToPsp && (
+            {/* PSP only takes managed accounts, or a ticket the PNS Head has opened on
+                Alex's exception. Offering the checkbox otherwise invites a 400. */}
+            {me.permissions.sendToPsp && (t.acct_type === "Strategic"
+              || t.acct_type === "Hypercare" || t.psp_allowed) && (
               <label className="flex items-center gap-2 rounded-lg bg-sky-50 px-3 py-1.5 text-[12.5px] font-medium text-sky-800">
                 <input type="checkbox" checked={!!askPsp[t.ref]}
                   onChange={(e) => setAskPsp({ ...askPsp, [t.ref]: e.target.checked })} />

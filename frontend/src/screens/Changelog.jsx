@@ -3,6 +3,21 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-08-10",
+    title: "PSP entry gate",
+    by: "Baskoro + Claude",
+    changes: [
+      "PSP now only receives tickets that carry an exception from Alex (CSalesO). Strategic and Hypercare accounts carry it by being managed, so they reach PSP as before.",
+      "Any other ticket reaches PSP only if the PNS Head opens it, recording what Alex granted and where. The note is mandatory.",
+      "A below-bottom price on a ticket with no exception now ends with the Sales Head, who is the sign-off rather than a step on the way to PSP.",
+      "The Escalate to PSP checkbox is hidden on tickets that are not allowed into PSP's queue.",
+    ],
+    overruled: [
+      "Every below-bottom price was going to PSP after the Sales Head acknowledged it. That sent deals to PSP that carry no exception, which is not what PSP reviews. PSP is now gated on the exception, not on the margin.",
+      "The optional Escalate to PSP checkbox was open to anyone on any service. It is now subject to the same gate.",
+    ],
+  },
+  {
+    date: "2026-08-10",
     title: "Sales CRM sync, approvals and field comments",
     by: "Baskoro + Claude",
     changes: [
