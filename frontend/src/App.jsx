@@ -8,6 +8,7 @@ import TicketDetail from "./screens/TicketDetail";
 import Workload from "./screens/Workload";
 import Mine from "./screens/Mine";
 import Sync from "./screens/Sync";
+import Changelog from "./screens/Changelog";
 import { NewRequest, NewCapa } from "./screens/Forms";
 import {
   AwaitingPrice, ToReview, HeadReview, PspPending, PspFinished, ExecSignoff,
@@ -39,7 +40,7 @@ const NAV = [
     { id: "proposals", label: "Proposal submitted", icon: "◫", count: "Proposal Submitted",
       when: works },
     { id: "ship", label: "Ready to ship", icon: "➔", count: "Proposal Accepted / Ready to Ship" },
-    { id: "meeting", label: "Weekly meeting", icon: "☷", when: works },
+    { id: "meeting", label: "Review meeting", icon: "☷", when: works },
     { id: "workload", label: "Workload", icon: "◴", when: (m) => m.permissions.assign },
     { id: "sync", label: "Sales CRM sync", icon: "⇄", when: (m) => m.permissions.syncSalesCrm },
   ]],
@@ -58,12 +59,17 @@ const NAV = [
   ]],
   ["Reference", [
     { id: "matrix", label: "Routing & limits", icon: "☰" },
+    { id: "changelog", label: "What changed", icon: "🗒" },
   ]],
   ["Administration", [
     { id: "users", label: "Users & roles", icon: "👤", when: (m) => m.permissions.manageUsers },
     { id: "bin", label: "Recycle bin", icon: "♲", when: (m) => m.permissions.deleteTicket },
   ]],
 ];
+
+// What ?screen= is allowed to name. "detail" is deliberately absent: it is useless
+// without a ticket, and ?ticket= already covers that link.
+const NAV_IDS = new Set(NAV.flatMap(([, items]) => items.map((i) => i.id)));
 
 function Bell({ notes, onRead }) {
   const [open, setOpen] = useState(false);
@@ -82,7 +88,7 @@ function Bell({ notes, onRead }) {
     <div className="relative">
       <button onClick={() => setOpen(!open)}
         className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-[13px] font-medium">
-        What&apos;s new{" "}
+        Notifications{" "}
         <span className={`ml-1 rounded-full px-1.5 text-[11px] ${
           notes.unread ? "bg-[#EE1B2C] text-white" : "bg-slate-100 text-slate-500"}`}>
           {notes.unread}
@@ -91,7 +97,7 @@ function Bell({ notes, onRead }) {
       {open && (
         <div className="absolute right-0 top-full z-30 mt-2 max-h-[60vh] w-96 overflow-auto rounded-xl border border-slate-200 bg-white shadow-lg">
           <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
-            <b className="text-sm">What&apos;s new for you</b>
+            <b className="text-sm">Notifications</b>
             <button className="text-xs text-slate-500 hover:text-slate-900" onClick={onRead}>
               Mark all read
             </button>
@@ -144,15 +150,29 @@ export default function App() {
 
   useEffect(() => {
     api.me().then(setMe).catch((e) => setErr(e.message));
-    // Emails link to /?ticket=SOF-1234. The app has no router, so read it once on load
-    // and open that ticket, then clean the URL so a refresh doesn't jump back here.
-    const wanted = new URLSearchParams(window.location.search).get("ticket");
+    // Emails link to /?ticket=SOF-1234, people link to each other with /?screen=awaiting.
+    // The app has no router, so read the entry point once, before the sync effect below
+    // starts writing to the URL. A ticket wins: it is the more specific destination.
+    const params = new URLSearchParams(window.location.search);
+    const wanted = params.get("ticket");
+    const wantedScreen = params.get("screen");
     if (wanted) {
       setTicketRef(wanted);
       setScreen("detail");
-      window.history.replaceState({}, "", window.location.pathname);
+    } else if (NAV_IDS.has(wantedScreen)) {
+      setScreen(wantedScreen);
     }
   }, []);
+
+  // Keep the URL on the current screen so any view can be sent to a colleague.
+  // replaceState, not pushState: the app has no history to walk back through, and Back
+  // should leave the app rather than replay screens.
+  useEffect(() => {
+    const q = screen === "detail" && ticketRef
+      ? `?ticket=${encodeURIComponent(ticketRef)}`
+      : `?screen=${encodeURIComponent(screen)}`;
+    window.history.replaceState({}, "", window.location.pathname + q);
+  }, [screen, ticketRef]);
 
   const refreshNotes = () => api.notifications().then(setNotes).catch(() => {});
 
@@ -211,6 +231,7 @@ export default function App() {
     "capa-closed": <Capa view="closed" me={me} notify={notify} onRaise={() => go("capa-raise")} />,
     "capa-raise": <NewCapa notify={notify} onCreated={() => go("capa-all")} />,
     matrix: <Matrix />,
+    changelog: <Changelog />,
     users: <Users me={me} notify={notify} />,
     bin: <RecycleBin me={me} notify={notify} onOpen={open} />,
   };

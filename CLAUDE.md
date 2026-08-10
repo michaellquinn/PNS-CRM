@@ -49,3 +49,28 @@ uploads, `--watch` follows the build to the live preview); re-link with
 Scaffolded projects: `docker compose up -d db && docker compose run --rm migrate`, then
 the backend on `:8000` (reading `DATABASE_URL`) and `npm run dev` in `frontend/`.
 <!-- END substrait-app contract -->
+
+## Changelog
+
+**Every change to this app needs a changelog entry, in the same commit as the change.**
+Entries live at the top of the `ENTRIES` array in
+`frontend/src/screens/Changelog.jsx`, which renders the "What changed" screen. See
+`CHANGELOG.md` for the format.
+
+If a change reverses or narrows something someone else built, it goes under `overruled`
+with what stands instead, not under `changes`. Two people ship to this app from separate
+clones and have already overwritten each other's deployments; the overruled list is what
+stops the same decision being relitigated later.
+
+## Before deploying
+
+`BUILD` in `backend/main.py` is bumped by hand and is the only version marker the running
+app exposes (`GET /api/me`). `.substrait/config.json` is gitignored, so each person
+deploys from their own clone and nothing forces a push first. **Compare the live `BUILD`
+against this repo's, and push before you deploy.**
+
+## Migrations
+
+Check the highest existing `V*.sql` before adding one. Flyway will not warn about two
+files claiming the same version; it will just behave unpredictably. This has already
+happened twice on this repo.

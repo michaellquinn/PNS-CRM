@@ -886,8 +886,11 @@ async def list_tickets(
     if submitted_to:
         sql += " AND t.submitted_on <= %s"; args.append(submitted_to)
     if search:
-        sql += " AND (s.name LIKE %s OR t.ticket_ref LIKE %s)"
-        args += [f"%{search}%", f"%{search}%"]
+        # With the Sales CRM sync live, the number a salesperson has in front of them is
+        # the opportunity id, not our ticket ref, and searching it used to return nothing.
+        sql += (" AND (s.name LIKE %s OR t.ticket_ref LIKE %s "
+                "OR t.opportunity_id LIKE %s OR t.opportunity_name LIKE %s)")
+        args += [f"%{search}%"] * 4
 
     sql += " ORDER BY t.submitted_on DESC LIMIT 500"
     rows = await q(sql, tuple(args))
@@ -903,6 +906,10 @@ async def stats(u: User = Depends(current_user)):
     decided = won + lost
     return {"ongoing": ongoing, "won": won, "lost": lost,
             "win_rate": round(won * 100 / decided) if decided else None,
+            # Named total_year but counts every ticket ever: the query has no date
+            # filter. The dashboard labels it "all time" to match. Renaming the field
+            # would break anything already reading it, so the name stays and the
+            # meaning is stated here.
             "total_year": len(rows)}
 
 
@@ -1720,7 +1727,7 @@ async def reopen(ref: str, body: ReopenIn, u: User = Depends(current_user)):
 
 @app.post("/api/tickets/{ref}/head-ack", response_model=Ok)
 async def head_ack(ref: str, u: User = Depends(current_user)):
-    """The head's acknowledgement is visibility, not the margin sign-off — a below-bottom
+    """The head's acknowledgement is visibility, not the margin sign-off: a below-bottom
     price always goes to PSP next. Head Review only ever holds below-bottom tickets, so
     that is the only path this route needs to handle."""
     t = await get_ticket(ref)

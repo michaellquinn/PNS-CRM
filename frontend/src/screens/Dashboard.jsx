@@ -17,6 +17,11 @@ const STATUS_GROUPS = [
   ["Decided", ["Proposal Accepted / Ready to Ship", "Lost", "Cancel"]],
 ];
 
+// "1 / 7d" means nothing without the rule behind it, and the header has no room for it.
+const COL_HINTS = {
+  "In status": "Days the ticket has spent in its current status, against the target for that status",
+};
+
 export default function Dashboard({ me, onOpen }) {
   const [stats, setStats] = useState(null);
   const [rows, setRows] = useState([]);
@@ -53,7 +58,7 @@ export default function Dashboard({ me, onOpen }) {
 
   const canSeeMargin = me.permissions.seeMargin;
   const cols = ["Ticket", "Submitted", "Shipper", "Service", "Revenue", "Status",
-                "Priced by", "SLA", canSeeMargin && "Margin", "PNS PIC",
+                "Priced by", "In status", canSeeMargin && "Margin", "PNS PIC",
                 me.permissions.setSales && "Sales"].filter(Boolean);
   const active =
     f.search || f.status.length || f.service.length || f.owner || f.sales || f.from || f.to;
@@ -102,7 +107,9 @@ export default function Dashboard({ me, onOpen }) {
                 sub={`${stats.won} won of ${stats.won + stats.lost} decided`} tone="text-emerald-600" />
           <Tile label="Lost" value={stats.lost} sub="cumulative" tone="text-rose-600" />
           <Tile label="Won" value={stats.won} sub="accepted" tone="text-emerald-600" />
-          <Tile label="Total" value={stats.total_year} sub="all tickets" />
+          {/* total_year is a historical field name: the query has no date filter, so
+              this is every ticket ever raised. Label it for what it counts. */}
+          <Tile label="Total" value={stats.total_year} sub="all time" />
           <Tile label="Showing" value={rows.length} sub={active ? "after filters" : "no filters"} />
         </div>
       )}
@@ -163,7 +170,8 @@ export default function Dashboard({ me, onOpen }) {
             <thead>
               <tr className="bg-slate-50 text-left text-xs font-semibold text-slate-600">
                 {cols.map((h) => (
-                  <th key={h} className={`whitespace-nowrap px-4 py-3.5 ${h === "Revenue" ? "text-right" : ""}`}>{h}</th>
+                  <th key={h} title={COL_HINTS[h]}
+                    className={`whitespace-nowrap px-4 py-3.5 ${h === "Revenue" ? "text-right" : ""}`}>{h}</th>
                 ))}
               </tr>
             </thead>
@@ -184,6 +192,12 @@ export default function Dashboard({ me, onOpen }) {
                   <td className="max-w-[230px] truncate px-4 py-3.5 font-medium">
                     {t.shipper}
                     <span className="ml-2 text-[11.5px] font-normal text-slate-400">{t.acct_type} · {t.region}</span>
+                    {/* Reference only: the Sales CRM stage is not this app's status, so it stays quieter than everything around it. */}
+                    {t.stage && (
+                      <span className="ml-1.5 rounded bg-slate-100 px-1.5 text-[10.5px] font-normal text-slate-400">
+                        SF: {t.stage}
+                      </span>
+                    )}
                   </td>
                   <td className="whitespace-nowrap px-4 py-3.5">{t.service}</td>
                   <td className="whitespace-nowrap px-4 py-3.5 text-right font-mono tabular-nums">{rp(t.revenue)}</td>
