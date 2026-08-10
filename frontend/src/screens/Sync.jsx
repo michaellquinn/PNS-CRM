@@ -82,8 +82,19 @@ export default function Sync({ notify }) {
             <Pill tone="bg-amber-50 text-amber-700">{res.counts.skipped} skipped</Pill>
             {res.counts.errors > 0 &&
               <Pill tone="bg-rose-50 text-rose-700">{res.counts.errors} errors</Pill>}
-            {res.dry_run && <Pill tone="bg-sky-50 text-sky-700">dry run — nothing written</Pill>}
+            {res.dry_run && <Pill tone="bg-sky-50 text-sky-700">dry run, nothing written</Pill>}
+            {res.truncated && (
+              <Pill tone="bg-rose-50 text-rose-700">stopped early on time, run it again</Pill>
+            )}
           </div>
+
+          {res.truncated && (
+            <p className="mb-4 max-w-3xl rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-[12.5px] text-amber-800">
+              The sweep ran out of time and returned what it had. Everything below is
+              real, just incomplete. Run it again with fewer pages: the sweep always
+              starts from the newest opportunity, so nothing is skipped by stopping.
+            </p>
+          )}
 
           <Card className="mb-4">
             <div className="border-b border-slate-200 px-4 py-3">

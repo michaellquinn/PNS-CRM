@@ -1,10 +1,10 @@
-"""Ninja PNS — solutioning workflow API.
+﻿"""Ninja PNS â€” solutioning workflow API.
 
 Substrait upload-mode contract:
   - listens on port 8000
   - GET /health is the readiness probe
   - all API routes live under /api
-  - DATABASE_URL is OceanBase (MySQL wire) — asyncmy driver, %s placeholders
+  - DATABASE_URL is OceanBase (MySQL wire) â€” asyncmy driver, %s placeholders
   - all DDL is in resources/db/migration/, never here
 
 Identity comes from the platform's auth proxy (x-forwarded-email) once Google SSO
@@ -18,6 +18,7 @@ import logging
 import smtplib
 import re
 import os
+import time
 from contextlib import asynccontextmanager
 from datetime import date, datetime
 from email.message import EmailMessage
@@ -53,7 +54,7 @@ async def lifespan(app: FastAPI):
         await _pool.wait_closed()
 
 
-app = FastAPI(title="Ninja PNS — Solutioning", lifespan=lifespan)
+app = FastAPI(title="Ninja PNS â€” Solutioning", lifespan=lifespan)
 
 # Set in the portal when SSO is off, so local dev and the first deploy still work.
 DEV_USER = os.getenv("DEV_USER_EMAIL", "")
@@ -124,7 +125,7 @@ def route(acct: str, svc: str, rev: int) -> dict:
 
 
 # PNS ownership by service line. Two lines have named specialists; everything else
-# rotates through the generalists. Baskoro is Head and is deliberately not in the pool —
+# rotates through the generalists. Baskoro is Head and is deliberately not in the pool â€”
 # assigning the head his own queue is how oversight quietly turns into a caseload.
 SERVICE_SPECIALIST = {
     "Complex Logistics": ["adila.kestibawani@ninjavan.co",
@@ -163,7 +164,7 @@ async def auto_assignee(service: str, seed: int) -> str | None:
 
     Once every candidate is at the cap the ticket is left **unassigned on purpose** and
     surfaces in the Head's queue. Auto-assigning past the cap would keep the queue
-    looking tidy while quietly burying someone — an unassigned ticket is visible, an
+    looking tidy while quietly burying someone â€” an unassigned ticket is visible, an
     over-assigned one is not.
 
     Anyone not registered or not active is skipped: work parked on a name nobody is
@@ -177,7 +178,7 @@ async def auto_assignee(service: str, seed: int) -> str | None:
                    tuple(candidates))
     names = [r["name"] for r in rows]
     if not names and service in SERVICE_SPECIALIST:
-        # Specialists all away — fall back to the default pair rather than stranding it.
+        # Specialists all away â€” fall back to the default pair rather than stranding it.
         ph = ",".join(["%s"] * len(PNS_DEFAULT_PAIR))
         rows = await q(f"SELECT name FROM users WHERE email IN ({ph}) AND active=1",
                        tuple(PNS_DEFAULT_PAIR))
@@ -200,10 +201,10 @@ def tier_of(rev: int) -> str:
 
 # The "Max. Discount / Min. Margin" row of each 5A Revenue & Customization table,
 # by service then revenue band. Each entry is (kind, limit):
-#   margin   — the priced margin must be at or above `limit` %
-#   discount — the discount must be at or below `limit` %
-#   standard — published rate card only, no deviation
-#   manual   — no automatic ceiling; a person decides (routes to PSP)
+#   margin   â€” the priced margin must be at or above `limit` %
+#   discount â€” the discount must be at or below `limit` %
+#   standard â€” published rate card only, no deviation
+#   manual   â€” no automatic ceiling; a person decides (routes to PSP)
 # Sameday carries no bottom margin at all: the only self-serve lever is a 20% discount,
 # and anything past that is a PSP call. B2C prices off the B2BR card, so it follows B2BR.
 PRICING_GUARD = {
@@ -247,7 +248,7 @@ def status_for_stage(stage: str | None, resp: str) -> str | None:
     """The PNS status a Sales CRM stage implies, or None to leave ours alone.
 
     Deliberately one-way and coarse. Sales CRM owns the commercial stage; this app owns
-    the solutioning status. The only stages that override ours are the terminal ones —
+    the solutioning status. The only stages that override ours are the terminal ones â€”
     there is no point solutioning a deal the shipper has already declined."""
     if not stage:
         return None
@@ -255,20 +256,20 @@ def status_for_stage(stage: str | None, resp: str) -> str | None:
         return "Lost"
     if stage in ACCEPTED_STAGES:
         return "Proposal Accepted / Ready to Ship"
-    return None          # New, Negotiation, Proposal Submitted, EKYC, Contract Sent…
+    return None          # New, Negotiation, Proposal Submitted, EKYC, Contract Sentâ€¦
 
 
 def guard_for(acct: str, svc: str, rev: int) -> dict:
     """The pricing ceiling that applies to one ticket."""
     if acct in MANAGED_ACCTS:
         return {"kind": "manual", "limit": None,
-                "why": f"{acct} account — priced under manual review"}
+                "why": f"{acct} account â€” priced under manual review"}
     kind, limit = PRICING_GUARD.get(svc, {}).get(tier_of(rev), ("manual", None))
     why = {
         "margin":   f"minimum margin {limit}%" if limit is not None else "",
         "discount": f"maximum discount {limit}%" if limit is not None else "",
-        "standard": "published rate card only — no deviation",
-        "manual":   "no published ceiling at this tier — needs a decision",
+        "standard": "published rate card only â€” no deviation",
+        "manual":   "no published ceiling at this tier â€” needs a decision",
     }[kind]
     return {"kind": kind, "limit": limit, "why": why}
 
@@ -276,7 +277,7 @@ def guard_for(acct: str, svc: str, rev: int) -> dict:
 def guard_breached(g: dict, margin_pct: float | None, discount_pct: float | None) -> bool:
     """True when the attached price exceeds what the tier allows.
 
-    An unstated figure is never treated as a breach — the pricer may be attaching a
+    An unstated figure is never treated as a breach â€” the pricer may be attaching a
     standard rate card with nothing to declare. The manual/standard tiers are handled
     by the caller, not here, because they need a decision rather than a comparison."""
     if g["kind"] == "margin" and margin_pct is not None:
@@ -291,7 +292,7 @@ def pending_for(resp: str) -> str:
 
 
 def needs_pns_review(t: dict) -> bool:
-    """PNS only reviews what Sales priced — never its own work."""
+    """PNS only reviews what Sales priced â€” never its own work."""
     return bool(t.get("needs_review")) and t.get("resp") == "Sales"
 
 
@@ -323,8 +324,8 @@ def proposal_or_signoff(t: dict) -> str:
     """Where a fully-approved ticket goes next.
 
     Hypercare and Strategic solutions need Alex (CSalesO) and Dhinesh (COO). That is the
-    *last* gate — it runs after PSP and the Sales Head have cleared, never instead of
-    them — so every other approval still has to happen first."""
+    *last* gate â€” it runs after PSP and the Sales Head have cleared, never instead of
+    them â€” so every other approval still has to happen first."""
     if t.get("acct_type") in MANAGED_ACCTS and not t.get("exec_signoff"):
         return "Pending Exec Sign-off"
     return "Proposal Submitted"
@@ -342,7 +343,7 @@ class User(BaseModel):
 
 # Commercial is Sales. Legal, Finance, Sales Planning and Visitor are read-mostly
 # audiences: they consume the charter and the pipeline rather than acting on tickets,
-# so they get no mutating permission at all — see can() below.
+# so they get no mutating permission at all â€” see can() below.
 ROLE_GROUPS = ["Commercial", "PNS", "PSP", "Legal", "Finance", "Sales Planning",
                "CSO", "QC", "Visitor", "Admin"]
 # Legal, Finance and Visitor look and never touch. Sales Planning is different: they
@@ -380,7 +381,7 @@ def can(u: User, action: str, t: dict | None = None) -> bool:
 
     # Read-mostly audiences never mutate. Stated once here rather than being spelled out
     # as an exclusion on every line below, where one omission would grant a right nobody
-    # intended. They can still be tagged in a discussion and reply — that is a comment
+    # intended. They can still be tagged in a discussion and reply â€” that is a comment
     # endpoint, deliberately open to everyone, not a permission.
     if u.group in READ_ONLY_GROUPS:
         return False
@@ -403,7 +404,7 @@ def can(u: User, action: str, t: dict | None = None) -> bool:
         "assign":           pns_head,
         "assignReviewer":   pns_head,
         "markReviewed":     u.group == "PNS" or admin,
-        # Sales Planning corrects submissions on Sales' behalf — the one thing they may
+        # Sales Planning corrects submissions on Sales' behalf â€” the one thing they may
         # change. Account type and revenue stay behind editAcctOrRev, so they cannot
         # re-route a ticket by editing it.
         "editInput":        u.group in ("Commercial", "Sales Planning") or admin,
@@ -413,21 +414,21 @@ def can(u: User, action: str, t: dict | None = None) -> bool:
         "reopen":           com_head,
         "pspDecide":        u.group == "PSP" or admin,
         # Standing delegation so an absent PSP cannot stall the pipeline. Used through
-        # the same endpoint, recorded as an override — see psp_decide.
+        # the same endpoint, recorded as an override â€” see psp_decide.
         "pspOverride":      pns_head,
         "vendorToggle":     u.group == "PNS" or admin,
         "sendToPsp":        u.group in ("PNS", "Commercial") or admin,
         "acceptProposal":   u.group == "Commercial" or admin,
         "sendBackProposal": u.group in ("Commercial", "PNS") or admin,
         "seeMargin":        u.group in ("PNS", "PSP", "CSO") or admin,
-        # CAPA is the QC team's process. Commercial can still raise one — they hear the
-        # complaint first — and PNS still writes the proposal, but QC decides when it is
+        # CAPA is the QC team's process. Commercial can still raise one â€” they hear the
+        # complaint first â€” and PNS still writes the proposal, but QC decides when it is
         # actually closed, which is the part that makes it theirs.
         "capaRaise":        u.group in ("Commercial", "QC") or admin,
         "capaClose":        u.group == "QC" or admin,
         "capaSubmit":       u.group in ("PNS", "QC") or admin,
         # Registering people and setting roles: the PNS Admin and the PNS Head, as
-        # agreed. Granting the Admin group itself is narrower — see grant_admin.
+        # agreed. Granting the Admin group itself is narrower â€” see grant_admin.
         "manageUsers":      pns_head,     # pns_head already includes Admin
         "grantAdmin":       admin,
         # Pulling from Sales CRM runs under a personal API key, so whoever triggers it
@@ -540,7 +541,7 @@ async def email_people(names: list[str], subject: str, body: str,
 # ------------------------------------------------------------------ helpers
 async def log_note(ticket_id: int, status: str, actor: str, note: str) -> None:
     """History without a status change. Edits and reassignments belong in the timeline,
-    but they must not restart status_since — that is what the SLA counts."""
+    but they must not restart status_since â€” that is what the SLA counts."""
     await execute("INSERT INTO ticket_history (ticket_id, status, actor, note) "
                   "VALUES (%s,%s,%s,%s)", (ticket_id, status, actor, note or None))
 
@@ -555,7 +556,7 @@ async def notify(body: str, groups=(), roles=(), people=(), ticket_ref: str | No
                  subject: str | None = None) -> None:
     """Record a notification, and email it if it names specific people.
 
-    `people` is the "this is aimed at you" channel — assigned, tagged, sent back. Those
+    `people` is the "this is aimed at you" channel â€” assigned, tagged, sent back. Those
     become email. `groups` and `roles` are broadcast and stay in-app only, which is the
     whole reason the mailbox stays readable."""
     await execute(
@@ -591,7 +592,7 @@ async def owed_by(t: dict, status: str) -> list[str]:
 
     A pending status is a queue, and queues get watched by nobody in particular. Every
     "it is back with you" notification has to land on a person, so this always resolves
-    to named people — falling back to the relevant head when the slot is empty, never to
+    to named people â€” falling back to the relevant head when the slot is empty, never to
     silence. An unassigned ticket sent back to PNS used to notify no one at all.
     """
     owner, reviewer, sales = t.get("owner_name"), t.get("reviewer_name"), t.get("sales_name")
@@ -632,7 +633,7 @@ async def get_ticket(ref: str) -> dict:
 
 def sla_days_elapsed(t: dict) -> int:
     """Days in the current status. Prefer sla_days_db, which the query computes with
-    the database's own clock — the app container and OceanBase disagree about the
+    the database's own clock â€” the app container and OceanBase disagree about the
     local timezone, so subtracting in Python here read as -1 for fresh tickets."""
     db = t.get("sla_days_db")
     if db is not None:
@@ -650,7 +651,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-08-10.21"
+BUILD = "2026-08-10.22"
 
 
 class Me(BaseModel):
@@ -690,7 +691,7 @@ class Ticket(BaseModel):
     psp_assignee: str | None = None
     psp_ready: bool = False   # PSP cleared it without needing PNS review, awaiting final submit
     psp_allowed: bool = False # non-managed ticket opened to PSP on Alex's exception
-    psp_decision: str | None = None   # approved | rejected | None — PSP's latest decision, if any
+    psp_decision: str | None = None   # approved | rejected | None â€” PSP's latest decision, if any
 
 
 class TicketList(BaseModel):
@@ -765,7 +766,7 @@ async def read_upload(file: UploadFile) -> tuple[bytes, str]:
         raise HTTPException(400, "that file is empty")
     if len(data) > MAX_UPLOAD:
         raise HTTPException(
-            413, f"{file.filename} is {len(data) // 1024 // 1024} MB — the limit is 5 MB. "
+            413, f"{file.filename} is {len(data) // 1024 // 1024} MB â€” the limit is 5 MB. "
                  f"Photos are shrunk automatically; for a big document, attach a link instead.")
     ctype = (file.content_type or "application/octet-stream").split(";")[0].strip().lower()
     if ctype not in ALLOWED_TYPES:
@@ -860,7 +861,7 @@ async def list_tickets(
     args: list = []
 
     # The "Finished" PSP queue: every ticket PSP has ever decided on, regardless of where
-    # it sits now — a ticket can be back in Pending PSP Approval for a fresh round and
+    # it sits now â€” a ticket can be back in Pending PSP Approval for a fresh round and
     # still show up here with its prior outcome.
     if psp_reviewed:
         sql += (" AND EXISTS (SELECT 1 FROM approvals a WHERE a.ticket_id=t.id "
@@ -869,17 +870,17 @@ async def list_tickets(
     # PSP reads the whole pipeline: judging a rate needs the context around it, and PSP
     # is pulled into cross-department discussion long after approving. Their Price
     # approvals queue still filters to what needs them, so the day-to-day view is
-    # unchanged — this only makes tickets findable.
+    # unchanged â€” this only makes tickets findable.
     #
     # Legal stays narrow on purpose: they act on signed deals, nothing earlier. Being
-    # tagged in a discussion still reaches them, because /api/tickets/{ref} is unscoped —
+    # tagged in a discussion still reaches them, because /api/tickets/{ref} is unscoped â€”
     # they just cannot browse the pipeline.
     if u.group == "Legal":
         sql += " AND t.status=%s"; args.append("Proposal Accepted / Ready to Ship")
 
     # "Mine" means the tickets this person is answerable for, which differs by role:
     # a salesperson owns what they raised, a PNS member owns what they were assigned.
-    # Matching on email rather than name — names get re-typed, addresses do not.
+    # Matching on email rather than name â€” names get re-typed, addresses do not.
     if mine:
         if u.group == "PNS":
             sql += " AND t.owner_name=%s"; args.append(u.name)
@@ -954,6 +955,9 @@ SALESCRM_BASE = os.getenv("SALESCRM_BASE",
                           "https://api.ninjavan.co/global/salescrm/api/v1").rstrip("/")
 SALESCRM_API_KEY = os.getenv("SALESCRM_API_KEY", "").strip()
 SALESCRM_RECORD_TYPE = os.getenv("SALESCRM_RECORD_TYPE", "Indonesia").strip()
+# Wall-clock budget for one sync request. Comfortably inside the ingress timeout, so a
+# slow sweep returns partial results with `truncated: true` rather than a bare 502.
+SYNC_BUDGET_S = int(os.getenv("SYNC_BUDGET_S", "40") or 40)
 
 # Sales CRM product line -> our service line.
 PRODUCT_MAP = {
@@ -980,7 +984,7 @@ PRODUCT_SKIP = {
 
 # One sync at a time per process. Ten people pressing the button should produce one
 # sweep, not ten. The UNIQUE key on opportunity_id is what actually prevents duplicate
-# tickets — this only stops the wasted work.
+# tickets â€” this only stops the wasted work.
 _sync_lock = asyncio.Lock()
 
 
@@ -1008,7 +1012,7 @@ def tier_from_csm(raw) -> str | None:
 
 
 class SalesCrm:
-    """Thin read-only client. Every call is a GET — this never writes to Sales CRM."""
+    """Thin read-only client. Every call is a GET â€” this never writes to Sales CRM."""
 
     def __init__(self, client):
         self.c = client
@@ -1033,11 +1037,37 @@ class SalesCrm:
             self._accounts[aid] = items[0] if items else {}
         return self._accounts[aid] or None
 
+    async def warm_accounts(self, ids) -> None:
+        """Fetch many accounts at once into the cache.
+
+        Sales CRM has no bulk-by-id endpoint, so this is still one request per account,
+        but run concurrently instead of one after another. Sequentially, a page of 100
+        opportunities meant 100 round trips before the first ticket was even considered,
+        which put the whole sync past the ingress timeout and returned a bare 502.
+
+        Bounded at 8: enough to collapse the wall-clock, low enough not to look like an
+        attack to whatever sits in front of Sales CRM."""
+        todo = [str(i) for i in ids if str(i or "") and str(i) not in self._accounts]
+        if not todo:
+            return
+        sem = asyncio.Semaphore(8)
+
+        async def one(aid: str):
+            async with sem:
+                try:
+                    await self.account(aid)
+                except Exception:
+                    # A single unreadable account must not fail the sweep. The caller
+                    # sees it as a missing account and reports that opportunity.
+                    self._accounts.setdefault(aid, {})
+
+        await asyncio.gather(*(one(a) for a in todo))
+
     async def tier_for(self, account: dict | None, max_depth: int = 4) -> str:
         """Walk up to the group to find the tier.
 
         22 of the 25 tagged accounts in Sales CRM are parents, so the tier normally
-        lives on the group — but a child may carry its own, and that wins. The walk is
+        lives on the group â€” but a child may carry its own, and that wins. The walk is
         depth-limited and cycle-guarded because real data contains an account that is
         its own parent, which would otherwise loop forever."""
         seen: set[str] = set()
@@ -1077,6 +1107,11 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
     import httpx
     created, refreshed, skipped, errors = [], [], [], []
     scanned = 0
+    # Stop and report what we have rather than being cut off mid-sweep. The ingress
+    # closes a long request with a bare 502 and no body, which tells whoever pressed the
+    # button nothing at all. Partial results with a stated reason are far more useful.
+    deadline = time.monotonic() + SYNC_BUDGET_S
+    truncated = False
 
     async with _sync_lock:
         known = {str(r["opportunity_id"]) for r in
@@ -1089,7 +1124,10 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
             # imported opportunity: the same sweep both creates new tickets and refreshes
             # the Sales-CRM-owned fields on existing ones. `pages` is the bound.
             for page in range(1, max(1, min(body.pages, 20)) + 1):
-                # record_type_name is NOT a filterable field — passing it returns
+                if time.monotonic() > deadline:
+                    truncated = True
+                    break
+                # record_type_name is NOT a filterable field â€” passing it returns
                 # 400 INVALID_FILTER_FIELD and the sweep finds nothing. The API accepts
                 # exact matches on a small set of fields only, so the record type is
                 # filtered here instead.
@@ -1098,7 +1136,19 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
                 if not items:
                     break
 
+                # Warm every account this page needs before touching any of them, then
+                # their parents. Two concurrent rounds instead of a couple of hundred
+                # sequential round trips, which is the difference between finishing and
+                # being cut off by the ingress timeout.
+                await crm.warm_accounts(o.get("account_id") for o in items)
+                await crm.warm_accounts(
+                    (crm._accounts.get(str(o.get("account_id"))) or {}).get("parent_account_id")
+                    for o in items)
+
                 for o in items:
+                    if time.monotonic() > deadline:
+                        truncated = True
+                        break
                     scanned += 1
                     oid = str(o.get("id"))
                     if SALESCRM_RECORD_TYPE and o.get("record_type_name") != SALESCRM_RECORD_TYPE:
@@ -1106,7 +1156,7 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
                     if oid in known:
                         # Already imported, so refresh the fields Sales CRM owns rather
                         # than skipping it. Stage, committed revenue and the close date
-                        # are theirs — ours are only ever a copy, so theirs wins.
+                        # are theirs â€” ours are only ever a copy, so theirs wins.
                         if not body.dry_run:
                             n = await _refresh_from_salescrm(o)
                             if n:
@@ -1170,7 +1220,7 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
 
     if not body.dry_run:
         await audit(u.email, "sync", "salescrm", None, "created", None, str(len(created)))
-    return {"dry_run": body.dry_run, "scanned": scanned,
+    return {"dry_run": body.dry_run, "scanned": scanned, "truncated": truncated,
             "created": created, "refreshed": refreshed, "skipped": skipped,
             "errors": errors,
             "counts": {"created": len(created), "refreshed": len(refreshed),
@@ -1247,11 +1297,11 @@ async def _import_opportunity(o: dict, account: dict | None, plan: dict,
     # decides both who prices the deal and which tier ceiling applies. Rather than let
     # it route silently as zero, the ticket says so where whoever picks it up will read.
     rev_note = ("\n\nNOTE: Sales CRM has no potential revenue on this opportunity, so it "
-                "has been routed at Rp 0. Set the real figure before pricing — it changes "
+                "has been routed at Rp 0. Set the real figure before pricing â€” it changes "
                 "both the routing and the pricing tier.") if not plan["revenue"] else ""
     payload = {
         "brief": (f"Imported from Sales CRM opportunity {plan['opportunity_id']}"
-                  f" — {plan['opportunity_name'] or ''}").strip() + rev_note,
+                  f" â€” {plan['opportunity_name'] or ''}").strip() + rev_note,
         "shipper": plan["shipper"],
         "volume": str(o.get("expected_vol_mth") or o.get("total_potential_volume") or ""),
         "dest": str(o.get("delivery_areas") or ""),
@@ -1261,7 +1311,7 @@ async def _import_opportunity(o: dict, account: dict | None, plan: dict,
         "shipperId": str((account or {}).get("global_id") or ""),
         "sfid": str(o.get("salesforce_opportunity_id") or ""),
         # The tracking sheet reports on committed revenue as well as potential, and they
-        # are different numbers — potential is what routing uses, committed is what Sales
+        # are different numbers â€” potential is what routing uses, committed is what Sales
         # has actually promised. Carry both so the sheet's view can be reproduced.
         "committedRev": str(o.get("committed_revenue_mth") or ""),
         "sfCloseDate": str(o.get("closed_won_date") or o.get("close_date") or ""),
@@ -1284,7 +1334,7 @@ async def workload(u: User = Depends(current_user)):
     fast closer is not the same problem as a small queue on a stalled one.
 
     Lead time is measured from first assignment to the ticket leaving PNS hands, taken
-    from ticket_history rather than the ticket row — status_since only remembers the
+    from ticket_history rather than the ticket row â€” status_since only remembers the
     latest move, so it cannot answer 'how long did this take'."""
     require(u, "assign")
 
@@ -1333,7 +1383,7 @@ async def workload(u: User = Depends(current_user)):
         })
 
     # Salespeople ranked by how much they currently have sitting on PNS. This is the
-    # demand side of the same picture — a spike here explains a queue over there.
+    # demand side of the same picture â€” a spike here explains a queue over there.
     sales = await q(
         "SELECT t.sales_name AS name, t.sales_email AS email, COUNT(*) AS open_tickets, "
         "  SUM(t.status='Pending Sales') AS waiting_on_them, "
@@ -1389,7 +1439,7 @@ async def create_ticket(body: NewTicket, u: User = Depends(current_user)):
     elif r["resp"] == "PNS":
         # Everyone eligible is at the cap (or auto-assignment is off). Say so, rather
         # than letting it look like the Head simply has not got to it yet.
-        await notify(f"{ref} — needs manual assignment: everyone eligible for "
+        await notify(f"{ref} â€” needs manual assignment: everyone eligible for "
                      f"{body.service} is at the {PNS_WIP_CAP}-ticket cap",
                      roles=["PNS - Head"], ticket_ref=ref)
 
@@ -1398,7 +1448,7 @@ async def create_ticket(body: NewTicket, u: User = Depends(current_user)):
                   (tid, json.dumps(payload), u.email))
     await execute("INSERT INTO ticket_history (ticket_id, status, actor, note) VALUES (%s,%s,%s,%s)",
                   (tid, status, u.name, "submitted"))
-    await notify(f"New ticket {ref} — {body.shipper} ({body.service}, Rp {body.revenue:,})"
+    await notify(f"New ticket {ref} â€” {body.shipper} ({body.service}, Rp {body.revenue:,})"
                  f" raised by {u.name}" + (f", assigned to {owner}" if owner else ""),
                  roles=["PNS - Head"] if r["resp"] == "PNS" else [],
                  groups=[] if r["resp"] == "PNS" else ["Commercial"], ticket_ref=ref)
@@ -1417,7 +1467,7 @@ class PriceIn(BaseModel):
 
 
 def clean_url(raw: str | None) -> str | None:
-    """Only http(s) links are stored. Anything else — javascript:, data: — would be
+    """Only http(s) links are stored. Anything else â€” javascript:, data: â€” would be
     rendered as an anchor for other users to click, so it is refused outright."""
     if raw is None:
         return None
@@ -1480,12 +1530,12 @@ async def submit_price(ref: str, body: PriceIn, u: User = Depends(current_user))
     if to_psp:
         nxt, note = "Pending PSP Approval", g["why"]
         await execute("UPDATE tickets SET manual_review=1 WHERE id=%s", (t["id"],))
-        await notify(f"{ref} — price attached by {u.name}; needs PSP approval ({g['why']})",
+        await notify(f"{ref} â€” price attached by {u.name}; needs PSP approval ({g['why']})",
                      groups=["PSP"], ticket_ref=ref)
     elif breach or body.below_bottom:
         nxt, note = "Pending Head Review", g["why"] or "flagged below bottom rate"
         await execute("UPDATE tickets SET below_bottom=1 WHERE id=%s", (t["id"],))
-        await notify(f"{ref} — price attached by {u.name} and flagged BELOW BOTTOM RATE"
+        await notify(f"{ref} â€” price attached by {u.name} and flagged BELOW BOTTOM RATE"
                      f" ({g['why']})",
                      roles=[f"{head_for(t)} - Head"], ticket_ref=ref)
     elif body.ask_psp:
@@ -1499,19 +1549,19 @@ async def submit_price(ref: str, body: PriceIn, u: User = Depends(current_user))
                      f"an exception. Ask the PNS Head to open it first.")
         # needs_pns_review is not lost: psp_decide re-applies it once PSP has answered.
         nxt, note = "Pending PSP Approval", "escalated to PSP for a margin check"
-        await notify(f"{ref} — {t['shipper']}: escalated to PSP by {u.name}",
+        await notify(f"{ref} â€” {t['shipper']}: escalated to PSP by {u.name}",
                      groups=["PSP"], ticket_ref=ref)
     elif needs_pns_review(t):
         nxt, note = "Pending PNS Review", ""
-        await notify(f"{ref} — priced by Sales, needs PNS review",
+        await notify(f"{ref} â€” priced by Sales, needs PNS review",
                      roles=["PNS - Head"], groups=["PNS"], ticket_ref=ref)
     else:
         nxt, note = proposal_or_signoff(t), ""
         if nxt == "Pending Exec Sign-off":
-            await notify(f"{ref} — {t['shipper']} ({t['acct_type']}): priced and awaiting "
+            await notify(f"{ref} â€” {t['shipper']} ({t['acct_type']}): priced and awaiting "
                          f"Alex and Dhinesh sign-off", groups=["PNS"], ticket_ref=ref)
         else:
-            await notify(f"{ref} — {t['shipper']}: proposal is ready",
+            await notify(f"{ref} â€” {t['shipper']}: proposal is ready",
                          groups=["Commercial"], ticket_ref=ref)
 
     await log_status(t["id"], nxt, u.name, note)
@@ -1538,7 +1588,7 @@ async def change_status(ref: str, body: StatusIn, u: User = Depends(current_user
     elif nxt == "Proposal Accepted / Ready to Ship":
         require(u, "acceptProposal")
     elif nxt == "Pending PSP Approval":
-        # Forwarding for a margin check, not a send-back — no reason required, and this
+        # Forwarding for a margin check, not a send-back â€” no reason required, and this
         # is not "the ticket came back to you", so it skips the send-back notification.
         require(u, "sendToPsp")
     else:
@@ -1546,7 +1596,7 @@ async def change_status(ref: str, body: StatusIn, u: User = Depends(current_user
         # A send-back needs a reason; marking Lost carries its own.
         if not body.reason:
             raise HTTPException(400, f"a reason is required to send {ref} back to {nxt}")
-        # Only the FTL lines ever wait on a vendor quote — the rest are priced off
+        # Only the FTL lines ever wait on a vendor quote â€” the rest are priced off
         # Ninja's own network, so there is no vendor to wait for.
         if nxt == "Pending Vendor" and t["service_type"] not in VENDOR_SERVICES:
             raise HTTPException(
@@ -1562,18 +1612,18 @@ async def change_status(ref: str, body: StatusIn, u: User = Depends(current_user
                       (body.loss_reason, t["id"]))
     elif nxt == "Proposal Accepted / Ready to Ship":
         await execute("UPDATE tickets SET outcome='accepted' WHERE id=%s", (t["id"],))
-        await notify(f"{ref} — {t['shipper']} ACCEPTED. Contract needed.",
+        await notify(f"{ref} â€” {t['shipper']} ACCEPTED. Contract needed.",
                      groups=["Legal", "PNS", "Commercial"], ticket_ref=ref)
     elif nxt == "Pending PSP Approval":
-        await notify(f"{ref} — {t['shipper']}: sent to PSP for a margin check by {u.name}",
+        await notify(f"{ref} â€” {t['shipper']}: sent to PSP for a margin check by {u.name}",
                      groups=["PSP"], ticket_ref=ref)
     else:
         # A send-back told nobody at all before this: the ticket just reappeared in a
         # queue. resp has already been rewritten above, so pass the new value through.
         await tell_owed({**t, "resp": "PNS" if nxt.startswith("Pending PNS") else "Sales"},
                         nxt, u.name,
-                        f"{ref} — {t['shipper']} was sent back to {nxt} by {u.name}: {body.reason}",
-                        f"Sent back to you — {t['shipper']}", ref)
+                        f"{ref} â€” {t['shipper']} was sent back to {nxt} by {u.name}: {body.reason}",
+                        f"Sent back to you â€” {t['shipper']}", ref)
 
     await log_status(t["id"], nxt, u.name, body.reason or body.loss_reason or "")
     await audit(u.email, "status", "ticket", ref, "status", t["status"], nxt)
@@ -1600,7 +1650,7 @@ async def assign(ref: str, body: AssignIn, u: User = Depends(current_user)):
         await audit(u.email, "assign", "ticket", ref, "owner", t["owner_name"], owner)
         if owner:
             notes.append(f"assigned to {owner}")
-            await notify(f"{ref} — {t['shipper']} assigned to you by {u.name}",
+            await notify(f"{ref} â€” {t['shipper']} assigned to you by {u.name}",
                          people=[owner], ticket_ref=ref)
         else:
             notes.append("owner cleared")
@@ -1612,7 +1662,7 @@ async def assign(ref: str, body: AssignIn, u: User = Depends(current_user)):
         await audit(u.email, "assign", "ticket", ref, "reviewer", t["reviewer_name"], reviewer)
         if reviewer:
             notes.append(f"{reviewer} will review the price")
-            await notify(f"{ref} — {t['shipper']}: you were asked to review the price",
+            await notify(f"{ref} â€” {t['shipper']}: you were asked to review the price",
                          people=[reviewer], ticket_ref=ref)
         else:
             notes.append("reviewer cleared")
@@ -1701,10 +1751,10 @@ async def edit_input(ref: str, body: InputPatch, u: User = Depends(current_user)
             changes.append(f"now priced by {r['resp']}"
                            + (", PNS review required" if r["review"] else ""))
 
-    note = f"edited by {u.name} — " + "; ".join(changes)
+    note = f"edited by {u.name} â€” " + "; ".join(changes)
     await log_note(t["id"], t["status"], u.name, note[:500])
     await audit(u.email, "edit", "ticket", ref, "input", None, "; ".join(changes)[:500])
-    await notify(f"{ref} — {t['shipper']}: {note}",
+    await notify(f"{ref} â€” {t['shipper']}: {note}",
                  groups=["PNS", "Commercial"], ticket_ref=ref)
     return {"ok": True, "ref": ref, "status": t["status"]}
 
@@ -1729,7 +1779,7 @@ async def change_sales(ref: str, body: SalesIn, u: User = Depends(current_user))
                   (name, (row or {}).get("email"), t["id"]))
     await log_note(t["id"], t["status"], u.name,
                    f"sales PIC changed from {t['sales_name'] or 'unassigned'} to {name}")
-    await notify(f"{ref} — {t['shipper']} reassigned to you by {u.name}",
+    await notify(f"{ref} â€” {t['shipper']} reassigned to you by {u.name}",
                  people=[name], ticket_ref=ref)
     await audit(u.email, "reassign", "ticket", ref, "sales", t["sales_name"], name)
     return {"ok": True, "ref": ref, "status": t["status"]}
@@ -1753,7 +1803,7 @@ async def reopen(ref: str, body: ReopenIn, u: User = Depends(current_user)):
     await execute("UPDATE tickets SET outcome=NULL, loss_reason=NULL, resp=%s WHERE id=%s",
                   (resp, t["id"]))
     await log_status(t["id"], body.status, u.name, "reopened by Commercial Head")
-    await notify(f"{ref} — {t['shipper']} reopened as {body.status} by {u.name}",
+    await notify(f"{ref} â€” {t['shipper']} reopened as {body.status} by {u.name}",
                  groups=["PNS", "Commercial"], ticket_ref=ref)
     await audit(u.email, "reopen", "ticket", ref, "status", t["status"], body.status)
     return {"ok": True, "ref": ref, "status": body.status}
@@ -1772,7 +1822,7 @@ async def head_ack(ref: str, u: User = Depends(current_user)):
     require(u, "headAck", t)   # the Sales Head: Sales owns the commercial concession
     if may_go_to_psp(t):
         nxt, note = "Pending PSP Approval", "below bottom rate acknowledged, sent to PSP"
-        await notify(f"{ref} — {t['shipper']}: below-bottom price acknowledged by "
+        await notify(f"{ref} â€” {t['shipper']}: below-bottom price acknowledged by "
                      f"{u.name}, needs your margin sign-off",
                      groups=["PSP"], ticket_ref=ref)
     else:
@@ -1818,11 +1868,11 @@ async def allow_psp(ref: str, body: AllowPspIn, u: User = Depends(current_user))
 
 
 # The Project Charter field map. This mirrors SECTIONS in frontend/src/screens/
-# TicketDetail.jsx — the screen renders its own copy for display and copy-to-clipboard,
+# TicketDetail.jsx â€” the screen renders its own copy for display and copy-to-clipboard,
 # and this one is what gets emailed. Keep the two in step: a charter that reads
 # differently depending on whether it was pasted or sent is worse than either alone.
 CHARTER_SECTIONS = [
-    ("1 · Shipper profile", [
+    ("1 Â· Shipper profile", [
         ("shipper", "Shipper name"), ("shipperStatus", "Status"), ("brief", "Brief summary"),
         ("shipperPic", "Shipper PIC"), ("shipperContact", "Contact shipper PIC"),
         ("invPic", "Invoicing PIC"), ("invContact", "Contact invoicing PIC"),
@@ -1834,16 +1884,16 @@ CHARTER_SECTIONS = [
         ("sfid", "Salesforce Opportunity ID"), ("jiraId", "Jira ID"),
         # Ops cannot onboard a shipper they cannot find in the account systems, so these
         # three travel with the go-live date rather than being chased afterwards.
-        # shipperId is the global shipper id — there is only one such number, and
+        # shipperId is the global shipper id â€” there is only one such number, and
         # carrying it twice under two names is how the two versions start disagreeing.
         ("parentShipperId", "Parent shipper ID"), ("shipperId", "Shipper ID"),
         ("branchId", "Corporate branch ID"),
     ]),
-    ("2 · Cargo knowledge", [
+    ("2 Â· Cargo knowledge", [
         ("commodity", "Product"), ("product", "Specific product"), ("dim", "Dimension"),
         ("wt", "Weight (kg)"), ("pallet", "Palletized"),
     ]),
-    ("3 · Ninja's service", [
+    ("3 Â· Ninja's service", [
         ("destType", "Delivery destination type"), ("sla", "SLA"), ("mps", "MPS"),
         ("rdo", "RDO"), ("cod", "COD"), ("tkbmO", "TKBM origin"), ("tkbmD", "TKBM destination"),
         ("ins", "Insurance"), ("truck", "Vehicle request"), ("golive", "Go live"),
@@ -1856,7 +1906,7 @@ CHARTER_HOURS = ("pickWait", "delWait")
 # frontend having to send the label along with it.
 CHARTER_FIELD_LABELS = {k: label for _, fields in CHARTER_SECTIONS for k, label in fields}
 
-# Required before a go-live date can be set — see edit_input.
+# Required before a go-live date can be set â€” see edit_input.
 ONBOARDING_IDS = {"parentShipperId": "Parent shipper ID", "shipperId": "Shipper ID",
                   "branchId": "Corporate branch ID"}
 
@@ -1881,20 +1931,20 @@ def _charter_value(key: str, raw) -> str:
 
 
 def render_charter(t: dict, inp: dict, extras: list[tuple[str, str]]) -> tuple[str, str]:
-    """Build the charter as (html, plain text). No cost, no margin — ever."""
+    """Build the charter as (html, plain text). No cost, no margin â€” ever."""
     esc = lambda v: (str(v if v is not None else "").replace("&", "&amp;")
                      .replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;"))
     rp = lambda n: "Rp " + f"{int(n or 0):,}".replace(",", ".")
 
     head = [("Ticket", t["ticket_ref"]), ("Shipper", t["shipper"]),
             ("Account type", t["acct_type"]), ("Service", t["service_type"]),
-            ("Potential revenue", rp(t["potential_rev"])), ("Region", t.get("region") or "—"),
+            ("Potential revenue", rp(t["potential_rev"])), ("Region", t.get("region") or "â€”"),
             ("Status", t["status"]), ("Submitted", str(t["submitted_on"])),
-            ("Sales PIC", t.get("sales_name") or "—"),
+            ("Sales PIC", t.get("sales_name") or "â€”"),
             ("PNS owner", t.get("owner_name") or "unassigned")]
 
-    rows, text = [], [f"PROJECT CHARTER — {t['shipper']}",
-                      f"{t['ticket_ref']} · {t['service_type']} · {rp(t['potential_rev'])}", ""]
+    rows, text = [], [f"PROJECT CHARTER â€” {t['shipper']}",
+                      f"{t['ticket_ref']} Â· {t['service_type']} Â· {rp(t['potential_rev'])}", ""]
     rows.append(f'<tr><td colspan="2" style="{_CS["section"]}">Ticket</td></tr>')
     text.append("TICKET")
     for label, value in head:
@@ -1910,7 +1960,7 @@ def render_charter(t: dict, inp: dict, extras: list[tuple[str, str]]) -> tuple[s
             cell = esc(v).replace("\n", "<br>") if v else "&mdash;"
             rows.append(f'<tr><td style="{_CS["label"]}">{esc(label)}</td>'
                         f'<td style="{_CS["value"]}">{cell}</td></tr>')
-            text.append(f"{label:<28}: {v or '—'}")
+            text.append(f"{label:<28}: {v or 'â€”'}")
 
     for label, value in extras:
         rows.append(f'<tr><td style="{_CS["label"]}">{esc(label)}</td>'
@@ -1927,7 +1977,7 @@ def render_charter(t: dict, inp: dict, extras: list[tuple[str, str]]) -> tuple[s
             f'<p style="font-family:Arial,Helvetica,sans-serif;font-size:11px;color:#94a3b8;'
             f'margin:14px 0 0">Sent from Ninja PNS. Price only &mdash; this charter carries '
             f'no cost or margin.</p></div>')
-    text += ["", "Price only — this charter carries no cost or margin."]
+    text += ["", "Price only â€” this charter carries no cost or margin."]
     return html, "\n".join(text)
 
 
@@ -1994,7 +2044,7 @@ class SignoffIn(BaseModel):
 async def exec_signoff(ref: str, body: SignoffIn, u: User = Depends(current_user)):
     """Record that Alex (CSalesO) and Dhinesh (COO) have signed off the solution.
 
-    The approval itself happens over email for now — this only records that it
+    The approval itself happens over email for now â€” this only records that it
     happened, so the charter can state it and the audit trail is not a gap. Managed
     accounts only; nothing else needs an executive sign-off."""
     t = await get_ticket(ref)
@@ -2008,13 +2058,13 @@ async def exec_signoff(ref: str, body: SignoffIn, u: User = Depends(current_user
                    datetime.now() if body.done else None, t["id"]))
 
     note = ("executive sign-off recorded" if body.done else "executive sign-off withdrawn") \
-        + (f" — {body.note}" if body.note else "")
+        + (f" â€” {body.note}" if body.note else "")
     status = t["status"]
     if body.done and status == "Pending Exec Sign-off":
         # This was the last gate, so recording it releases the proposal.
         status = "Proposal Submitted"
         await log_status(t["id"], status, u.name, note)
-        await notify(f"{ref} — {t['shipper']}: signed off by Alex and Dhinesh, proposal is ready",
+        await notify(f"{ref} â€” {t['shipper']}: signed off by Alex and Dhinesh, proposal is ready",
                      groups=["Commercial"], ticket_ref=ref)
     else:
         await log_note(t["id"], status, u.name, note)
@@ -2028,7 +2078,7 @@ async def exec_signoff(ref: str, body: SignoffIn, u: User = Depends(current_user
 async def signoff_draft(ref: str, u: User = Depends(current_user)):
     """A ready-to-send draft for the sign-off email PNS currently writes by hand.
 
-    Returned as text for the author to copy, edit and send from their own mailbox —
+    Returned as text for the author to copy, edit and send from their own mailbox â€”
     the app does not send it. An approval this senior should leave the building from a
     person's own address, and PNS routinely adds context no template can guess."""
     t = await get_ticket(ref)
@@ -2045,7 +2095,7 @@ async def signoff_draft(ref: str, u: User = Depends(current_user)):
         return f"{label}: {value}" if value not in (None, "", "-") else None
 
     body = [
-        f"Subject: Solution sign-off — {t['shipper']} ({t['service_type']}) — {ref}",
+        f"Subject: Solution sign-off â€” {t['shipper']} ({t['service_type']}) â€” {ref}",
         "",
         "Hi Alex, Dhinesh,",
         "",
@@ -2076,7 +2126,7 @@ async def signoff_draft(ref: str, u: User = Depends(current_user)):
         f"Thanks,\n{u.name}",
     ]
     return {"ref": ref, "to": ["Alex (CSalesO)", "Dhinesh (COO)"],
-            "subject": f"Solution sign-off — {t['shipper']} ({t['service_type']}) — {ref}",
+            "subject": f"Solution sign-off â€” {t['shipper']} ({t['service_type']}) â€” {ref}",
             "body": "\n".join(body)}
 
 
@@ -2131,20 +2181,20 @@ async def psp_decide(ref: str, body: PspIn, u: User = Depends(current_user)):
                   "VALUES (%s,'psp',%s,%s,%s,%s)",
                   (t["id"], "approved" if body.approve else "rejected", u.name,
                    actor_role[:30], body.note))
-    await notify(f"{ref} — PSP {'approved' if body.approve else 'rejected'} the price"
+    await notify(f"{ref} â€” PSP {'approved' if body.approve else 'rejected'} the price"
                  f"{': ' + body.note if body.note else ''}",
                  groups=[t["resp"] == "PNS" and "PNS" or "Commercial"], ticket_ref=ref)
     if not body.approve:
-        # A rejection puts the ticket back on whoever priced it — same rule as a send-back.
+        # A rejection puts the ticket back on whoever priced it â€” same rule as a send-back.
         await tell_owed(t, nxt, u.name,
-                        f"{ref} — {t['shipper']}: PSP rejected the price. {body.note}",
-                        f"Price rejected — {t['shipper']}", ref)
+                        f"{ref} â€” {t['shipper']}: PSP rejected the price. {body.note}",
+                        f"Price rejected â€” {t['shipper']}", ref)
     elif ready_to_submit:
-        # Approved and cleared to submit — the pricer needs to know it's their move, not
+        # Approved and cleared to submit â€” the pricer needs to know it's their move, not
         # just that PSP acted (the broadcast above doesn't name anyone).
         await tell_owed(t, nxt, u.name,
-                        f"{ref} — {t['shipper']}: PSP approved the margin. Submit the proposal.",
-                        f"Ready to submit — {t['shipper']}", ref)
+                        f"{ref} â€” {t['shipper']}: PSP approved the margin. Submit the proposal.",
+                        f"Ready to submit â€” {t['shipper']}", ref)
     return {"ok": True, "ref": ref, "status": nxt}
 
 
@@ -2154,7 +2204,7 @@ class PspAssignIn(BaseModel):
 
 @app.post("/api/tickets/{ref}/psp-assign", response_model=Ok)
 async def psp_assign(ref: str, body: PspAssignIn, u: User = Depends(current_user)):
-    """Who in PSP is handling this. Flat — any PSP member may set or clear it, on any
+    """Who in PSP is handling this. Flat â€” any PSP member may set or clear it, on any
     ticket, for themselves or a teammate. There is no PSP head to gate this on."""
     require(u, "pspAssign")
     t = await get_ticket(ref)
@@ -2163,7 +2213,7 @@ async def psp_assign(ref: str, body: PspAssignIn, u: User = Depends(current_user
     await log_note(t["id"], t["status"], u.name,
                    f"PSP PIC {'set to ' + assignee if assignee else 'cleared'}")
     if assignee and assignee != u.name:
-        await notify(f"{ref} — {t['shipper']}: assigned to you for PSP review by {u.name}",
+        await notify(f"{ref} â€” {t['shipper']}: assigned to you for PSP review by {u.name}",
                      people=[assignee], ticket_ref=ref)
     await audit(u.email, "assign", "ticket", ref, "psp_assignee", t.get("psp_assignee"), assignee)
     return {"ok": True, "ref": ref}
@@ -2172,7 +2222,7 @@ async def psp_assign(ref: str, body: PspAssignIn, u: User = Depends(current_user
 @app.post("/api/tickets/{ref}/submit-proposal", response_model=Ok)
 async def submit_proposal(ref: str, u: User = Depends(current_user)):
     """The final step after PSP clears a margin that did not also need PNS review. PSP
-    approving the price is not the same as the proposal being ready — the side that
+    approving the price is not the same as the proposal being ready â€” the side that
     priced it confirms explicitly. Nothing about the price is re-entered here; that
     already happened in submit_price."""
     t = await get_ticket(ref)
@@ -2186,10 +2236,10 @@ async def submit_proposal(ref: str, u: User = Depends(current_user)):
     nxt = proposal_or_signoff(t)
     await log_status(t["id"], nxt, u.name, "submitted after PSP approval")
     if nxt == "Pending Exec Sign-off":
-        await notify(f"{ref} — {t['shipper']} ({t['acct_type']}): PSP cleared the margin, "
+        await notify(f"{ref} â€” {t['shipper']} ({t['acct_type']}): PSP cleared the margin, "
                      f"awaiting Alex and Dhinesh sign-off", groups=["PNS"], ticket_ref=ref)
     else:
-        await notify(f"{ref} — {t['shipper']}: proposal is ready",
+        await notify(f"{ref} â€” {t['shipper']}: proposal is ready",
                      groups=["Commercial"], ticket_ref=ref)
     await audit(u.email, "submit", "ticket", ref, "status", t["status"], nxt)
     return {"ok": True, "ref": ref, "status": nxt}
@@ -2217,7 +2267,7 @@ async def restore(ref: str, u: User = Depends(current_user)):
 @app.delete("/api/tickets/{ref}/purge", response_model=Ok)
 async def purge(ref: str, u: User = Depends(current_user)):
     """Erase a ticket from the recycle bin for good, with its history, intake and pricing
-    (the foreign keys cascade). Admin only, and only from the bin — there is deliberately
+    (the foreign keys cascade). Admin only, and only from the bin â€” there is deliberately
     no way to hard-delete a live ticket in one step."""
     require(u, "purgeTicket")
     t = await q("SELECT id, deleted_at FROM tickets WHERE ticket_ref=%s", (ref,), one=True)
@@ -2297,18 +2347,18 @@ class TicketDetail(BaseModel):
 
 
 RATE_CARDS = {
-    "LTL": "Published LTL Rates — 1 December 2025 (Commercial Head + PNS only)",
-    "B2BR": "[ID] Ninja Xpress 2025 Rate Card — B2BR",
-    "B2C": "[ID] Ninja Xpress 2025 Rate Card — B2BR (B2C prices off this card)",
+    "LTL": "Published LTL Rates â€” 1 December 2025 (Commercial Head + PNS only)",
+    "B2BR": "[ID] Ninja Xpress 2025 Rate Card â€” B2BR",
+    "B2C": "[ID] Ninja Xpress 2025 Rate Card â€” B2BR (B2C prices off this card)",
     "FTL on-call": "[ID] Ninja Xpress 2026 Rate Card FTL",
-    "FTL monthly": "FTL monthly — PNS costing (no published card)",
-    "Sameday": "Sameday calculator — Regular Rp 20.000 / 5kg, Premium Rp 35.000 / 5kg",
+    "FTL monthly": "FTL monthly â€” PNS costing (no published card)",
+    "Sameday": "Sameday calculator â€” Regular Rp 20.000 / 5kg, Premium Rp 35.000 / 5kg",
 }
 
 
 @app.get("/api/tickets/deleted", response_model=TicketList)
 async def list_deleted(u: User = Depends(current_user)):
-    """The recycle bin. Admin only — deleted tickets keep their history."""
+    """The recycle bin. Admin only â€” deleted tickets keep their history."""
     require(u, "restoreTicket")
     rows = await q(
         "SELECT t.*, s.name AS shipper, s.acct_type, p.margin_pct, p.price_file, p.price_url, "
@@ -2423,7 +2473,7 @@ async def raise_capa(body: NewCapa, u: User = Depends(current_user)):
         "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
         (ref, body.shipper, ",".join(body.services), body.issue, body.trid_samples,
          clean_url(body.link_url), u.name, u.email, date.today()))
-    await notify(f"New CAPA {ref} — {body.shipper} raised by {u.name}",
+    await notify(f"New CAPA {ref} â€” {body.shipper} raised by {u.name}",
                  groups=["PNS"], roles=["PNS - Head"])
     return {"ok": True, "ref": ref}
 
@@ -2452,7 +2502,7 @@ async def upload_capa_file(
     caption: str | None = Form(None),
     u: User = Depends(current_user),
 ):
-    """Evidence for a corrective action — a photo of the damage, a screenshot, a report.
+    """Evidence for a corrective action â€” a photo of the damage, a screenshot, a report.
     Open to every group, same reasoning as ticket attachments."""
     c = await get_capa(ref)
     if kind not in ("evidence", "document"):
@@ -2467,7 +2517,7 @@ async def upload_capa_file(
 
     people = {n for n in (c["assignee"], c["raised_by"]) if n} - {u.name}
     if people:
-        await notify(f"{u.name} attached {file.filename} to {ref} — {c['shipper_name']}",
+        await notify(f"{u.name} attached {file.filename} to {ref} â€” {c['shipper_name']}",
                      people=sorted(people))
     await audit(u.email, "upload", "capa", ref, "file", None, file.filename)
     return {"ok": True, "ref": ref, "status": f"{file.filename} attached"}
@@ -2511,7 +2561,7 @@ async def submit_capa(ref: str, body: CapaProposal, u: User = Depends(current_us
         await execute("UPDATE capa SET link_url=%s WHERE capa_ref=%s", (link, ref))
     await execute("UPDATE capa SET assignee=%s, proposal=%s, status='Submitted' "
                   "WHERE capa_ref=%s", (body.assignee, body.proposal, ref))
-    await notify(f"{ref} — PNS submitted a CAPA proposal", groups=["Commercial"])
+    await notify(f"{ref} â€” PNS submitted a CAPA proposal", groups=["Commercial"])
     return {"ok": True, "ref": ref, "status": "Submitted"}
 
 
@@ -2520,7 +2570,7 @@ async def close_capa(ref: str, u: User = Depends(current_user)):
     require(u, "capaClose")
     await execute("UPDATE capa SET status='CAPA Closed', closed_by=%s, closed_at=NOW() "
                   "WHERE capa_ref=%s", (u.name, ref))
-    await notify(f"{ref} — CAPA closed by {u.name}", groups=["PNS"])
+    await notify(f"{ref} â€” CAPA closed by {u.name}", groups=["PNS"])
     return {"ok": True, "ref": ref, "status": "CAPA Closed"}
 
 
@@ -2606,7 +2656,7 @@ async def list_users(u: User = Depends(current_user)):
 async def assignable_users(u: User = Depends(current_user)):
     """Names that can own a ticket or a CAPA: active PNS members, plus Admin accounts
     (Admin is a superset of PNS and does solutioning work too). Any signed-in user may
-    read this — the assignee dropdowns need it, and a staff list is not sensitive."""
+    read this â€” the assignee dropdowns need it, and a staff list is not sensitive."""
     rows = await q("SELECT name FROM users WHERE active=1 "
                    "AND role_group IN ('PNS','Admin') ORDER BY role_level DESC, name")
     return {"names": [r["name"] for r in rows]}
@@ -2624,7 +2674,7 @@ class Directory(BaseModel):
 
 @app.get("/api/users/directory", response_model=Directory)
 async def directory(u: User = Depends(current_user)):
-    """Everyone you can tag in a ticket discussion. Readable by any signed-in user —
+    """Everyone you can tag in a ticket discussion. Readable by any signed-in user â€”
     tagging by email is the point, and a colleague list is not sensitive internally.
     Roles are not exposed beyond the group label."""
     rows = await q("SELECT email, name, role_group FROM users WHERE active=1 "
@@ -2705,7 +2755,7 @@ async def update_user(email: str, body: UserPatch, u: User = Depends(current_use
 
 @app.delete("/api/users/{email}", response_model=Ok)
 async def deactivate_user(email: str, u: User = Depends(current_user)):
-    """Revoke access. Deliberately not a row delete — ticket and CAPA history record
+    """Revoke access. Deliberately not a row delete â€” ticket and CAPA history record
     people by name, and a hard delete would orphan that."""
     require(u, "manageUsers")
     email = email.strip().lower()
@@ -2727,7 +2777,7 @@ async def deactivate_user(email: str, u: User = Depends(current_user)):
 
 @app.get("/api/tickets/{ref}/files", response_model=FileList)
 async def list_files(ref: str, u: User = Depends(current_user)):
-    """Metadata only — the bytes come from /api/files/{id} so lists stay small."""
+    """Metadata only â€” the bytes come from /api/files/{id} so lists stay small."""
     t = await get_ticket(ref)
     rows = await q("SELECT id, kind, filename, content_type, size_bytes, caption, "
                    "uploaded_name, created_at FROM ticket_files WHERE ticket_id=%s "
@@ -2746,7 +2796,7 @@ async def upload_file(
     """Attach a photo of the goods or a supporting document.
 
     Open to every group. Commercial supplies the cargo photos with the intake, but PNS
-    attaches solution diagrams and survey shots, and Legal attaches contract drafts —
+    attaches solution diagrams and survey shots, and Legal attaches contract drafts â€”
     restricting this to one team would just push the rest back into email."""
     t = await get_ticket(ref)
     if kind not in ("goods_photo", "document"):
@@ -2764,7 +2814,7 @@ async def upload_file(
     people = {n for n in (t["owner_name"], t["sales_name"]) if n}
     people.discard(u.name)
     if people:
-        await notify(f"{u.name} attached a {label} to {ref} — {t['shipper']}: {file.filename}",
+        await notify(f"{u.name} attached a {label} to {ref} â€” {t['shipper']}: {file.filename}",
                      people=sorted(people), ticket_ref=ref)
     await audit(u.email, "upload", "ticket", ref, "file", None, file.filename)
     return {"ok": True, "ref": ref, "status": f"{file.filename} attached"}
@@ -2859,7 +2909,7 @@ async def add_comment(ref: str, body: NewComment, u: User = Depends(current_user
         raise HTTPException(400, "that is too long for one message (4000 characters max)")
 
     # Tag by email, from the picker or typed inline. Only real active accounts resolve,
-    # and the response says who was actually tagged — a typo must not look like it worked.
+    # and the response says who was actually tagged â€” a typo must not look like it worked.
     wanted = {e.strip().lower() for e in body.mentions if e.strip()}
     wanted |= {m.lower() for m in MENTION_RE.findall(text)}
     tagged: list[dict] = []
@@ -2885,7 +2935,7 @@ async def add_comment(ref: str, body: NewComment, u: User = Depends(current_user
     people.discard(u.name)
     kind = "asked a question on" if body.is_question else "commented on"
     if people:
-        await notify(f"{u.name} {kind} {ref} — {t['shipper']}: {text[:180]}",
+        await notify(f"{u.name} {kind} {ref} â€” {t['shipper']}: {text[:180]}",
                      people=sorted(people), ticket_ref=ref)
 
     found = {r["email"].lower() for r in tagged}
@@ -2895,7 +2945,7 @@ async def add_comment(ref: str, body: NewComment, u: User = Depends(current_user
         parts.append("tagged " + ", ".join(sorted(r["name"] for r in tagged)))
     if unknown:
         parts.append("not registered, nobody notified: " + ", ".join(unknown))
-    return {"ok": True, "ref": ref, "status": " · ".join(parts) or None}
+    return {"ok": True, "ref": ref, "status": " Â· ".join(parts) or None}
 
 
 class RecapIn(BaseModel):
@@ -2909,7 +2959,7 @@ async def recap_field_comments(ref: str, body: RecapIn, u: User = Depends(curren
 
     Field comments are for working: they sit beside the field being questioned. But
     Sales reads the thread, not the form, so at some point the scattered notes have to
-    become one message. This writes that message as a normal comment — it is not a new
+    become one message. This writes that message as a normal comment â€” it is not a new
     kind of object, so mentions, notifications and the unanswered count all keep working.
 
     The recap is a snapshot, not a live view. It says what was open when it was sent,
@@ -2944,9 +2994,9 @@ async def recap_field_comments(ref: str, body: RecapIn, u: User = Depends(curren
         "author_group, body, is_question) VALUES (%s,NULL,%s,%s,%s,%s,0)",
         (t["id"], u.email, u.name, u.group, text))
     await tell_owed(t, t["status"], u.name,
-                    f"{ref} — {t['shipper']}: {u.name} sent a recap of "
+                    f"{ref} â€” {t['shipper']}: {u.name} sent a recap of "
                     f"{len(rows)} field note{'' if len(rows) == 1 else 's'}",
-                    f"Intake questions — {t['shipper']}", ref)
+                    f"Intake questions â€” {t['shipper']}", ref)
     await audit(u.email, "recap", "ticket", ref, "comments", None, str(len(rows)))
     return {"ok": True, "ref": ref, "status": t["status"], "id": cid}
 
@@ -3077,13 +3127,13 @@ async def check_email(send: bool = False, u: User = Depends(current_user)):
             f"Test message from Ninja PNS, sent by {u.name}. If this arrived, personal "
             f"notifications will reach people.", None)
         try:
-            await asyncio.to_thread(_send_sync, [u.email], "Ninja PNS — email test",
+            await asyncio.to_thread(_send_sync, [u.email], "Ninja PNS â€” email test",
                                     text, html)
             sent_to = u.email
         except Exception as exc:                      # noqa: BLE001
             return {"configured": True, "host": SMTP_HOST, "port": SMTP_PORT,
                     "sender": SMTP_FROM, "reachable": True,
-                    "detail": f"connected, but sending failed — {type(exc).__name__}: {exc}"}
+                    "detail": f"connected, but sending failed â€” {type(exc).__name__}: {exc}"}
 
     return {"configured": True, "host": SMTP_HOST, "port": SMTP_PORT, "sender": SMTP_FROM,
             "reachable": True, "detail": detail, "sent_to": sent_to}
