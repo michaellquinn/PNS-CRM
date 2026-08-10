@@ -675,7 +675,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-08-10.25"
+BUILD = "2026-08-10.26"
 
 
 class Me(BaseModel):
@@ -1138,6 +1138,10 @@ class SyncIn(BaseModel):
     refresh: bool = True
     pages: int = 0
     dry_run: bool = True
+    # An explicit window, for backfilling history in chunks small enough to finish. Both
+    # inclusive, YYYY-MM-DD. When set, `days` is ignored.
+    since: str | None = None
+    until: str | None = None
 
 
 @app.post("/api/sync/salescrm")
@@ -1168,6 +1172,9 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
     async with _sync_lock:
         known = {str(r["opportunity_id"]) for r in
                  await q("SELECT opportunity_id FROM tickets WHERE opportunity_id IS NOT NULL")}
+        # Names this app already knows. A salesperson Sales CRM names but we have never
+        # registered gets flagged rather than silently written onto a ticket as its PIC.
+        known_people = {r["name"] for r in await q("SELECT name FROM users WHERE active=1")}
 
         # Per-request timeout well under the sweep's own budget, so one slow Sales CRM
         # call cannot consume the whole run and leave nothing to report.
@@ -1180,14 +1187,28 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
             # 1. Recent days. new_date is a plain date, it is populated on every
             #    opportunity, and exact match on it is one of the few filters this API
             #    accepts. A day is five or six opportunities, against a hundred a page.
-            today = date.today()
-            for back in range(max(0, min(body.days, 60))):
+            if body.since:
+                start = date.fromisoformat(body.since)
+                end = date.fromisoformat(body.until) if body.until else date.today()
+                if start > end:
+                    raise HTTPException(400, "since is after until")
+                # Newest first, so a run that stops early has covered the recent end and
+                # the caller can move the window back for the next chunk.
+                wanted = [end - timedelta(days=i) for i in range((end - start).days + 1)]
+            else:
+                today = date.today()
+                wanted = [today - timedelta(days=i)
+                          for i in range(max(0, min(body.days, 60)))]
+
+            covered_from = None
+            for day_d in wanted:
                 if time.monotonic() > deadline:
                     truncated = True
                     break
-                day = str(today - timedelta(days=back))
+                day = str(day_d)
                 d = await crm.records("Opportunity", new_date=day, page_size=100)
                 batches.append(("day " + day, d.get("items") or []))
+                covered_from = day
 
             # 2. Opportunities behind tickets we already hold, read directly by id so
             #    their stage and revenue stay current. Bounded by our own ticket count.
@@ -1310,6 +1331,8 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
                             "parent_account_id": str((account or {}).get("parent_account_id") or ""),
                         }
                         plan["ftl_unknown"] = str(raw_product or "").strip() == FTL_VARIANT_UNKNOWN
+                        plan["sales_unknown"] = bool(plan["sales_name"]) and \
+                            plan["sales_name"] not in known_people
                         r = route(acct_type, service, revenue)
                         plan["routes_to"] = r["resp"]
 
@@ -1330,12 +1353,16 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
 
     if not body.dry_run:
         await audit(u.email, "sync", "salescrm", None, "created", None, str(len(created)))
+    # Salespeople Sales CRM names but this app has never heard of. Reported rather than
+    # registered: creating a login is a permission grant, not a data import.
+    unknown_sales = sorted({c["sales_name"] for c in created if c.get("sales_unknown")})
     return {"dry_run": body.dry_run, "scanned": scanned, "truncated": truncated,
-            "caught_up": caught_up,
+            "caught_up": caught_up, "covered_to": covered_from,
             "created": created, "refreshed": refreshed, "skipped": skipped,
-            "errors": errors,
+            "errors": errors, "unknown_sales": unknown_sales,
             "counts": {"created": len(created), "refreshed": len(refreshed),
-                       "skipped": len(skipped), "errors": len(errors)}}
+                       "skipped": len(skipped), "errors": len(errors),
+                       "unknown_sales": len(unknown_sales)}}
 
 
 async def _refresh_from_salescrm(o: dict) -> int:
