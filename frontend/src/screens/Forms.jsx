@@ -83,7 +83,7 @@ export function NewRequest({ me, notify, onCreated }) {
               {SERVICES.map((s) => <option key={s}>{s}</option>)}
             </select>
           </Field>
-          <Field label="Request truck type" hint="FTL only — type a body type not listed">
+          <Field label="Request truck type" hint="FTL only. Type a body type not listed.">
             <Combo value={f.truck} onChange={setV("truck")} options={mem.truck || []} />
           </Field>
         </Section>
@@ -132,7 +132,7 @@ export function NewRequest({ me, notify, onCreated }) {
             <input className={inputCls} value={f.shipperContact || ""} onChange={set("shipperContact")} placeholder="08xx…" />
           </Field>
           <Field label="Brief summary" required span
-            hint="Goes straight onto the Project Charter — it's the first thing PNS reads">
+            hint="Goes straight onto the Project Charter; it's the first thing PNS reads">
             <textarea className={`${inputCls} min-h-[70px]`} value={f.brief || ""} onChange={set("brief")}
               placeholder="What the shipper is trying to do, in a couple of lines." />
           </Field>
@@ -175,7 +175,7 @@ export function NewRequest({ me, notify, onCreated }) {
 
         <Section label="3 · Cargo knowledge">
           <Field label="Commodity" required
-            hint="Type anything — medicine, cosmetics, spare parts. Past answers are suggested.">
+            hint="Type anything (medicine, cosmetics, spare parts). Past answers are suggested.">
             <Combo value={f.commodity} onChange={setV("commodity")} options={mem.commodity || []} />
           </Field>
           <Field label="Specific product" required hint="Free text; remembered for next time">
@@ -199,7 +199,7 @@ export function NewRequest({ me, notify, onCreated }) {
             )}
           </Field>
           <Field label="Supporting documents" span
-            hint="Shipper requirement sheets, volume data, existing rate cards. PDF, Word, Excel, CSV — 5 MB each.">
+            hint="Shipper requirement sheets, volume data, existing rate cards. PDF, Word, Excel or CSV, 5 MB each.">
             <input type="file" multiple accept=".pdf,.xlsx,.xls,.docx,.doc,.csv,.txt"
               onChange={(e) => setDocs(Array.from(e.target.files || []))}
               className="w-full text-[12.5px] file:mr-2 file:rounded-lg file:border file:border-slate-300 file:bg-white file:px-3 file:py-1.5 file:text-[12.5px] file:font-medium" />
@@ -321,7 +321,7 @@ export function NewCapa({ notify, onCreated }) {
               <p className="mt-1 text-[11px] text-slate-500">{evidence.map((p) => p.name).join(", ")}</p>
             )}
           </Field>
-          <Field label="Link" hint="Tracking page, shipper complaint thread, shared folder — anything already online.">
+          <Field label="Link" hint="Tracking page, shipper complaint thread, shared folder: anything already online.">
             <input className={inputCls} type="url" value={f.link}
               onChange={(e) => setF({ ...f, link: e.target.value })}
               placeholder="https://…" />

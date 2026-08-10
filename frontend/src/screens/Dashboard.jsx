@@ -4,6 +4,19 @@ import { Chip, Head, Pill, Sla, Tile, usePnsTeam } from "../ui";
 
 const EMPTY = { search: "", status: [], service: [], owner: "", sales: "", from: "", to: "" };
 
+// The eleven statuses read as a wall when they sit in one flat row, and half of them
+// share the word "Pending". Grouped by who is acting, the row answers the question
+// people actually bring to the filter: "show me what's stuck at approval" or "show me
+// what's out with the shipper". Any status missing from these lists (a future addition)
+// falls into a trailing group so it can never silently disappear from the filter.
+const STATUS_GROUPS = [
+  ["Being worked", ["Pending Sales", "Pending PNS", "Pending Vendor"]],
+  ["In approval", ["Pending PNS Review", "Pending Head Review",
+                   "Pending PSP Approval", "Pending Exec Sign-off"]],
+  ["With shipper", ["Proposal Submitted"]],
+  ["Decided", ["Proposal Accepted / Ready to Ship", "Lost", "Cancel"]],
+];
+
 export default function Dashboard({ me, onOpen }) {
   const [stats, setStats] = useState(null);
   const [rows, setRows] = useState([]);
@@ -22,12 +35,20 @@ export default function Dashboard({ me, onOpen }) {
     }).then((d) => setRows(d.tickets)).catch(() => setRows([]));
   }, [f]);
 
+  const [counts, setCounts] = useState({});
+
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
     api.stats().then(setStats).catch(() => {});
-    api.tickets({}).then((d) =>
-      setSalesNames([...new Set(d.tickets.map((t) => t.sales).filter(Boolean))].sort())
-    ).catch(() => {});
+    // One unfiltered fetch feeds both the salesperson dropdown and the per-status
+    // counts on the filter chips. The counts stay fixed while filters are applied:
+    // they describe the whole book, not the current selection.
+    api.tickets({}).then((d) => {
+      setSalesNames([...new Set(d.tickets.map((t) => t.sales).filter(Boolean))].sort());
+      const c = {};
+      for (const t of d.tickets) c[t.status] = (c[t.status] || 0) + 1;
+      setCounts(c);
+    }).catch(() => {});
   }, []);
 
   const canSeeMargin = me.permissions.seeMargin;
@@ -66,7 +87,7 @@ export default function Dashboard({ me, onOpen }) {
   return (
     <>
       <Head title="Dashboard"
-        sub="Every ticket you're allowed to see. Filters stack — combine as many as you need."
+        sub="Every ticket you're allowed to see. Filters stack, so combine as many as you need."
         right={
           <button onClick={exportCsv} disabled={!rows.length}
             className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-[13px] font-medium disabled:opacity-40">
@@ -112,10 +133,20 @@ export default function Dashboard({ me, onOpen }) {
           </button>
         </div>
 
-        <div className="mt-3.5 flex flex-wrap items-center gap-2.5">
+        <div className="mt-3.5 flex flex-wrap items-center gap-x-4 gap-y-2.5">
           <span className="w-14 shrink-0 text-[10.5px] font-bold uppercase tracking-wider text-slate-400">Status</span>
-          {STATUSES.map((s) => (
-            <Chip key={s} on={f.status.includes(s)} onClick={() => toggle("status", s)}>{s}</Chip>
+          {[...STATUS_GROUPS,
+            ["Other", STATUSES.filter((s) => !STATUS_GROUPS.some(([, g]) => g.includes(s)))]]
+            .filter(([, g]) => g.length)
+            .map(([label, group]) => (
+            <span key={label} className="flex flex-wrap items-center gap-2">
+              <span className="text-[10.5px] font-semibold uppercase tracking-wide text-slate-300">{label}</span>
+              {group.map((s) => (
+                <Chip key={s} on={f.status.includes(s)} onClick={() => toggle("status", s)}>
+                  {s}{counts[s] ? ` · ${counts[s]}` : ""}
+                </Chip>
+              ))}
+            </span>
           ))}
         </div>
         <div className="mt-3.5 flex flex-wrap items-center gap-2.5">

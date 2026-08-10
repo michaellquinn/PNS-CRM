@@ -75,7 +75,7 @@ export default function Matrix() {
   return (
     <>
       <Head title="Routing &amp; limits"
-        sub="The rules the tool enforces. Read-only — changes go through the PRD, not the app."
+        sub="The rules the tool enforces. Read-only: changes go through the PRD, not the app."
         right={<span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">v1.0</span>} />
 
       <div className="flex flex-col gap-4">
@@ -96,12 +96,12 @@ export default function Matrix() {
         </Block>
 
         <Block title="4 · Who gets told when a ticket comes back"
-          sub="A pending status is a queue, and queues get watched by nobody in particular. Every send-back and rejection lands on a named person — never on silence.">
+          sub="A pending status is a queue, and queues get watched by nobody in particular. Every send-back and rejection lands on a named person.">
           <Table head={["Ticket moves to", "Notified", "If that slot is empty"]} rows={OWED} />
         </Block>
 
         <Block title="5 · Known gaps"
-          sub="Carried from the PRD's open dependencies — these are decisions still outstanding.">
+          sub="Open decisions carried from the PRD.">
           <ul className="list-disc space-y-1.5 px-8 py-4 text-[13px] text-slate-600">
             <li>Sameday has no published bottom margin. It is capped on discount instead —
                 over 20% goes to PSP rather than to a margin check.</li>

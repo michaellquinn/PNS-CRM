@@ -134,8 +134,8 @@ export function AwaitingPrice({ me, onOpen, notify }) {
               value={file[t.ref] ?? ""} onChange={(e) => setFile({ ...file, [t.ref]: e.target.value })} />
           </div>
           <p className="mb-3 text-[11px] text-slate-400">
-            Share the sheet with whoever needs it in Drive first — this app stores the link,
-            it cannot grant access. Keep cost and margin workings out of any sheet a
+            Share the sheet with whoever needs it in Drive first; this app stores the link
+            and cannot grant access. Keep cost and margin workings out of any sheet a
             shipper or Commercial will open.
           </p>
           {/* The tier ceiling is checked against these. Leaving one blank is not a breach —
@@ -203,7 +203,7 @@ export function ToReview({ me, onOpen, notify }) {
 
   return (
     <Shell title="To review"
-      sub="Non-Strategic at or above 30 Mio — Sales priced it, PNS reviews before it goes out."
+      sub="Non-Strategic at or above 30 Mio: Sales priced it, PNS reviews before it goes out."
       rows={rows} err={err} empty="Nothing waiting on review.">
       {(list) => list.map((t) => (
         <TicketCard key={t.ref} t={t} onOpen={onOpen}>
@@ -257,7 +257,7 @@ export function HeadReview({ me, onOpen, notify }) {
 
   return (
     <Shell title="Need review"
-      sub="Prices flagged below the bottom rate. The head of the team that priced it acknowledges before it goes out."
+      sub="Prices below the product floor. The Sales Head acknowledges these before they go out."
       right={<span className="text-[12px] text-slate-500">Head only</span>}
       rows={rows} err={err} empty="Nothing needs your review.">
       {(list) => list.map((t) => (
@@ -350,7 +350,7 @@ export function ExecSignoff({ me, onOpen, notify }) {
 
   return (
     <Shell title="Executive sign-off"
-      sub="Hypercare and Strategic solutions need Alex (CSalesO) and Dhinesh (COO). Every other approval has already cleared — this is the last gate before the proposal goes out."
+      sub="Hypercare and Strategic solutions need Alex (CSalesO) and Dhinesh (COO). Every other approval has already cleared; this is the last gate before the proposal goes out."
       rows={rows} err={err} empty="Nothing awaiting executive sign-off.">
       {(list) => list.map((t) => (
         <TicketCard key={t.ref} t={t} onOpen={onOpen}>
@@ -457,7 +457,7 @@ export function ReadyToShip({ onOpen }) {
   const [rows, err] = useTickets({ status: "Proposal Accepted / Ready to Ship" });
   return (
     <Shell title="Ready to ship"
-      sub="Accepted proposals — handed to Legal for the contract, then to Ops."
+      sub="Accepted proposals, handed to Legal for the contract and then to Ops."
       rows={rows} err={err} empty="Nothing ready to ship yet.">
       {(list) => list.map((t) => (
         <TicketCard key={t.ref} t={t} onOpen={onOpen}>
@@ -592,7 +592,7 @@ export function Meeting({ onOpen }) {
         }
       />
       <div className="flex flex-col gap-4">
-        <Block label="A · Proposals submitted" sub="Start here — each salesperson walks their own."
+        <Block label="A · Proposals submitted" sub="Start here. Each salesperson walks their own."
           list={props} tone="bg-teal-50 text-teal-700" />
         <Block label="B · All pending" sub="Everything still open, by salesperson."
           list={pend} tone="bg-amber-50 text-amber-700" />

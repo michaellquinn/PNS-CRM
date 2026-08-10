@@ -32,7 +32,7 @@ export default function Workload() {
   return (
     <>
       <Head title="Workload"
-        sub={`Who is carrying what, and how quickly it clears. Cap is ${d.cap} tickets at Pending PNS before new work overflows.`} />
+        sub={`Who is carrying what, and how quickly it clears. Past ${d.cap} tickets at Pending PNS, new work waits for the Head to assign it by hand.`} />
 
       <div className="mb-4">
         <Card>
@@ -86,7 +86,7 @@ export default function Workload() {
         <div className="border-b border-slate-200 px-4 py-3">
           <h2 className="text-[13.5px] font-semibold">Salespeople with the most open tickets</h2>
           <p className="text-[12px] text-slate-500">
-            The demand side of the same picture — a spike here usually explains a queue
+            The demand side of the same picture: a spike here usually explains a queue
             on the PNS side. &ldquo;Waiting on them&rdquo; is what Sales owes back.
           </p>
         </div>

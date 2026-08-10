@@ -232,7 +232,7 @@ def stage_blocks_work(t: dict) -> str | None:
     be misleading. Returns the reason to refuse, or None to allow."""
     stage = t.get("stage")
     if stage in CLOSED_LOST_STAGES:
-        return (f"Sales CRM has this opportunity at '{stage}'. Reopen it there first — "
+        return (f"Sales CRM has this opportunity at '{stage}'. Reopen it there first: "
                 f"Sales CRM leads on stage and this ticket follows it.")
     return None
 
@@ -343,7 +343,7 @@ async def current_user(request: Request) -> User:
     if not row:
         # Authenticated by Google but nobody has granted a role yet.
         raise HTTPException(
-            403, f"{email} has no role in this app — ask an administrator to register you "
+            403, f"{email} has no role in this app. Ask an administrator to register you "
                  f"under Administration / Users")
     return User(email=row["email"], name=row["name"], group=row["role_group"],
                 level=row["role_level"], team=row["team"], sso=bool(sso))
@@ -961,7 +961,7 @@ class SalesCrm:
     async def records(self, obj: str, **params):
         r = await self.c.get(f"{SALESCRM_BASE}/objects/{obj}/records", params=params)
         if r.status_code == 401:
-            raise HTTPException(502, "Sales CRM rejected the API key — it may have expired "
+            raise HTTPException(502, "Sales CRM rejected the API key. It may have expired "
                                      "(keys last 30 days). Issue a new one and update "
                                      "SALESCRM_API_KEY.")
         r.raise_for_status()
@@ -1016,7 +1016,7 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
     if not SALESCRM_API_KEY:
         raise HTTPException(503, "SALESCRM_API_KEY is not set on this deployment")
     if _sync_lock.locked():
-        raise HTTPException(409, "a sync is already running — wait for it to finish")
+        raise HTTPException(409, "a sync is already running; wait for it to finish")
 
     import httpx
     created, refreshed, skipped, errors = [], [], [], []
@@ -1461,7 +1461,7 @@ async def change_status(ref: str, body: StatusIn, u: User = Depends(current_user
         # Ninja's own network, so there is no vendor to wait for.
         if nxt == "Pending Vendor" and t["service_type"] not in VENDOR_SERVICES:
             raise HTTPException(
-                400, f"{t['service_type']} is not priced through a vendor — "
+                400, f"{t['service_type']} is not priced through a vendor; "
                      f"only {' and '.join(VENDOR_SERVICES)} can wait on vendor cost")
         if nxt == "Pending PNS":
             await execute("UPDATE tickets SET resp='PNS' WHERE id=%s", (t["id"],))
@@ -1576,7 +1576,7 @@ async def edit_input(ref: str, body: InputPatch, u: User = Depends(current_user)
             if missing:
                 raise HTTPException(
                     400, "a go-live date needs the account identifiers Ops will onboard "
-                         "against — still missing: " + ", ".join(missing))
+                         "against. Still missing: " + ", ".join(missing))
         if row:
             await execute("UPDATE ticket_input SET payload=%s, updated_by=%s WHERE ticket_id=%s",
                           (json.dumps(merged), u.email, t["id"]))
@@ -1654,7 +1654,7 @@ async def reopen(ref: str, body: ReopenIn, u: User = Depends(current_user)):
     require(u, "reopen")
     t = await get_ticket(ref)
     if t["status"] not in ("Lost", "Cancel"):
-        raise HTTPException(400, f"{ref} is {t['status']} — only Lost or Cancel can be reopened")
+        raise HTTPException(400, f"{ref} is {t['status']}; only Lost or Cancel can be reopened")
     if body.status not in PENDING_STATUSES:
         raise HTTPException(400, f"reopen into one of {PENDING_STATUSES}")
 
@@ -1807,12 +1807,12 @@ async def send_charter(ref: str, body: CharterSend, u: User = Depends(current_us
     require(u, "markReviewed")
     t = await get_ticket(ref)
     if not email_configured():
-        raise HTTPException(503, "email is not configured on this deployment — "
+        raise HTTPException(503, "email is not configured on this deployment; "
                                  "use Copy for email on the ticket instead")
     row = await q("SELECT payload, cleared_at FROM ticket_input WHERE ticket_id=%s",
                   (t["id"],), one=True)
     if not row or not row["cleared_at"]:
-        raise HTTPException(409, f"{ref} has not been cleared yet — clear the intake first, "
+        raise HTTPException(409, f"{ref} has not been cleared yet. Clear the intake first: "
                                  f"the charter is the official record and cannot go out with gaps")
     inp = row["payload"] if isinstance(row["payload"], dict) else json.loads(row["payload"] or "{}")
 
@@ -1831,7 +1831,7 @@ async def send_charter(ref: str, body: CharterSend, u: User = Depends(current_us
         to.add(t["sales_email"])
     to.discard("")
     if not to:
-        raise HTTPException(400, "nobody to send to — register Legal users or pass addresses")
+        raise HTTPException(400, "nobody to send to. Register Legal users or pass addresses")
 
     html, text = render_charter(t, inp, extras)
     if body.note:
@@ -1861,7 +1861,7 @@ async def exec_signoff(ref: str, body: SignoffIn, u: User = Depends(current_user
     accounts only; nothing else needs an executive sign-off."""
     t = await get_ticket(ref)
     if t["acct_type"] not in MANAGED_ACCTS:
-        raise HTTPException(400, f"{ref} is {t['acct_type']} — executive sign-off applies "
+        raise HTTPException(400, f"{ref} is {t['acct_type']}; executive sign-off applies "
                                  f"to {' and '.join(MANAGED_ACCTS)} accounts only")
     require(u, "markReviewed")
     await execute("UPDATE tickets SET exec_signoff=%s, exec_signoff_by=%s, "
@@ -1895,7 +1895,7 @@ async def signoff_draft(ref: str, u: User = Depends(current_user)):
     person's own address, and PNS routinely adds context no template can guess."""
     t = await get_ticket(ref)
     if t["acct_type"] not in MANAGED_ACCTS:
-        raise HTTPException(400, f"{ref} is {t['acct_type']} — no executive sign-off needed")
+        raise HTTPException(400, f"{ref} is {t['acct_type']}; no executive sign-off needed")
     row = await q("SELECT payload FROM ticket_input WHERE ticket_id=%s", (t["id"],), one=True)
     p = {}
     if row and row["payload"]:
@@ -2016,7 +2016,7 @@ async def purge(ref: str, u: User = Depends(current_user)):
     if not t:
         raise HTTPException(404, f"{ref} not found")
     if not t["deleted_at"]:
-        raise HTTPException(400, f"{ref} is still live — move it to the recycle bin first")
+        raise HTTPException(400, f"{ref} is still live; move it to the recycle bin first")
     await execute("DELETE FROM tickets WHERE id=%s", (t["id"],))
     await audit(u.email, "purge", "ticket", ref)
     return {"ok": True, "ref": ref}
@@ -2434,7 +2434,7 @@ async def register_user(body: NewUser, u: User = Depends(current_user)):
     team = clean_user_fields(body.group, body.level, body.team)
 
     if await q("SELECT email FROM users WHERE email=%s", (email,), one=True):
-        raise HTTPException(409, f"{email} is already registered — edit that row instead")
+        raise HTTPException(409, f"{email} is already registered; edit that row instead")
 
     await execute("INSERT INTO users (email, name, role_group, role_level, team, active) "
                   "VALUES (%s,%s,%s,%s,%s,1)",
@@ -2467,7 +2467,7 @@ async def update_user(email: str, body: UserPatch, u: User = Depends(current_use
     # because there may be nobody left who can put them back.
     if email == u.email:
         if group != row["role_group"] or level != row["role_level"]:
-            raise HTTPException(400, "you cannot change your own role — ask another administrator")
+            raise HTTPException(400, "you cannot change your own role; ask another administrator")
         if not active:
             raise HTTPException(400, "you cannot deactivate your own account")
 
@@ -2475,7 +2475,7 @@ async def update_user(email: str, body: UserPatch, u: User = Depends(current_use
     losing_admin = row["role_group"] == "Admin" and row["active"] and (
         group != "Admin" or not active)
     if losing_admin and await active_admin_count() <= 1:
-        raise HTTPException(400, "this is the only active Admin — promote someone else first")
+        raise HTTPException(400, "this is the only active Admin; promote someone else first")
 
     team = clean_user_fields(group, level, row["team"] if body.team is None else body.team)
     name = (body.name or row["name"]).strip()
@@ -2506,7 +2506,7 @@ async def deactivate_user(email: str, u: User = Depends(current_user)):
     if row["role_group"] == "Admin":
         require(u, "grantAdmin")
         if row["active"] and await active_admin_count() <= 1:
-            raise HTTPException(400, "this is the only active Admin — promote someone else first")
+            raise HTTPException(400, "this is the only active Admin; promote someone else first")
 
     await execute("UPDATE users SET active=0 WHERE email=%s", (email,))
     await audit(u.email, "deactivate", "user", email, "active", "1", "0")

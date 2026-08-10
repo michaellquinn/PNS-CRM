@@ -107,7 +107,7 @@ export default function Capa({ view, me, notify, onRaise }) {
                   onChange={(e) => setWho({ ...who, [c.ref]: e.target.value })}>
                   {team.map((n) => <option key={n}>{n}</option>)}
                 </select>
-                <input className={`${inputCls} max-w-[380px]`} placeholder="Proposal — what will be done"
+                <input className={`${inputCls} max-w-[380px]`} placeholder="Proposal: what will be done"
                   value={prop[c.ref] || ""} onChange={(e) => setProp({ ...prop, [c.ref]: e.target.value })} />
                 <input className={`${inputCls} max-w-[280px]`} type="url"
                   placeholder="Link (optional) — https://…"

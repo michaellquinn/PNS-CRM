@@ -234,7 +234,7 @@ export default function TicketDetail({ ticketRef: initialRef, me, notify, onBack
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             {p.assign && (
               <Assigner label="PNS owner" current={t.owner} options={team} busy={busy}
-                hint="The PNS Head assigns work — on any ticket, whoever priced it."
+                hint="The PNS Head assigns work on any ticket, whoever priced it."
                 onSet={(v) => run(() => api.assign(ref, { owner: v }),
                   v ? `${ref} assigned to ${v}` : "Owner cleared")} />
             )}
@@ -414,7 +414,7 @@ export default function TicketDetail({ ticketRef: initialRef, me, notify, onBack
                           </select>
                         ) : remembered[k] ? (
                           <Combo value={draft[k]} options={remembered[k]}
-                            placeholder="Type anything — past answers are suggested"
+                            placeholder="Type anything; past answers are suggested"
                             onChange={(v) => setDraft({ ...draft, [k]: v })} />
                         ) : (
                           <input className={inputCls} value={draft[k]}

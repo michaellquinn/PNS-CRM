@@ -45,7 +45,7 @@ export default function Sync({ notify }) {
   return (
     <>
       <Head title="Sales CRM sync"
-        sub="Walks the newest-first opportunity list and stops at the first one already imported. Read-only against Sales CRM — nothing is ever written back." />
+        sub="Walks the newest-first opportunity list, creating tickets for new opportunities and refreshing ones already imported. Read-only against Sales CRM: nothing is ever written back." />
 
       <Card className="mb-4">
         <div className="flex flex-wrap items-end gap-3 p-4">
@@ -62,8 +62,8 @@ export default function Sync({ notify }) {
             Import for real
           </Btn>
           <p className="w-full text-[11.5px] text-slate-400">
-            Run a dry run first — &ldquo;Import for real&rdquo; stays disabled until you have.
-            The sync only you can run: the Sales CRM key is issued per person and reads
+            Run a dry run first. &ldquo;Import for real&rdquo; stays disabled until you have.
+            Only you can run this sync: the Sales CRM key is issued per person and reads
             with that person&apos;s permissions.
           </p>
         </div>
@@ -121,8 +121,8 @@ export default function Sync({ notify }) {
               </h2>
               <p className="text-[12px] text-slate-500">
                 Stage, committed revenue and close date are re-copied. Potential revenue,
-                service and account tier are left alone &mdash; PNS corrects those here
-                on purpose and an overwrite would undo it.
+                service and account tier are left alone: PNS corrects those here on
+                purpose, and an overwrite would undo the correction.
               </p>
             </div>
             <Table head={["Opportunity", "Name", "Sales CRM stage"]} rows={res.refreshed || []}
