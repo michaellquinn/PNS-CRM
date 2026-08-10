@@ -9,31 +9,45 @@ const kb = (n) => (n < 1024 * 1024 ? `${Math.round(n / 1024)} KB` : `${(n / 1048
 const ICON = { pdf: "📕", xlsx: "📗", xls: "📗", csv: "📗", docx: "📘", doc: "📘", txt: "📄" };
 const iconFor = (name) => ICON[String(name).split(".").pop().toLowerCase()] || "📎";
 
-export default function Attachments({ ticketRef, me, notify, onCountChange }) {
+// Used by both tickets and CAPAs. The parent supplies the three API calls and the two
+// kind labels, so the gallery, the size handling and the delete rules live in one place.
+const TICKET_KINDS = [["goods_photo", "Photo of the goods"], ["document", "Supporting document"]];
+
+export default function Attachments({
+  ticketRef, me, notify, onCountChange,
+  kinds = TICKET_KINDS,
+  list = (r) => api.files(r),
+  send: sendFile = (r, f, k, c) => api.uploadFile(r, f, k, c),
+  remove: removeFile = (id) => api.deleteFile(id),
+  primaryKind = "goods_photo",
+  primaryLabel = "Goods",
+  emptyText = "Nothing attached to this ticket yet.",
+}) {
   const [files, setFiles] = useState(null);
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState(false);
-  const [kind, setKind] = useState("goods_photo");
+  const [kind, setKind] = useState(primaryKind);
   const [caption, setCaption] = useState("");
   const [lightbox, setLightbox] = useState(null);
   const input = useRef(null);
 
   const load = () =>
-    api.files(ticketRef)
+    list(ticketRef)
       .then((d) => { setFiles(d.files); onCountChange?.(d.files.length); })
       .catch((e) => setErr(e.message));
 
   useEffect(() => { setFiles(null); setErr(null); load(); }, [ticketRef]);
 
-  const send = async (list) => {
-    const chosen = Array.from(list || []);
+  // Param deliberately not called `list` — that is the prop holding the fetch function.
+  const send = async (picked) => {
+    const chosen = Array.from(picked || []);
     if (!chosen.length) return;
     setBusy(true);
     let ok = 0;
     for (const raw of chosen) {
       try {
         const f = await shrinkImage(raw);
-        await api.uploadFile(ticketRef, f, kind, caption);
+        await sendFile(ticketRef, f, kind, caption);
         ok += 1;
       } catch (e) {
         notify(`${raw.name}: ${e.message}`);
@@ -47,15 +61,15 @@ export default function Attachments({ ticketRef, me, notify, onCountChange }) {
   };
 
   const remove = async (f) => {
-    try { await api.deleteFile(f.id); notify(`${f.filename} removed`); await load(); }
+    try { await removeFile(f.id); notify(`${f.filename} removed`); await load(); }
     catch (e) { notify(e.message); }
   };
 
   if (err) return <p className="text-[13px] text-rose-700">{err}</p>;
   if (!files) return <p className="text-sm text-slate-400">Loading…</p>;
 
-  const photos = files.filter((f) => f.kind === "goods_photo");
-  const docs = files.filter((f) => f.kind !== "goods_photo");
+  const photos = files.filter((f) => f.kind === primaryKind);
+  const docs = files.filter((f) => f.kind !== primaryKind);
 
   const Tile = ({ f }) => (
     <figure className="overflow-hidden rounded-lg border border-slate-200 bg-white">
@@ -89,8 +103,7 @@ export default function Attachments({ ticketRef, me, notify, onCountChange }) {
             What are you attaching?
             <select className={`${inputCls} mt-1 max-w-[190px]`} value={kind}
               onChange={(e) => setKind(e.target.value)}>
-              <option value="goods_photo">Photo of the goods</option>
-              <option value="document">Supporting document</option>
+              {kinds.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
             </select>
           </label>
           <label className="min-w-[200px] flex-1 text-[11.5px] font-semibold text-slate-600">
@@ -111,12 +124,12 @@ export default function Attachments({ ticketRef, me, notify, onCountChange }) {
         </p>
       </div>
 
-      {files.length === 0 && <Empty>Nothing attached to this ticket yet.</Empty>}
+      {files.length === 0 && <Empty>{emptyText}</Empty>}
 
       {photos.length > 0 && (
         <>
           <div className="mb-2 text-[10.5px] font-bold uppercase tracking-wider text-slate-400">
-            Goods · {photos.length}
+            {primaryLabel} · {photos.length}
           </div>
           <div className="mb-5 grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(170px,1fr))]">
             {photos.map((f) => <Tile key={f.id} f={f} />)}

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, SERVICES, rp } from "../api";
+import { charterHtml, charterText, copyRich } from "../charter";
 import Discussion from "./Discussion";
 import Attachments from "./Attachments";
 import {
@@ -14,7 +15,8 @@ const SECTIONS = [
     ["invPic", "Invoicing PIC"], ["invContact", "Contact invoicing PIC"],
     ["invAddr", "Invoicing address"], ["pickPic", "Pickup PIC"], ["pickContact", "Contact pickup PIC"],
     ["pickup", "Pickup address"], ["dest", "Destination"], ["freq", "Shipment frequency"],
-    ["volume", "Shipment volume"], ["pickSlot", "Pickup time"], ["delSlot", "Delivery time"],
+    ["volume", "Shipment volume"], ["pickSlot", "Pickup time"], ["pickWait", "Pickup waiting time"],
+    ["delSlot", "Delivery time"], ["delWait", "Delivery waiting time"],
     ["sfid", "Salesforce Opportunity ID"], ["globalId", "Global ID"], ["jiraId", "Jira ID"],
   ]],
   ["2 · Cargo knowledge", [
@@ -32,6 +34,15 @@ const SECTIONS = [
 const EDITABLE = SECTIONS.flatMap(([, fields]) => fields);
 const LONG = ["brief", "handling", "notes", "invAddr", "pickup", "dest"];
 const YESNO = ["mps", "rdo", "cod", "tkbmO", "tkbmD", "ins"];
+const HOURS = ["pickWait", "delWait"];
+
+// Waiting time is the one field where blank is an answer, not a gap: "None" means the
+// driver does not wait, which is a costed fact. Everything else shows an em dash.
+function display(k, v) {
+  const s = String(v ?? "").trim();
+  if (HOURS.includes(k)) return s === "" ? "None" : `${s} hour${Number(s) === 1 ? "" : "s"}`;
+  return s;
+}
 
 function Row({ label, children }) {
   return (
@@ -123,6 +134,21 @@ export default function TicketDetail({ ticketRef: initialRef, me, notify, onBack
       return notify("Nothing changed");
     }
     run(() => api.editInput(ref, body).then(refreshOptions), `${ref} updated`);
+  };
+
+  // The charter gets emailed to stakeholders, so it goes on the clipboard as a real
+  // HTML table with inline styles — pasting into Gmail keeps the formatting.
+  const copyCharter = async () => {
+    const extras = [["Pricing", d.price_url || d.price_file || "not yet priced"]];
+    if (photos.length) extras.push(["Photos of the goods", `${photos.length} attached in the app`]);
+    try {
+      const how = await copyRich(
+        charterHtml(t, i, SECTIONS, display, extras),
+        charterText(t, i, SECTIONS, display, extras));
+      notify(how === "rich"
+        ? "Charter copied — paste into your email and the table comes with it"
+        : "Charter copied");
+    } catch (e) { notify(e.message); }
   };
 
   const openQ = qCount ?? t.open_questions;
@@ -233,17 +259,20 @@ export default function TicketDetail({ ticketRef: initialRef, me, notify, onBack
         <div className="p-4">
           {tab === "charter" && (
             <>
-              <p className="mb-4 rounded-lg bg-slate-50 px-3 py-2 text-[12px] text-slate-500">
-                Generated from the intake. {d.input_cleared ? "Input cleared." : "Input not yet cleared."}
-                {" "}Price only — the charter never carries cost or margin.
-              </p>
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-slate-50 px-3 py-2">
+                <p className="text-[12px] text-slate-500">
+                  Generated from the intake. {d.input_cleared ? "Input cleared." : "Input not yet cleared."}
+                  {" "}Price only — the charter never carries cost or margin.
+                </p>
+                <Btn onClick={copyCharter}>Copy for email</Btn>
+              </div>
               {SECTIONS.map(([label, fields]) => (
                 <div key={label} className="mb-5 last:mb-0">
                   <div className="mb-2 text-[10.5px] font-bold uppercase tracking-wider text-slate-400">{label}</div>
                   <dl>
                     {fields.map(([k, l]) => (
                       <Row key={k} label={l}>
-                        {i[k] ? String(i[k]) : <span className="text-slate-400">—</span>}
+                        {display(k, i[k]) || <span className="text-slate-400">—</span>}
                       </Row>
                     ))}
                     {label.startsWith("2") && (
@@ -339,7 +368,11 @@ export default function TicketDetail({ ticketRef: initialRef, me, notify, onBack
                     {fields.map(([k, l]) => (
                       <Row key={k} label={l}>
                         {!draft ? (
-                          i[k] ? String(i[k]) : <span className="text-slate-400">—</span>
+                          display(k, i[k]) || <span className="text-slate-400">—</span>
+                        ) : HOURS.includes(k) ? (
+                          <input type="number" min="0" step="0.5" placeholder="None"
+                            className={`${inputCls} max-w-[140px]`} value={draft[k]}
+                            onChange={(e) => setDraft({ ...draft, [k]: e.target.value })} />
                         ) : LONG.includes(k) ? (
                           <textarea className={`${inputCls} min-h-[56px]`} value={draft[k]}
                             onChange={(e) => setDraft({ ...draft, [k]: e.target.value })} />

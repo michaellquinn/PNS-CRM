@@ -162,7 +162,15 @@ export function NewRequest({ me, notify, onCreated }) {
               placeholder="2–3× per week" />
           </Field>
           <Field label="Pickup time slot" required><input className={inputCls} value={f.pickSlot || ""} onChange={set("pickSlot")} /></Field>
+          <Field label="Pickup waiting time" hint="Hours the driver waits at origin. Leave empty for none.">
+            <input type="number" min="0" step="0.5" className={inputCls}
+              value={f.pickWait ?? ""} onChange={set("pickWait")} placeholder="None" />
+          </Field>
           <Field label="Delivery time slot" required><input className={inputCls} value={f.delSlot || ""} onChange={set("delSlot")} /></Field>
+          <Field label="Delivery waiting time" hint="Hours the driver waits at destination. Leave empty for none.">
+            <input type="number" min="0" step="0.5" className={inputCls}
+              value={f.delWait ?? ""} onChange={set("delWait")} placeholder="None" />
+          </Field>
         </Section>
 
         <Section label="3 · Cargo knowledge">
@@ -246,7 +254,8 @@ export function NewRequest({ me, notify, onCreated }) {
 
 /* ---------------------------------------------------------------- new CAPA */
 export function NewCapa({ notify, onCreated }) {
-  const [f, setF] = useState({ shipper: "", issue: "", trid: "", services: [] });
+  const [f, setF] = useState({ shipper: "", issue: "", trid: "", link: "", services: [] });
+  const [evidence, setEvidence] = useState([]);
   const [busy, setBusy] = useState(false);
 
   const toggle = (s) =>
@@ -255,13 +264,23 @@ export function NewCapa({ notify, onCreated }) {
   const submit = async () => {
     if (!f.shipper.trim() || !f.issue.trim() || !f.services.length)
       return notify("Shipper, service type and issue description are required");
+    const url = f.link.trim();
+    if (url && !/^https?:\/\//i.test(url))
+      return notify("The link must start with http:// or https://");
     setBusy(true);
     try {
       const r = await api.raiseCapa({
         shipper: f.shipper.trim(), services: f.services,
         issue: f.issue.trim(), trid_samples: f.trid.trim() || null,
+        link_url: url || null,
       });
-      notify(`${r.ref} raised — PNS to review`);
+      // Evidence needs a CAPA to hang off, so it goes up straight after creation.
+      let attached = 0;
+      for (const raw of evidence) {
+        try { await api.uploadCapaFile(r.ref, await shrinkImage(raw), "evidence"); attached += 1; }
+        catch (e) { notify(`${r.ref} raised, but ${raw.name} did not attach: ${e.message}`); }
+      }
+      notify(`${r.ref} raised — PNS to review${attached ? `, ${attached} file(s) attached` : ""}`);
       onCreated();
     } catch (e) { notify(e.message); }
     finally { setBusy(false); }
@@ -292,6 +311,20 @@ export function NewCapa({ notify, onCreated }) {
           <Field label="TRID samples">
             <input className={inputCls} value={f.trid} onChange={(e) => setF({ ...f, trid: e.target.value })}
               placeholder="TRID-88213, TRID-88407" />
+          </Field>
+          <Field label="Photos or evidence"
+            hint="A picture of the damage or the issue. Shrunk automatically before upload.">
+            <input type="file" multiple accept="image/*,.pdf,.xlsx,.xls,.docx,.doc,.csv,.txt"
+              capture="environment" onChange={(e) => setEvidence(Array.from(e.target.files || []))}
+              className="w-full text-[12.5px] file:mr-2 file:rounded-lg file:border file:border-slate-300 file:bg-white file:px-3 file:py-1.5 file:text-[12.5px] file:font-medium" />
+            {evidence.length > 0 && (
+              <p className="mt-1 text-[11px] text-slate-500">{evidence.map((p) => p.name).join(", ")}</p>
+            )}
+          </Field>
+          <Field label="Link" hint="Tracking page, shipper complaint thread, shared folder — anything already online.">
+            <input className={inputCls} type="url" value={f.link}
+              onChange={(e) => setF({ ...f, link: e.target.value })}
+              placeholder="https://…" />
           </Field>
         </div>
         <div className="mt-5 flex justify-end border-t border-slate-200 pt-4">

@@ -540,7 +540,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-07-30.14"
+BUILD = "2026-07-30.15"
 
 
 class Me(BaseModel):
@@ -596,6 +596,85 @@ class Ok(BaseModel):
     ok: bool
     ref: str | None = None
     status: str | None = None
+
+
+# ------------------------------------------------------------------ attachments
+# Uploads are capped hard because the bytes travel to OceanBase in one packet. Images are
+# downscaled in the browser first, so this ceiling is really about documents.
+MAX_UPLOAD = 5 * 1024 * 1024
+
+# Only these are ever rendered inline in a browser. SVG is deliberately absent: it can
+# carry script, and serving one inline from our own origin would be stored XSS.
+INLINE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+
+DOC_TYPES = {
+    "application/pdf",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",   # xlsx
+    "application/vnd.ms-excel",                                            # xls
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",  # docx
+    "application/msword",
+    "text/csv", "text/plain",
+}
+ALLOWED_TYPES = INLINE_TYPES | DOC_TYPES
+
+
+class TicketFile(BaseModel):
+    id: int
+    kind: str
+    filename: str
+    content_type: str
+    size_bytes: int
+    caption: str | None
+    is_image: bool
+    uploaded_by: str
+    at: str
+    url: str          # relative; the frontend uses it directly in <img> and <a>
+
+
+class FileList(BaseModel):
+    files: list[TicketFile]
+
+
+def shape_file(r: dict, base: str = "/api/files") -> TicketFile:
+    return TicketFile(
+        id=r["id"], kind=r["kind"], filename=r["filename"],
+        content_type=r["content_type"], size_bytes=int(r["size_bytes"]),
+        caption=r["caption"], is_image=r["content_type"] in INLINE_TYPES,
+        uploaded_by=r["uploaded_name"], at=str(r["created_at"]),
+        url=f"{base}/{r['id']}")
+
+
+async def read_upload(file: UploadFile) -> tuple[bytes, str]:
+    """Size and type checks, shared by ticket and CAPA uploads."""
+    data = await file.read()
+    if not data:
+        raise HTTPException(400, "that file is empty")
+    if len(data) > MAX_UPLOAD:
+        raise HTTPException(
+            413, f"{file.filename} is {len(data) // 1024 // 1024} MB — the limit is 5 MB. "
+                 f"Photos are shrunk automatically; for a big document, attach a link instead.")
+    ctype = (file.content_type or "application/octet-stream").split(";")[0].strip().lower()
+    if ctype not in ALLOWED_TYPES:
+        raise HTTPException(
+            415, f"{ctype} is not an accepted file type. Images (JPEG, PNG, WebP, GIF), "
+                 f"PDF, Word, Excel, CSV and plain text are.")
+    return data, ctype
+
+
+def file_response(r: dict) -> Response:
+    """Anything not on the inline allowlist is forced to download, and nosniff stops the
+    browser second-guessing the type we declare."""
+    inline = r["content_type"] in INLINE_TYPES
+    safe_name = r["filename"].replace('"', "").replace("\r", "").replace("\n", "")
+    return Response(
+        content=r["data"],
+        media_type=r["content_type"],
+        headers={
+            "Content-Disposition": f'{"inline" if inline else "attachment"}; filename="{safe_name}"',
+            "X-Content-Type-Options": "nosniff",
+            "Cache-Control": "private, max-age=3600",
+        },
+    )
 
 
 # ------------------------------------------------------------------ routes
@@ -1374,6 +1453,8 @@ class Capa(BaseModel):
     proposal: str | None
     raised_by: str
     submitted_on: str
+    link_url: str | None = None
+    file_count: int = 0
 
 
 class CapaList(BaseModel):
@@ -1382,16 +1463,20 @@ class CapaList(BaseModel):
 
 @app.get("/api/capa", response_model=CapaList)
 async def list_capa(u: User = Depends(current_user), status: str | None = None):
-    sql, args = "SELECT * FROM capa", ()
+    sql = ("SELECT c.*, (SELECT COUNT(*) FROM capa_files f WHERE f.capa_id=c.id) AS n_files "
+           "FROM capa c")
+    args: tuple = ()
     if status:
-        sql += " WHERE status=%s"; args = (status,)
-    sql += " ORDER BY submitted_on DESC"
+        sql += " WHERE c.status=%s"; args = (status,)
+    sql += " ORDER BY c.submitted_on DESC"
     rows = await q(sql, args)
     return {"capa": [Capa(ref=r["capa_ref"], shipper=r["shipper_name"],
                           services=str(r["services"]).split(","), issue=r["issue"],
                           status=r["status"], assignee=r["assignee"],
                           proposal=r["proposal"], raised_by=r["raised_by"],
-                          submitted_on=str(r["submitted_on"])) for r in rows]}
+                          submitted_on=str(r["submitted_on"]),
+                          link_url=r.get("link_url"),
+                          file_count=int(r.get("n_files") or 0)) for r in rows]}
 
 
 class NewCapa(BaseModel):
@@ -1399,6 +1484,7 @@ class NewCapa(BaseModel):
     services: list[str]
     issue: str
     trid_samples: str | None = None
+    link_url: str | None = None
 
 
 @app.post("/api/capa", status_code=201, response_model=Ok)
@@ -1410,17 +1496,86 @@ async def raise_capa(body: NewCapa, u: User = Depends(current_user)):
     ref = f"CAPA-{43 + int((last or {}).get('n') or 0):03d}"
     await execute(
         "INSERT INTO capa (capa_ref, shipper_name, services, issue, trid_samples, "
-        "raised_by, raised_by_email, submitted_on) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+        "link_url, raised_by, raised_by_email, submitted_on) "
+        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
         (ref, body.shipper, ",".join(body.services), body.issue, body.trid_samples,
-         u.name, u.email, date.today()))
+         clean_url(body.link_url), u.name, u.email, date.today()))
     await notify(f"New CAPA {ref} — {body.shipper} raised by {u.name}",
                  groups=["PNS"], roles=["PNS - Head"])
     return {"ok": True, "ref": ref}
 
 
+async def get_capa(ref: str) -> dict:
+    c = await q("SELECT * FROM capa WHERE capa_ref=%s", (ref,), one=True)
+    if not c:
+        raise HTTPException(404, f"{ref} not found")
+    return c
+
+
+@app.get("/api/capa/{ref}/files", response_model=FileList)
+async def list_capa_files(ref: str, u: User = Depends(current_user)):
+    c = await get_capa(ref)
+    rows = await q("SELECT id, kind, filename, content_type, size_bytes, caption, "
+                   "uploaded_name, created_at FROM capa_files WHERE capa_id=%s "
+                   "ORDER BY kind, created_at", (c["id"],))
+    return {"files": [shape_file(r, "/api/capa-files") for r in rows]}
+
+
+@app.post("/api/capa/{ref}/files", status_code=201, response_model=Ok)
+async def upload_capa_file(
+    ref: str,
+    file: UploadFile = FastFile(...),
+    kind: str = Form("evidence"),
+    caption: str | None = Form(None),
+    u: User = Depends(current_user),
+):
+    """Evidence for a corrective action — a photo of the damage, a screenshot, a report.
+    Open to every group, same reasoning as ticket attachments."""
+    c = await get_capa(ref)
+    if kind not in ("evidence", "document"):
+        raise HTTPException(400, "kind must be evidence or document")
+    data, ctype = await read_upload(file)
+
+    await execute(
+        "INSERT INTO capa_files (capa_id, kind, filename, content_type, size_bytes, "
+        "caption, data, uploaded_email, uploaded_name) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+        (c["id"], kind, (file.filename or "attachment")[:255], ctype, len(data),
+         (caption or None), data, u.email, u.name))
+
+    people = {n for n in (c["assignee"], c["raised_by"]) if n} - {u.name}
+    if people:
+        await notify(f"{u.name} attached {file.filename} to {ref} — {c['shipper_name']}",
+                     people=sorted(people))
+    await audit(u.email, "upload", "capa", ref, "file", None, file.filename)
+    return {"ok": True, "ref": ref, "status": f"{file.filename} attached"}
+
+
+@app.get("/api/capa-files/{fid}")
+async def get_capa_file(fid: int, u: User = Depends(current_user)):
+    r = await q("SELECT filename, content_type, data FROM capa_files WHERE id=%s",
+                (fid,), one=True)
+    if not r:
+        raise HTTPException(404, "no such file")
+    return file_response(r)
+
+
+@app.delete("/api/capa-files/{fid}", response_model=Ok)
+async def delete_capa_file(fid: int, u: User = Depends(current_user)):
+    r = await q("SELECT f.id, f.filename, f.uploaded_email, c.capa_ref FROM capa_files f "
+                "JOIN capa c ON c.id=f.capa_id WHERE f.id=%s", (fid,), one=True)
+    if not r:
+        raise HTTPException(404, "no such file")
+    if r["uploaded_email"] != u.email and u.group != "Admin":
+        raise HTTPException(403, "only the person who uploaded it, or an Admin, can remove it")
+    await execute("DELETE FROM capa_files WHERE id=%s", (fid,))
+    await audit(u.email, "delete", "capa", r["capa_ref"], "file", r["filename"], None)
+    return {"ok": True, "ref": r["capa_ref"]}
+
+
 class CapaProposal(BaseModel):
     assignee: str
     proposal: str
+    link_url: str | None = None
 
 
 @app.post("/api/capa/{ref}/submit", response_model=Ok)
@@ -1428,6 +1583,9 @@ async def submit_capa(ref: str, body: CapaProposal, u: User = Depends(current_us
     require(u, "capaSubmit")
     if not body.proposal.strip():
         raise HTTPException(400, "describe the proposal before submitting")
+    link = clean_url(body.link_url)
+    if link:
+        await execute("UPDATE capa SET link_url=%s WHERE capa_ref=%s", (link, ref))
     await execute("UPDATE capa SET assignee=%s, proposal=%s, status='Submitted' "
                   "WHERE capa_ref=%s", (body.assignee, body.proposal, ref))
     await notify(f"{ref} — PNS submitted a CAPA proposal", groups=["Commercial"])
@@ -1644,52 +1802,6 @@ async def deactivate_user(email: str, u: User = Depends(current_user)):
     return {"ok": True, "ref": email}
 
 
-# ------------------------------------------------------------------ attachments
-# Uploads are capped hard because the bytes travel to OceanBase in one packet. Images are
-# downscaled in the browser first, so this ceiling is really about documents.
-MAX_UPLOAD = 5 * 1024 * 1024
-
-# Only these are ever rendered inline in a browser. SVG is deliberately absent: it can
-# carry script, and serving one inline from our own origin would be stored XSS.
-INLINE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
-
-DOC_TYPES = {
-    "application/pdf",
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",   # xlsx
-    "application/vnd.ms-excel",                                            # xls
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",  # docx
-    "application/msword",
-    "text/csv", "text/plain",
-}
-ALLOWED_TYPES = INLINE_TYPES | DOC_TYPES
-
-
-class TicketFile(BaseModel):
-    id: int
-    kind: str
-    filename: str
-    content_type: str
-    size_bytes: int
-    caption: str | None
-    is_image: bool
-    uploaded_by: str
-    at: str
-    url: str          # relative; the frontend uses it directly in <img> and <a>
-
-
-class FileList(BaseModel):
-    files: list[TicketFile]
-
-
-def shape_file(r: dict) -> TicketFile:
-    return TicketFile(
-        id=r["id"], kind=r["kind"], filename=r["filename"],
-        content_type=r["content_type"], size_bytes=int(r["size_bytes"]),
-        caption=r["caption"], is_image=r["content_type"] in INLINE_TYPES,
-        uploaded_by=r["uploaded_name"], at=str(r["created_at"]),
-        url=f"/api/files/{r['id']}")
-
-
 @app.get("/api/tickets/{ref}/files", response_model=FileList)
 async def list_files(ref: str, u: User = Depends(current_user)):
     """Metadata only — the bytes come from /api/files/{id} so lists stay small."""
@@ -1717,20 +1829,7 @@ async def upload_file(
     if kind not in ("goods_photo", "document"):
         raise HTTPException(400, "kind must be goods_photo or document")
 
-    data = await file.read()
-    if not data:
-        raise HTTPException(400, "that file is empty")
-    if len(data) > MAX_UPLOAD:
-        raise HTTPException(
-            413, f"{file.filename} is {len(data) // 1024 // 1024} MB — the limit is 5 MB. "
-                 f"Photos are shrunk automatically; for a big document, attach a Drive link "
-                 f"in the discussion instead.")
-
-    ctype = (file.content_type or "application/octet-stream").split(";")[0].strip().lower()
-    if ctype not in ALLOWED_TYPES:
-        raise HTTPException(
-            415, f"{ctype} is not an accepted file type. Images (JPEG, PNG, WebP, GIF), "
-                 f"PDF, Word, Excel, CSV and plain text are.")
+    data, ctype = await read_upload(file)
 
     fid = await execute(
         "INSERT INTO ticket_files (ticket_id, kind, filename, content_type, size_bytes, "
@@ -1756,17 +1855,7 @@ async def get_file(fid: int, u: User = Depends(current_user)):
                 (fid,), one=True)
     if not r:
         raise HTTPException(404, "no such file")
-    inline = r["content_type"] in INLINE_TYPES
-    safe_name = r["filename"].replace('"', "").replace("\r", "").replace("\n", "")
-    return Response(
-        content=r["data"],
-        media_type=r["content_type"],
-        headers={
-            "Content-Disposition": f'{"inline" if inline else "attachment"}; filename="{safe_name}"',
-            "X-Content-Type-Options": "nosniff",
-            "Cache-Control": "private, max-age=3600",
-        },
-    )
+    return file_response(r)
 
 
 @app.delete("/api/files/{fid}", response_model=Ok)

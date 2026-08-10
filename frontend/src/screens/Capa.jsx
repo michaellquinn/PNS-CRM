@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import { Btn, Card, Empty, Head, Pill, Tile, inputCls, usePnsTeam } from "../ui";
+import Attachments from "./Attachments";
+
+const CAPA_KINDS = [["evidence", "Evidence photo"], ["document", "Supporting document"]];
 
 const TITLES = {
   all: ["CAPA — all", "Corrective actions on existing shippers. Separate from solutioning — no pricing, no routing."],
@@ -17,6 +20,8 @@ export default function Capa({ view, me, notify, onRaise }) {
   const [err, setErr] = useState(null);
   const [prop, setProp] = useState({});
   const [who, setWho] = useState({});
+  const [link, setLink] = useState({});
+  const [openFiles, setOpenFiles] = useState(null);
   const team = usePnsTeam();
 
   const reload = () => {
@@ -64,8 +69,37 @@ export default function Capa({ view, me, notify, onRaise }) {
 
             <dl className="mt-3 border-t border-slate-100 pt-3 text-[13px]">
               <div className="mb-1.5"><span className="text-slate-500">Issue: </span>{c.issue}</div>
-              {c.proposal && <div><span className="text-slate-500">PNS proposal: </span>{c.proposal}</div>}
+              {c.proposal && <div className="mb-1.5"><span className="text-slate-500">PNS proposal: </span>{c.proposal}</div>}
+              {c.link_url && (
+                <div>
+                  <span className="text-slate-500">Link: </span>
+                  <a href={c.link_url} target="_blank" rel="noopener noreferrer"
+                    className="break-all font-medium text-sky-800 hover:underline">{c.link_url}</a>
+                </div>
+              )}
             </dl>
+
+            <div className="mt-3 border-t border-slate-100 pt-3">
+              <button onClick={() => setOpenFiles(openFiles === c.ref ? null : c.ref)}
+                className="text-[12.5px] font-medium text-sky-800 hover:underline">
+                {openFiles === c.ref ? "Hide" : "Attachments"}
+                {c.file_count > 0 && (
+                  <span className="ml-1.5 rounded-full bg-slate-200 px-1.5 font-mono text-[11px] text-slate-600">
+                    {c.file_count}
+                  </span>
+                )}
+              </button>
+              {openFiles === c.ref && (
+                <div className="mt-3">
+                  <Attachments
+                    ticketRef={c.ref} me={me} notify={notify} onCountChange={reload}
+                    kinds={CAPA_KINDS} primaryKind="evidence" primaryLabel="Evidence"
+                    emptyText="No photos or documents attached to this CAPA yet."
+                    list={api.capaFiles} send={api.uploadCapaFile} remove={api.deleteCapaFile}
+                  />
+                </div>
+              )}
+            </div>
 
             {c.status === "Pending PNS" && me.permissions.capaSubmit && (
               <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
@@ -75,9 +109,13 @@ export default function Capa({ view, me, notify, onRaise }) {
                 </select>
                 <input className={`${inputCls} max-w-[380px]`} placeholder="Proposal — what will be done"
                   value={prop[c.ref] || ""} onChange={(e) => setProp({ ...prop, [c.ref]: e.target.value })} />
+                <input className={`${inputCls} max-w-[280px]`} type="url"
+                  placeholder="Link (optional) — https://…"
+                  value={link[c.ref] || ""} onChange={(e) => setLink({ ...link, [c.ref]: e.target.value })} />
                 <Btn kind="primary" disabled={!team.length} onClick={() => act(() => api.submitCapa(c.ref, {
                   assignee: who[c.ref] || c.assignee || team[0],
                   proposal: (prop[c.ref] || "").trim(),
+                  link_url: (link[c.ref] || "").trim() || null,
                 }))}>
                   Submit proposal
                 </Btn>
