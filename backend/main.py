@@ -675,7 +675,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-08-10.26"
+BUILD = "2026-08-10.27"
 
 
 class Me(BaseModel):
@@ -1200,14 +1200,28 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
                 wanted = [today - timedelta(days=i)
                           for i in range(max(0, min(body.days, 60)))]
 
+            # Day queries run concurrently. Sequentially, 40 days of history spent the
+            # entire budget fetching and left nothing to process, which reported zero
+            # and looked like there was nothing there.
             covered_from = None
-            for day_d in wanted:
-                if time.monotonic() > deadline:
-                    truncated = True
-                    break
-                day = str(day_d)
-                d = await crm.records("Opportunity", new_date=day, page_size=100)
-                batches.append(("day " + day, d.get("items") or []))
+            sem_days = asyncio.Semaphore(SYNC_CONCURRENCY)
+
+            async def fetch_day(day_d):
+                async with sem_days:
+                    day = str(day_d)
+                    try:
+                        d = await crm.records("Opportunity", new_date=day, page_size=100)
+                        return day, d.get("items") or []
+                    except Exception:
+                        return day, None      # None marks a day that must be retried
+
+            got_days = await asyncio.gather(*(fetch_day(d) for d in wanted))
+            for day, items in got_days:
+                if items is None:
+                    errors.append({"id": None, "name": "day " + day,
+                                   "error": "could not be read, run this window again"})
+                    continue
+                batches.append(("day " + day, items))
                 covered_from = day
 
             # 2. Opportunities behind tickets we already hold, read directly by id so
