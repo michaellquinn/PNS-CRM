@@ -20,7 +20,8 @@ const WHAT_EACH_GROUP_DOES = {
   Admin: "Everything, plus registering people, setting roles and the recycle bin.",
 };
 
-const EMPTY_FORM = { email: "", name: "", group: "PNS", level: "staff", team: "Team1" };
+const EMPTY_FORM = { email: "", name: "", group: "PNS", level: "staff", team: "Team1",
+                     manager_email: "", head_email: "" };
 
 // "manager" is the Sales Manager tier — Commercial only; the backend refuses it elsewhere.
 const LEVEL_LABEL = { staff: "Staff", manager: "Manager (Sales)", head: "Head" };
@@ -123,6 +124,7 @@ export default function Users({ me, notify }) {
     act(() => api.registerUser({
       email: f.email.trim(), name: f.name.trim(), group: f.group, level: f.level,
       team: f.group === "Commercial" ? f.team : null,
+      manager_email: f.manager_email || null, head_email: f.head_email || null,
     }).then(() => setF(EMPTY_FORM)), `${f.name.trim()} can now sign in`);
   };
 
@@ -136,6 +138,10 @@ export default function Users({ me, notify }) {
   if (!data) return <p className="text-sm text-slate-400">Loading…</p>;
 
   const rows = data.users.filter((r) => showInactive || r.active);
+  // Only Commercial people can be a manager or head of a salesperson.
+  const commercial = data.users.filter((r) => r.active && r.group === "Commercial");
+  const nameOf = (email) =>
+    data.users.find((r) => r.email === email)?.name || email;
   const mayGrantAdmin = me.permissions.grantAdmin;
   const groupOptions = (current) =>
     data.groups.filter((g) => g !== "Admin" || mayGrantAdmin || current === "Admin");
@@ -190,12 +196,35 @@ export default function Users({ me, notify }) {
             </select>
           </Field>
           {f.group === "Commercial" && (
-            <Field label="Team" required hint="Team1 covers GJ and WJ, Team2 covers EJ and CJ">
-              <select className={inputCls} value={f.team}
-                onChange={(e) => setF({ ...f, team: e.target.value })}>
-                {data.teams.map((t) => <option key={t}>{t}</option>)}
-              </select>
-            </Field>
+            <>
+              <Field label="Team" required hint="Team1 covers GJ and WJ, Team2 covers EJ and CJ">
+                <select className={inputCls} value={f.team}
+                  onChange={(e) => setF({ ...f, team: e.target.value })}>
+                  {data.teams.map((t) => <option key={t}>{t}</option>)}
+                </select>
+              </Field>
+              {/* The reporting line. Filled in here so a Manager or Head can scope the
+                  pipeline to their own people instead of picking names one at a time. */}
+              <Field label="Reports to (Manager)"
+                hint="Optional. Their manager can then filter the whole pipeline to their team.">
+                <select className={inputCls} value={f.manager_email}
+                  onChange={(e) => setF({ ...f, manager_email: e.target.value })}>
+                  <option value="">Nobody yet</option>
+                  {commercial.filter((r) => r.level !== "staff").map((r) => (
+                    <option key={r.email} value={r.email}>{r.name} — {r.level}</option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Sales Head" hint="Optional. The whole line rolls up to them.">
+                <select className={inputCls} value={f.head_email}
+                  onChange={(e) => setF({ ...f, head_email: e.target.value })}>
+                  <option value="">Nobody yet</option>
+                  {commercial.filter((r) => r.level === "head").map((r) => (
+                    <option key={r.email} value={r.email}>{r.name}</option>
+                  ))}
+                </select>
+              </Field>
+            </>
           )}
         </div>
         <div className="mt-4 flex items-center justify-between border-t border-slate-200 pt-4">
@@ -221,6 +250,7 @@ export default function Users({ me, notify }) {
                   <th className={th}>Group</th>
                   <th className={th}>Level</th>
                   <th className={th}>Team</th>
+                  <th className={th}>Reports to</th>
                   <th className={th}>Added</th>
                   <th className={th}>Access</th>
                 </tr>
@@ -264,6 +294,24 @@ export default function Users({ me, notify }) {
                             onChange={(e) => act(() => api.updateUser(r.email, { team: e.target.value }),
                               `${r.name} moved to ${e.target.value}`)}>
                             {data.teams.map((t) => <option key={t}>{t}</option>)}
+                          </select>
+                        ) : (
+                          <span className="text-slate-400">—</span>
+                        )}
+                      </td>
+                      <td className={td}>
+                        {r.group === "Commercial" ? (
+                          <select className={cell} value={r.manager_email || ""} disabled={frozen}
+                            onChange={(e) => act(
+                              () => api.updateUser(r.email, { manager_email: e.target.value }),
+                              e.target.value
+                                ? `${r.name} now reports to ${nameOf(e.target.value)}`
+                                : `${r.name}'s manager cleared`)}>
+                            <option value="">— no manager —</option>
+                            {commercial.filter((c) => c.email !== r.email && c.level !== "staff")
+                              .map((c) => (
+                                <option key={c.email} value={c.email}>{c.name}</option>
+                              ))}
                           </select>
                         ) : (
                           <span className="text-slate-400">—</span>

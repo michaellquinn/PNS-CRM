@@ -3,7 +3,7 @@ import { api, SERVICES, STATUSES, rp } from "../api";
 import { Chip, Head, Pill, Sla, Tile, usePnsTeam } from "../ui";
 
 const EMPTY = { search: "", status: [], service: [], acct: [], owner: "", sales: "",
-                stage: "", from: "", to: "" };
+                line: "", stage: "", from: "", to: "" };
 
 // The account tier decides routing, pricing ceilings, PSP entry and exec sign-off — it
 // is the single most consequential field on a ticket, so it filters like status does.
@@ -22,12 +22,10 @@ const STATUS_GROUPS = [
   ["Decided", ["Proposal Accepted / Ready to Ship", "Lost", "Cancel"]],
 ];
 
-// The tiles, one per status rather than one per phase. "In approval: 4" told you a
-// number but not who was sitting on it; four separate tiles name the gate. Short labels
-// because the status name is already long and the tile is narrow.
-// Each tile is one status, labelled with the status itself. An abbreviation ("Sales",
-// "Vendor") saved a few pixels and cost the reader the one thing the tile is for —
-// knowing which status the number counts. The sub-line says who owes the move.
+// One tile per status rather than one per phase: "In approval: 4" gave a number but not
+// which gate was holding it. Each is labelled with the status in full — abbreviating to
+// "Sales" or "Vendor" saved a few pixels and cost the reader the one thing the tile is
+// for, knowing what the number counts. The sub-line says who owes the next move.
 const TILES = [
   ["Pending Sales", "Sales owes the price"],
   ["Pending PNS", "PNS owes the price"],
@@ -71,6 +69,14 @@ export default function Dashboard({ me, onOpen }) {
   const [scope, setScope] = useState({ owner: "", sales: "" });
   const [all, setAll] = useState([]);
   const [sort, setSort] = useState({ key: "submitted_on", dir: "desc" });
+  const [stageNames, setStageNames] = useState([]);
+  // Sales managers and heads, for the "whose team" filter. Only an admin can read
+  // /users, so this degrades to an empty list and the control simply does not appear.
+  // Declared above load(): its dependency array names leaderLevel, and a const
+  // referenced before its declaration is a temporal-dead-zone crash, not a warning.
+  const [leaders, setLeaders] = useState([]);
+  const leaderLevel = useMemo(
+    () => Object.fromEntries(leaders.map((p) => [p.email, p.level])), [leaders]);
 
   const toggle = (key, v) =>
     setF((p) => ({ ...p, [key]: p[key].includes(v) ? p[key].filter((x) => x !== v) : [...p[key], v] }));
@@ -79,11 +85,16 @@ export default function Dashboard({ me, onOpen }) {
     api.tickets({
       search: f.search, status: f.status, service: f.service,
       owner: f.owner, sales: f.sales, stage: f.stage, acct_type: f.acct,
+      // One control, two server filters: a Head sees their whole line, a Manager
+      // sees their own reports. The option carries which one it is.
+      ...(f.line
+        ? (leaderLevel[f.line] === "head" ? { sales_head: f.line } : { sales_manager: f.line })
+        : {}),
       submitted_from: f.from, submitted_to: f.to,
     }).then((d) => setRows(d.tickets)).catch(() => setRows([]));
-  }, [f]);
-
-  const [stageNames, setStageNames] = useState([]);
+    // leaderLevel is a dependency: it decides whether f.line means head or manager, and
+    // it arrives after the first render.
+  }, [f, leaderLevel]);
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
@@ -96,6 +107,10 @@ export default function Dashboard({ me, onOpen }) {
       setSalesNames([...new Set(d.tickets.map((t) => t.sales).filter(Boolean))].sort());
       setStageNames([...new Set(d.tickets.map((t) => t.stage).filter(Boolean))].sort());
     }).catch(() => {});
+    api.users()
+      .then((d) => setLeaders(d.users.filter(
+        (r) => r.active && r.group === "Commercial" && r.level !== "staff")))
+      .catch(() => setLeaders([]));
   }, []);
 
   // Tile counts, scoped by the PIC selectors above them.
@@ -164,7 +179,7 @@ export default function Dashboard({ me, onOpen }) {
 
   const active =
     f.search || f.status.length || f.service.length || f.acct.length || f.owner
-    || f.sales || f.stage || f.from || f.to;
+    || f.sales || f.line || f.stage || f.from || f.to;
 
   const sel = "rounded-lg border border-slate-300 px-3 py-2 text-[13.5px]";
 
@@ -280,6 +295,19 @@ export default function Dashboard({ me, onOpen }) {
             <option value="">Any Sales PIC</option>
             {salesNames.map((n) => <option key={n}>{n}</option>)}
           </select>
+          {/* The reporting line, set in Users & roles. Picking a manager or head shows
+              everything their people own without naming each salesperson. */}
+          {leaders.length > 0 && (
+            <select className={sel} value={f.line}
+              onChange={(e) => setF({ ...f, line: e.target.value })}>
+              <option value="">Any sales team</option>
+              {leaders.map((p) => (
+                <option key={p.email} value={p.email}>
+                  {p.name}&rsquo;s team ({p.level === "head" ? "Head" : "Manager"})
+                </option>
+              ))}
+            </select>
+          )}
           {/* Sales CRM's commercial stage — reference data carried on imported tickets.
               It is not this app's status and the sync never overwrites ours with it. */}
           {stageNames.length > 0 && (

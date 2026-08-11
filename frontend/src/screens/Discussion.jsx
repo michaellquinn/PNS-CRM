@@ -42,6 +42,11 @@ export default function Discussion({ ticketRef, me, notify, onCountChange }) {
   const [tags, setTags] = useState([]);
   const [pick, setPick] = useState("");
   const [busy, setBusy] = useState(false);
+  // Which thread the composer posts into. "" is the general thread; "__new__" opens the
+  // title box. A ticket usually has three or four open points at once and one flat list
+  // makes "what is still open" unanswerable without reading everything.
+  const [thread, setThread] = useState("");
+  const [newTitle, setNewTitle] = useState("");
   const people = useDirectory();
   const box = useRef(null);
 
@@ -54,12 +59,18 @@ export default function Discussion({ ticketRef, me, notify, onCountChange }) {
 
   const post = async () => {
     if (!text.trim()) return notify("Write something first");
+    if (thread === "__new__" && !newTitle.trim())
+      return notify("Give the new thread a title so people know what it is about");
     setBusy(true);
     try {
       const r = await api.addComment(ticketRef, {
         body: text.trim(), is_question: isQuestion, mentions: tags,
+        ...(thread === "__new__"
+          ? { new_thread_title: newTitle.trim() }
+          : thread ? { thread_key: thread } : {}),
       });
-      setText(""); setTags([]); setIsQuestion(false);
+      setText(""); setTags([]); setIsQuestion(false); setNewTitle("");
+      if (thread === "__new__") setThread("");
       notify(r.status ? `Posted — ${r.status}` : "Posted");
       await load();
     } catch (e) { notify(e.message); }
@@ -85,6 +96,23 @@ export default function Discussion({ ticketRef, me, notify, onCountChange }) {
 
   const untagged = people.filter((p) => p.email !== me.email && !tags.includes(p.email));
 
+  // Group into threads, general first, then each named thread in the order it started.
+  // A thread is "open" while it still holds an unanswered question — that is the whole
+  // reason for splitting them, so it is what the header says.
+  const groups = [];
+  const byKey = new Map();
+  for (const c of data.comments) {
+    const key = c.thread_key || "";
+    if (!byKey.has(key)) {
+      const g = { key, title: c.thread_title || "General", items: [] };
+      byKey.set(key, g);
+      groups.push(g);
+    }
+    byKey.get(key).items.push(c);
+  }
+  groups.sort((a, b) => (a.key === "" ? -1 : b.key === "" ? 1 : 0));
+  const openIn = (g) => g.items.filter((c) => c.is_question && !c.resolved_at).length;
+
   return (
     <>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-slate-50 px-3 py-2">
@@ -103,8 +131,29 @@ export default function Discussion({ ticketRef, me, notify, onCountChange }) {
 
       {data.comments.length === 0 && <Empty>No questions on this ticket yet.</Empty>}
 
-      <div className="flex flex-col gap-3">
-        {data.comments.map((c) => {
+      {groups.map((g) => (
+        <div key={g.key} className="mb-5">
+          <div className="mb-2 flex flex-wrap items-center gap-2 border-b border-slate-200 pb-1.5">
+            <span className="text-[10.5px] font-bold uppercase tracking-wider text-slate-400">
+              {g.key ? "Thread" : "Ticket"}
+            </span>
+            <b className="text-[13.5px]">{g.title}</b>
+            <span className="text-[11.5px] text-slate-400">
+              {g.items.length} post{g.items.length === 1 ? "" : "s"}
+            </span>
+            {openIn(g) > 0 ? (
+              <Pill tone="bg-amber-50 text-amber-700">{openIn(g)} still open</Pill>
+            ) : (
+              <Pill tone="bg-emerald-50 text-emerald-700">nothing open</Pill>
+            )}
+            {g.key && (
+              <Btn className="ml-auto" onClick={() => { setThread(g.key); box.current?.focus(); }}>
+                Reply in this thread
+              </Btn>
+            )}
+          </div>
+          <div className="flex flex-col gap-3">
+        {g.items.map((c) => {
           const open = c.is_question && !c.resolved_at;
           return (
             <div key={c.id}
@@ -144,10 +193,28 @@ export default function Discussion({ ticketRef, me, notify, onCountChange }) {
             </div>
           );
         })}
-      </div>
+          </div>
+        </div>
+      ))}
 
       {/* ---------------------------------------------------------------- composer */}
       <div className="mt-4 rounded-xl border border-slate-200 bg-white p-3.5">
+        <div className="mb-2.5 flex flex-wrap items-center gap-2">
+          <span className="text-[11.5px] text-slate-500">Posting to</span>
+          <select className={`${inputCls} max-w-[260px]`} value={thread}
+            onChange={(e) => setThread(e.target.value)}>
+            <option value="">The ticket (general)</option>
+            {groups.filter((g) => g.key).map((g) => (
+              <option key={g.key} value={g.key}>{g.title}</option>
+            ))}
+            <option value="__new__">＋ Start a new thread…</option>
+          </select>
+          {thread === "__new__" && (
+            <input className={`${inputCls} max-w-[300px]`} value={newTitle}
+              onChange={(e) => setNewTitle(e.target.value)}
+              placeholder="What is this thread about? e.g. Pickup window at Cikarang" />
+          )}
+        </div>
         <textarea ref={box} className={`${inputCls} min-h-[76px]`} value={text}
           onChange={(e) => setText(e.target.value)}
           placeholder="Ask a question or reply. Tag someone with @their.email@ninjavan.co" />

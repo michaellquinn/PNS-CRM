@@ -39,9 +39,13 @@ export default function Workload() {
           <div className="border-b border-slate-200 px-4 py-3">
             <h2 className="text-[13.5px] font-semibold">PNS team</h2>
             <p className="text-[12px] text-slate-500">
-              Lead time runs from first assignment to the ticket leaving PNS hands. Worst
-              case sits next to the average because on these volumes one stalled ticket
-              moves the average and hides itself.
+              <b>Avg to clear</b> is the mean number of days from the first time a ticket
+              entered <b>Pending PNS</b> to the first time it left PNS hands — reaching
+              Proposal Submitted, or Pending Review - Head PNS. It counts only tickets
+              that actually got there, so a ticket still sitting in the queue never
+              flatters it and never inflates it. Mean rather than median because MySQL
+              has no median; <b>Worst</b> sits beside it because on these volumes one
+              stalled ticket moves the average and then hides inside it.
             </p>
           </div>
           <div className="overflow-x-auto">

@@ -124,6 +124,8 @@ export const api = {
   deleteFile: (id) => call(`/files/${id}`, { method: "DELETE" }),
 
   comments: (ref) => call(`/tickets/${encodeURIComponent(ref)}/comments`),
+  // body may carry thread_key (post into an existing thread) or new_thread_title
+  // (start one). Neither means the general thread.
   addComment: (ref, body) =>
     call(`/tickets/${encodeURIComponent(ref)}/comments`, { method: "POST", body: JSON.stringify(body) }),
   resolveComment: (id) => call(`/comments/${id}/resolve`, { method: "POST" }),
