@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api, SERVICES, STATUSES, rp } from "../api";
 import { Chip, Head, Pill, Sla, Tile, usePnsTeam } from "../ui";
 
-const EMPTY = { search: "", status: [], service: [], owner: "", sales: "", from: "", to: "" };
+const EMPTY = { search: "", status: [], service: [], owner: "", sales: "", stage: "", from: "", to: "" };
 
 // The eleven statuses read as a wall when they sit in one flat row, and half of them
 // share the word "Pending". Grouped by who is acting, the row answers the question
@@ -35,33 +35,57 @@ export default function Dashboard({ me, onOpen }) {
   const load = useCallback(() => {
     api.tickets({
       search: f.search, status: f.status, service: f.service,
-      owner: f.owner, sales: f.sales,
+      owner: f.owner, sales: f.sales, stage: f.stage,
       submitted_from: f.from, submitted_to: f.to,
     }).then((d) => setRows(d.tickets)).catch(() => setRows([]));
   }, [f]);
 
   const [counts, setCounts] = useState({});
+  const [stageNames, setStageNames] = useState([]);
+  const [minePending, setMinePending] = useState(null);
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
     api.stats().then(setStats).catch(() => {});
-    // One unfiltered fetch feeds both the salesperson dropdown and the per-status
-    // counts on the filter chips. The counts stay fixed while filters are applied:
-    // they describe the whole book, not the current selection.
+    // One unfiltered fetch feeds the salesperson and Sales CRM stage dropdowns and the
+    // per-status counts on the filter chips. The counts stay fixed while filters are
+    // applied: they describe the whole book, not the current selection.
     api.tickets({}).then((d) => {
       setSalesNames([...new Set(d.tickets.map((t) => t.sales).filter(Boolean))].sort());
+      setStageNames([...new Set(d.tickets.map((t) => t.stage).filter(Boolean))].sort());
       const c = {};
       for (const t of d.tickets) c[t.status] = (c[t.status] || 0) + 1;
       setCounts(c);
     }).catch(() => {});
+    // "Mine" is role-aware on the server: what I raised (Sales) or what I'm assigned
+    // (PNS). The tile shows how much of it still needs a move.
+    api.tickets({ mine: true }).then((d) => {
+      setMinePending(d.tickets.filter((t) => t.status.startsWith("Pending")).length);
+    }).catch(() => setMinePending(null));
   }, []);
+
+  // Per-phase counts for the tiles, from the same grouping as the filter chips.
+  const phaseCount = (label) => {
+    const group = STATUS_GROUPS.find(([l]) => l === label)?.[1] || [];
+    return group.reduce((n, s) => n + (counts[s] || 0), 0);
+  };
+  const phaseFilter = (label) => {
+    const group = STATUS_GROUPS.find(([l]) => l === label)?.[1] || [];
+    const on = group.every((s) => f.status.includes(s)) && f.status.length === group.length;
+    setF((p) => ({ ...p, status: on ? [] : group }));
+  };
+  const phaseOn = (label) => {
+    const group = STATUS_GROUPS.find(([l]) => l === label)?.[1] || [];
+    return f.status.length === group.length && group.every((s) => f.status.includes(s));
+  };
 
   const canSeeMargin = me.permissions.seeMargin;
   const cols = ["Ticket", "Submitted", "Shipper", "Service", "Revenue", "Status",
                 "Priced by", "In status", canSeeMargin && "Margin", "PNS PIC",
                 me.permissions.setSales && "Sales"].filter(Boolean);
   const active =
-    f.search || f.status.length || f.service.length || f.owner || f.sales || f.from || f.to;
+    f.search || f.status.length || f.service.length || f.owner || f.sales || f.stage
+    || f.from || f.to;
 
   const sel = "rounded-lg border border-slate-300 px-3 py-2 text-[13.5px]";
 
@@ -101,17 +125,36 @@ export default function Dashboard({ me, onOpen }) {
         } />
 
       {stats && (
-        <div className="mb-5 grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(148px,1fr))]">
-          <Tile label="Ongoing" value={stats.ongoing} sub="pending + proposals" />
-          <Tile label="Win rate" value={stats.win_rate === null ? "—" : `${stats.win_rate}%`}
-                sub={`${stats.won} won of ${stats.won + stats.lost} decided`} tone="text-emerald-600" />
-          <Tile label="Lost" value={stats.lost} sub="cumulative" tone="text-rose-600" />
-          <Tile label="Won" value={stats.won} sub="accepted" tone="text-emerald-600" />
-          {/* total_year is a historical field name: the query has no date filter, so
-              this is every ticket ever raised. Label it for what it counts. */}
-          <Tile label="Total" value={stats.total_year} sub="all time" />
-          <Tile label="Showing" value={rows.length} sub={active ? "after filters" : "no filters"} />
-        </div>
+        <>
+          {/* The book broken down by phase, not just won/lost. Each phase tile is a
+              filter: click it and the table below narrows to those statuses. */}
+          <div className="mb-3 grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(148px,1fr))]">
+            <Tile label="Being worked" value={phaseCount("Being worked")}
+                  sub="intake & pricing" onClick={() => phaseFilter("Being worked")}
+                  on={phaseOn("Being worked")} />
+            <Tile label="In approval" value={phaseCount("In approval")}
+                  sub="review · head · PSP · exec" onClick={() => phaseFilter("In approval")}
+                  on={phaseOn("In approval")} tone="text-amber-600" />
+            <Tile label="With shipper" value={phaseCount("With shipper")}
+                  sub="proposal submitted" onClick={() => phaseFilter("With shipper")}
+                  on={phaseOn("With shipper")} tone="text-teal-600" />
+            <Tile label="Won" value={stats.won} sub="accepted" tone="text-emerald-600" />
+            <Tile label="Lost" value={stats.lost} sub="cumulative" tone="text-rose-600" />
+            <Tile label="Win rate" value={stats.win_rate === null ? "—" : `${stats.win_rate}%`}
+                  sub={`${stats.won} won of ${stats.won + stats.lost} decided`} tone="text-emerald-600" />
+          </div>
+          <div className="mb-5 grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(148px,1fr))]">
+            {minePending !== null && (
+              <Tile label="Waiting on me" value={minePending}
+                    sub={me.group === "PNS" ? "my assigned, still pending" : "my tickets, still pending"}
+                    tone={minePending > 0 ? "text-[#EE1B2C]" : "text-emerald-600"} />
+            )}
+            {/* total_year is a historical field name: the query has no date filter, so
+                this is every ticket ever raised. Label it for what it counts. */}
+            <Tile label="Total" value={stats.total_year} sub="all time" />
+            <Tile label="Showing" value={rows.length} sub={active ? "after filters" : "no filters"} />
+          </div>
+        </>
       )}
 
       <div className="mb-5 rounded-xl border border-slate-200 bg-white p-4">
@@ -132,6 +175,15 @@ export default function Dashboard({ me, onOpen }) {
             <select className={sel} value={f.sales} onChange={(e) => setF({ ...f, sales: e.target.value })}>
               <option value="">Any salesperson</option>
               {salesNames.map((n) => <option key={n}>{n}</option>)}
+            </select>
+          )}
+          {/* Sales CRM's commercial stage — reference data carried on imported tickets.
+              It is not this app's status and the sync never overwrites ours with it. */}
+          {stageNames.length > 0 && (
+            <select className={sel} value={f.stage} onChange={(e) => setF({ ...f, stage: e.target.value })}>
+              <option value="">Any Sales CRM stage</option>
+              <option value="__none__">Not from Sales CRM</option>
+              {stageNames.map((n) => <option key={n}>{n}</option>)}
             </select>
           )}
           <button onClick={() => setF(EMPTY)}

@@ -209,7 +209,11 @@ export default function TicketDetail({ ticketRef: initialRef, me, notify, onBack
         {t.needs_review && <Pill tone="bg-violet-50 text-violet-700">PNS review</Pill>}
         <span className="ml-2 text-[12px] text-slate-500">
           Submitted {t.submitted_on} &middot; <Sla elapsed={t.sla_elapsed} target={t.sla_target} />
-          {t.owner && <> &middot; PNS {t.owner}</>}
+          {/* The PNS assignment is always stated, empty included — PNS works by
+              ticket assignment, so "unassigned" is a fact people must see. */}
+          {t.owner
+            ? <> &middot; PNS <b>{t.owner}</b></>
+            : <> &middot; <span className="font-semibold text-amber-600">PNS unassigned</span></>}
           {t.reviewer && <> &middot; reviewer {t.reviewer}</>}
           {t.psp_assignee && <> &middot; PSP {t.psp_assignee}</>}
         </span>

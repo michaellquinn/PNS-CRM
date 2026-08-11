@@ -2,6 +2,28 @@ import { Card, Head, Pill } from "../ui";
 
 const ENTRIES = [
   {
+    date: "2026-08-11",
+    title: "Open visibility, global search, phases and the Sales Manager tier",
+    by: "Baskoro + Claude",
+    changes: [
+      "Everyone signed in can now browse every queue — active, pending and closed. What stays gated per role is acting: the buttons inside each screen, which the backend refuses anyway. Cost and margin stay restricted to PNS, PSP and CSO.",
+      "A search bar sits in the header on every screen. It finds tickets by reference, shipper or Sales CRM opportunity id, and also jumps to any view — type 'psp' or 'sales' and pick the screen. Press / to focus it.",
+      "The PSP queues moved into the Solutioning menu, tagged PSP — margin approval is a step of solutioning, not a separate pipeline.",
+      "Every queue carries the same filter bar, with a PNS PIC dropdown and an 'Assigned to me' toggle, so PNS members can narrow any list to their own assignment in one click.",
+      "The dashboard breaks the book down by phase — Being worked, In approval, With shipper, Won, Lost — instead of only won and lost. Each phase tile is a click-to-filter. A 'Waiting on me' tile shows how many of your own tickets still need a move.",
+      "Tickets can be filtered by Sales CRM stage on the dashboard. The stage is reference data from the sync; it is not this app's status and never overwrites it.",
+      "The PNS Head can now delete a ticket to the recycle bin, and restore from it. Erasing permanently from the bin stays Admin only.",
+      "New Sales Manager tier (Commercial only): a Sales Manager can reassign the Sales PIC on a ticket, exactly like the Sales Head, and nothing else beyond staff.",
+      "The PNS assignment is stated on every ticket card and on the ticket header even when empty — 'PNS unassigned' in amber, because an unowned ticket is a fact people must see.",
+      "The count badge next to a menu entry is the number of tickets sitting in that status. One ticket in Proposal Submitted reads as 'Proposal submitted · 1' — the 1 is a live count, not part of the name.",
+    ],
+    overruled: [
+      "Legal was scoped to accepted deals only when browsing. Baskoro opened visibility to every role; Legal still cannot act on anything.",
+      "Delete to the recycle bin was Admin only. The PNS Head has it too now; permanent erase stays Admin.",
+      "Sales PIC reassignment was Commercial Head only. The new Sales Manager tier shares it.",
+    ],
+  },
+  {
     date: "2026-08-10",
     title: "Importer, assignment and sync sizing",
     by: "Baskoro + Claude",

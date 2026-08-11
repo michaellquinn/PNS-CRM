@@ -22,6 +22,9 @@ const WHAT_EACH_GROUP_DOES = {
 
 const EMPTY_FORM = { email: "", name: "", group: "PNS", level: "staff", team: "Team1" };
 
+// "manager" is the Sales Manager tier — Commercial only; the backend refuses it elsewhere.
+const LEVEL_LABEL = { staff: "Staff", manager: "Manager (Sales)", head: "Head" };
+
 // Nothing in the Substrait contract says whether the backend pod may open an outbound
 // SMTP connection, so the only way to know is to try it from inside. SSO means neither
 // the developer nor a script can reach the API — this has to be self-serve.
@@ -177,10 +180,13 @@ export default function Users({ me, notify }) {
               {groupOptions().map((g) => <option key={g}>{g}</option>)}
             </select>
           </Field>
-          <Field label="Level" required hint="Heads approve below-bottom prices and assign work">
+          <Field label="Level" required
+            hint="Heads approve below-bottom prices and assign work. Manager is Sales only: a Sales Manager can reassign the Sales PIC, like the Sales Head.">
             <select className={inputCls} value={f.level}
               onChange={(e) => setF({ ...f, level: e.target.value })}>
-              {data.levels.map((l) => <option key={l} value={l}>{l === "head" ? "Head" : "Staff"}</option>)}
+              {data.levels
+                .filter((l) => l !== "manager" || f.group === "Commercial")
+                .map((l) => <option key={l} value={l}>{LEVEL_LABEL[l] || l}</option>)}
             </select>
           </Field>
           {f.group === "Commercial" && (
@@ -247,7 +253,9 @@ export default function Users({ me, notify }) {
                         <select className={cell} value={r.level} disabled={frozen}
                           onChange={(e) => act(() => api.updateUser(r.email, { level: e.target.value }),
                             `${r.name} set to ${e.target.value}`)}>
-                          {data.levels.map((l) => <option key={l} value={l}>{l === "head" ? "Head" : "Staff"}</option>)}
+                          {data.levels
+                            .filter((l) => l !== "manager" || r.group === "Commercial")
+                            .map((l) => <option key={l} value={l}>{LEVEL_LABEL[l] || l}</option>)}
                         </select>
                       </td>
                       <td className={td}>

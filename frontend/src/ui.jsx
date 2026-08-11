@@ -79,15 +79,19 @@ export function Pill({ children, dot = false, tone }) {
   );
 }
 
-export function Tile({ label, value, sub, tone }) {
+export function Tile({ label, value, sub, tone, onClick, on }) {
+  const Tag = onClick ? "button" : "div";
   return (
-    <div className="rounded-xl border border-slate-200 bg-white px-4 py-3.5">
+    <Tag onClick={onClick} type={onClick ? "button" : undefined}
+      className={`rounded-xl border bg-white px-4 py-3.5 text-left ${
+        on ? "border-[#EE1B2C] ring-1 ring-[#EE1B2C]" : "border-slate-200"} ${
+        onClick ? "cursor-pointer hover:border-slate-400" : ""}`}>
       <div className="truncate text-[13px] text-slate-600">{label}</div>
       <div className={`mt-1.5 font-mono text-[27px] font-bold leading-none tabular-nums tracking-tight ${tone || "text-slate-900"}`}>
         {value}
       </div>
       <div className="mt-1 truncate text-[11.5px] text-slate-400">{sub || " "}</div>
-    </div>
+    </Tag>
   );
 }
 
@@ -259,7 +263,11 @@ export function TicketCard({ t, badges = [], children, onOpen }) {
           <p className="mt-0.5 text-[12px] text-slate-500">
             {t.service} &middot; {t.acct_type} &middot; {t.revenue.toLocaleString("id-ID")} &middot; {t.region}
             {t.sales && <> &middot; sales {t.sales}</>}
-            {t.owner && <> &middot; PNS {t.owner}</>}
+            {/* Assignment is stated even when empty: PNS works by ticket assignment,
+                so "nobody owns this yet" must be visible, not blank. */}
+            {t.owner
+              ? <> &middot; PNS {t.owner}</>
+              : <> &middot; <span className="font-semibold text-amber-600">PNS unassigned</span></>}
           </p>
         </div>
         <Sla elapsed={t.sla_elapsed} target={t.sla_target} />

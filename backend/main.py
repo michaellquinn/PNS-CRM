@@ -371,7 +371,9 @@ ROLE_GROUPS = ["Commercial", "PNS", "PSP", "Legal", "Finance", "Sales Planning",
 # Legal, Finance and Visitor look and never touch. Sales Planning is different: they
 # correct what Sales submitted, so they get the intake edit and nothing else.
 READ_ONLY_GROUPS = ("Legal", "Finance", "Visitor")
-ROLE_LEVELS = ["staff", "head"]
+# "manager" exists for Commercial: a Sales Manager may reassign the Sales PIC, same as
+# the Sales Head, and nothing else beyond staff. Other groups have no manager tier.
+ROLE_LEVELS = ["staff", "manager", "head"]
 TEAMS = ["Team1", "Team2"]
 
 
@@ -400,6 +402,8 @@ def can(u: User, action: str, t: dict | None = None) -> bool:
     admin = u.group == "Admin"
     com_head = admin or (u.group == "Commercial" and u.level == "head")
     pns_head = admin or (u.group == "PNS" and u.level == "head")
+    # The Sales Manager tier: everything staff can do, plus reassigning the Sales PIC.
+    com_mgr = com_head or (u.group == "Commercial" and u.level == "manager")
 
     # Read-mostly audiences never mutate. Stated once here rather than being spelled out
     # as an exclusion on every line below, where one omission would grant a right nobody
@@ -417,8 +421,11 @@ def can(u: User, action: str, t: dict | None = None) -> bool:
 
     return {
         "createTicket":     u.group == "Commercial" or admin,
-        "deleteTicket":     admin,
-        "restoreTicket":    admin,
+        # Soft delete and restore are the PNS Head's call too — a mis-imported or
+        # plainly wrong ticket should not need an Admin. Purge stays Admin only:
+        # erasing history is a different act from parking a mistake in the bin.
+        "deleteTicket":     pns_head,
+        "restoreTicket":    pns_head,
         "purgeTicket":      admin,
         # Assigning a PNS owner is the Head's call on ANY ticket. It used to be gated on
         # the ticket being PNS-priced, which left Sales-priced tickets unassignable even
@@ -434,7 +441,7 @@ def can(u: User, action: str, t: dict | None = None) -> bool:
         "editInput":        u.group in ("Commercial", "Sales Planning", "PNS") or admin,
         "editAcctOrRev":    com_head,
         "setAcct":          com_head,
-        "setSales":         com_head,
+        "setSales":         com_mgr,
         "reopen":           com_head,
         "pspDecide":        u.group == "PSP" or admin,
         # Standing delegation so an absent PSP cannot stall the pipeline. Used through
@@ -675,7 +682,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-08-10.29"
+BUILD = "2026-08-11.30"
 
 
 class Me(BaseModel):
@@ -716,6 +723,7 @@ class Ticket(BaseModel):
     psp_ready: bool = False   # PSP cleared it without needing PNS review, awaiting final submit
     psp_allowed: bool = False # non-managed ticket opened to PSP on Alex's exception
     psp_decision: str | None = None   # approved | rejected | None, PSP's latest decision, if any
+    stage: str | None = None  # Sales CRM's commercial stage, reference only — NOT our status
 
 
 class TicketList(BaseModel):
@@ -852,6 +860,7 @@ def shape(t: dict, u: User) -> Ticket:
         psp_assignee=t.get("psp_assignee"), psp_ready=bool(t.get("psp_ready")),
         psp_allowed=bool(t.get("psp_allowed")),
         psp_decision=t.get("psp_decision"),
+        stage=t.get("stage"),
     )
     # Margin is restricted at the API, not by hiding a column in the UI.
     if can(u, "seeMargin") and t.get("margin_pct") is not None:
@@ -864,6 +873,7 @@ async def list_tickets(
     u: User = Depends(current_user),
     status: str | None = None,
     service: str | None = None,
+    stage: str | None = None,
     owner: str | None = None,
     sales: str | None = None,
     submitted_from: str | None = None,
@@ -891,16 +901,10 @@ async def list_tickets(
         sql += (" AND EXISTS (SELECT 1 FROM approvals a WHERE a.ticket_id=t.id "
                "AND a.kind='psp')")
 
-    # PSP reads the whole pipeline: judging a rate needs the context around it, and PSP
-    # is pulled into cross-department discussion long after approving. Their Price
-    # approvals queue still filters to what needs them, so the day-to-day view is
-    # unchanged, this only makes tickets findable.
-    #
-    # Legal stays narrow on purpose: they act on signed deals, nothing earlier. Being
-    # tagged in a discussion still reaches them, because /api/tickets/{ref} is unscoped, 
-    # they just cannot browse the pipeline.
-    if u.group == "Legal":
-        sql += " AND t.status=%s"; args.append("Proposal Accepted / Ready to Ship")
+    # Everyone signed in may browse the whole pipeline — active, pending and closed.
+    # Baskoro's call (2026-08-11): visibility is open to every role; what stays gated
+    # is acting, which can() enforces per action. Margin remains behind seeMargin.
+    # (Legal used to be narrowed to accepted deals only; that narrowing is overruled.)
 
     # "Mine" means the tickets this person is answerable for, which differs by role:
     # a salesperson owns what they raised, a PNS member owns what they were assigned.
@@ -925,6 +929,14 @@ async def list_tickets(
     if service:
         marks = ",".join(["%s"] * len(service.split(",")))
         sql += f" AND t.service_type IN ({marks})"; args += service.split(",")
+    if stage:
+        # Sales CRM's commercial stage, carried on imported tickets. "__none__" finds
+        # the tickets that were raised here and never came from Sales CRM at all.
+        if stage == "__none__":
+            sql += " AND t.stage IS NULL"
+        else:
+            marks = ",".join(["%s"] * len(stage.split(",")))
+            sql += f" AND t.stage IN ({marks})"; args += stage.split(",")
     if owner:
         sql += " AND t.owner_name=%s" if owner != "__unassigned__" else " AND t.owner_name IS NULL"
         if owner != "__unassigned__":
@@ -1932,7 +1944,7 @@ class SalesIn(BaseModel):
 
 @app.post("/api/tickets/{ref}/sales", response_model=Ok)
 async def change_sales(ref: str, body: SalesIn, u: User = Depends(current_user)):
-    """Hand the ticket to a different salesperson. Commercial Head only."""
+    """Hand the ticket to a different salesperson. Commercial Head or Sales Manager."""
     require(u, "setSales")
     t = await get_ticket(ref)
     name = body.name.strip()
@@ -2414,7 +2426,7 @@ async def submit_proposal(ref: str, u: User = Depends(current_user)):
 
 @app.delete("/api/tickets/{ref}", response_model=Ok)
 async def soft_delete(ref: str, u: User = Depends(current_user)):
-    require(u, "deleteTicket")   # PNS Admin only
+    require(u, "deleteTicket")   # PNS Head or Admin
     t = await get_ticket(ref)
     await execute("UPDATE tickets SET deleted_at=NOW(), deleted_by=%s WHERE id=%s",
                   (u.name, t["id"]))
@@ -2788,6 +2800,10 @@ def clean_user_fields(group: str | None, level: str | None, team: str | None):
         raise HTTPException(400, f"group must be one of {ROLE_GROUPS}")
     if level is not None and level not in ROLE_LEVELS:
         raise HTTPException(400, f"level must be one of {ROLE_LEVELS}")
+    if level == "manager" and group != "Commercial":
+        # Manager is the Sales Manager tier. Elsewhere it would grant nothing and
+        # sit in the table looking like it means something.
+        raise HTTPException(400, "manager is a Commercial (Sales) level only")
     if team not in (None, "", *TEAMS):
         raise HTTPException(400, f"team must be one of {TEAMS}")
     if group != "Commercial":

@@ -19,35 +19,38 @@ import {
 // sidebar and the API agree on who may do what — there is no second rule set here.
 
 // Legal, Finance, Sales Planning and Visitor consume the pipeline rather than working
-// it. They get the reference and reporting screens; the action queues would only show
-// them buttons the backend refuses anyway.
+// it. Every ticket queue is visible to everyone (Baskoro's call, 2026-08-11: anyone may
+// view active, pending and closed tickets); what stays gated per role is the buttons
+// inside each screen, and the backend refuses the action anyway. `works` now only hides
+// the working screens that make no sense read-only (My requests, Review meeting).
 const READ_ONLY = ["Legal", "Finance", "Sales Planning", "Visitor"];
 const works = (m) => !READ_ONLY.includes(m.group);
 
+// The PSP screens live inside Solutioning — PSP approval is a step of solutioning, not
+// a separate pipeline — but keep their tag so it is obvious which entries are PSP's.
 const NAV = [
   ["Solutioning", [
-    { id: "dashboard", label: "Dashboard", icon: "▤" },
-    { id: "mine", label: "My requests", icon: "◐", when: works },
+    { id: "dashboard", label: "Dashboard", icon: "▤", keywords: "overview home stats" },
+    { id: "mine", label: "My requests", icon: "◐", when: works, keywords: "my tickets assignment" },
     { id: "new", label: "New request", icon: "＋", when: (m) => m.permissions.createTicket },
-    { id: "awaiting", label: "Awaiting price", icon: "◷", count: "awaiting", when: works },
+    { id: "awaiting", label: "Awaiting price", icon: "◷", count: "awaiting", keywords: "pricing" },
     { id: "review", label: "To review", icon: "◎", count: "Pending PNS Review",
-      when: (m) => m.group === "PNS" || m.group === "Admin" },
+      keywords: "pns view pns review" },
     // Named for the head who actually owes it — "Need review" told nobody whose it was.
     { id: "head", label: "Sales Head review", icon: "⚑", count: "Pending Head Review",
-      when: (m) => m.permissions.headAck },
+      keywords: "sales view head review below bottom" },
+    { id: "psp-pending", label: "PSP approval", icon: "✓", count: "Pending PSP Approval",
+      tag: "PSP", keywords: "psp pending margin approval" },
     { id: "signoff", label: "Exec sign-off", icon: "★", count: "Pending Exec Sign-off",
-      when: (m) => m.group === "PNS" || m.group === "Commercial" || m.group === "Admin" },
-    { id: "proposals", label: "Proposal submitted", icon: "◫", count: "Proposal Submitted",
-      when: works },
+      keywords: "executive alex dhinesh" },
+    { id: "proposals", label: "Proposal submitted", icon: "◫", count: "Proposal Submitted" },
     { id: "ship", label: "Ready to ship", icon: "➔", count: "Proposal Accepted / Ready to Ship" },
-    { id: "meeting", label: "Review meeting", icon: "☷", when: works },
-    { id: "workload", label: "Workload", icon: "◴", when: (m) => m.permissions.assign },
+    { id: "psp-finished", label: "PSP finished", icon: "◫", tag: "PSP",
+      keywords: "psp decided history" },
+    { id: "meeting", label: "Review meeting", icon: "☷", when: works, keywords: "weekly agenda" },
+    { id: "workload", label: "Workload", icon: "◴", when: (m) => m.permissions.assign,
+      keywords: "pns capacity assignment" },
     { id: "sync", label: "Sales CRM sync", icon: "⇄", when: (m) => m.permissions.syncSalesCrm },
-  ]],
-  ["PSP", [
-    { id: "psp-pending", label: "Pending", icon: "✓", count: "Pending PSP Approval",
-      when: works },
-    { id: "psp-finished", label: "Finished", icon: "◫", when: works },
   ]],
   ["CAPA", [
     { id: "capa-all", label: "All CAPA", icon: "▤", when: works },
@@ -70,6 +73,118 @@ const NAV = [
 // What ?screen= is allowed to name. "detail" is deliberately absent: it is useless
 // without a ticket, and ?ticket= already covers that link.
 const NAV_IDS = new Set(NAV.flatMap(([, items]) => items.map((i) => i.id)));
+
+// The header search reaches everything: tickets by ref, shipper or opportunity id
+// (the server already matches all three), and every screen this person may open —
+// so typing "psp" or "sales" jumps straight to that view. "/" focuses it from anywhere.
+function GlobalSearch({ me, onOpenTicket, onGo }) {
+  const [q, setQ] = useState("");
+  const [tickets, setTickets] = useState([]);
+  const [open, setOpen] = useState(false);
+  const [hi, setHi] = useState(0);
+
+  const screens = NAV.flatMap(([group, items]) =>
+    items.filter((i) => !i.when || i.when(me)).map((i) => ({ ...i, group })));
+
+  const needle = q.trim().toLowerCase();
+  const screenHits = needle
+    ? screens.filter((s) =>
+        `${s.label} ${s.group} ${s.keywords || ""}`.toLowerCase().includes(needle)).slice(0, 5)
+    : [];
+
+  useEffect(() => {
+    if (needle.length < 2) { setTickets([]); return; }
+    const t = setTimeout(() => {
+      api.tickets({ search: needle })
+        .then((d) => setTickets(d.tickets.slice(0, 8)))
+        .catch(() => setTickets([]));
+    }, 250);
+    return () => clearTimeout(t);
+  }, [needle]);
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === "/" && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName)) {
+        e.preventDefault();
+        document.getElementById("global-search")?.focus();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  const hits = [
+    ...screenHits.map((s) => ({ kind: "screen", key: `s-${s.id}`, s })),
+    ...tickets.map((t) => ({ kind: "ticket", key: `t-${t.ref}`, t })),
+  ];
+
+  const pick = (h) => {
+    if (!h) return;
+    if (h.kind === "screen") onGo(h.s.id);
+    else onOpenTicket(h.t.ref);
+    setQ(""); setOpen(false); setHi(0);
+  };
+
+  return (
+    <div className="relative min-w-0 flex-1 sm:max-w-md">
+      <input
+        id="global-search"
+        type="search"
+        value={q}
+        placeholder="Search tickets, shippers, menus…  ( / )"
+        className="w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-1.5 text-[13px] focus:border-slate-400 focus:bg-white focus:outline-none"
+        onChange={(e) => { setQ(e.target.value); setOpen(true); setHi(0); }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        onKeyDown={(e) => {
+          if (e.key === "ArrowDown") { e.preventDefault(); setHi((n) => Math.min(n + 1, hits.length - 1)); }
+          if (e.key === "ArrowUp") { e.preventDefault(); setHi((n) => Math.max(n - 1, 0)); }
+          if (e.key === "Enter") pick(hits[hi] || hits[0]);
+          if (e.key === "Escape") { setOpen(false); e.target.blur(); }
+        }}
+      />
+      {open && needle && hits.length > 0 && (
+        <div className="absolute left-0 right-0 top-full z-40 mt-1.5 max-h-[70vh] overflow-auto rounded-xl border border-slate-200 bg-white py-1 shadow-lg">
+          {screenHits.length > 0 && (
+            <div className="px-3 pb-1 pt-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+              Open a view
+            </div>
+          )}
+          {hits.map((h, idx) => (
+            <button
+              key={h.key}
+              onMouseDown={(e) => { e.preventDefault(); pick(h); }}
+              onMouseEnter={() => setHi(idx)}
+              className={`flex w-full items-center gap-2.5 px-3 py-2 text-left text-[13px] ${
+                idx === hi ? "bg-rose-50" : ""}`}>
+              {h.kind === "screen" ? (
+                <>
+                  <span className="w-4 shrink-0 text-center opacity-60">{h.s.icon}</span>
+                  <span className="font-medium">{h.s.label}</span>
+                  {h.s.tag && (
+                    <span className="rounded bg-amber-100 px-1 text-[9.5px] font-bold uppercase text-amber-700">
+                      {h.s.tag}
+                    </span>
+                  )}
+                  <span className="ml-auto text-[11px] text-slate-400">{h.s.group}</span>
+                </>
+              ) : (
+                <>
+                  <span className="shrink-0 font-mono text-[12px] font-bold text-[#EE1B2C]">{h.t.ref}</span>
+                  <span className="truncate font-medium">{h.t.shipper}</span>
+                  <span className="ml-auto shrink-0 text-[11px] text-slate-400">{h.t.status}</span>
+                </>
+              )}
+            </button>
+          ))}
+          {hits.length === screenHits.length && needle.length >= 2 && tickets.length === 0 && (
+            <p className="px-3 py-2 text-[12px] text-slate-400">No tickets match “{q.trim()}”.</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function Bell({ notes, onRead }) {
   const [open, setOpen] = useState(false);
@@ -220,9 +335,9 @@ export default function App() {
     head: <HeadReview me={me} notify={notify} onOpen={open} />,
     signoff: <ExecSignoff me={me} notify={notify} onOpen={open} />,
     "psp-pending": <PspPending me={me} notify={notify} onOpen={open} />,
-    "psp-finished": <PspFinished onOpen={open} />,
+    "psp-finished": <PspFinished me={me} onOpen={open} />,
     proposals: <Proposals me={me} notify={notify} onOpen={open} />,
-    ship: <ReadyToShip onOpen={open} />,
+    ship: <ReadyToShip me={me} onOpen={open} />,
     meeting: <Meeting onOpen={open} />,
     detail: <TicketDetail ticketRef={ticketRef} me={me} notify={notify} onBack={() => go("dashboard")} />,
     "capa-all": <Capa view="all" me={me} notify={notify} onRaise={() => go("capa-raise")} />,
@@ -256,8 +371,16 @@ export default function App() {
                   }`}>
                   <span className="w-4 shrink-0 text-center opacity-60">{i.icon}</span>
                   <span className="truncate">{i.label}</span>
+                  {i.tag && (
+                    <span className="rounded bg-amber-100 px-1 text-[9.5px] font-bold uppercase tracking-wide text-amber-700">
+                      {i.tag}
+                    </span>
+                  )}
                   {n > 0 && (
-                    <span className={`ml-auto rounded-full px-1.5 font-mono text-[11px] tabular-nums ${
+                    // The badge is a live count of tickets sitting in this status —
+                    // it is not part of the menu name.
+                    <span title={`${n} ticket${n === 1 ? "" : "s"} currently here`}
+                      className={`ml-auto rounded-full px-1.5 font-mono text-[11px] tabular-nums ${
                       on ? "bg-[#EE1B2C] text-white" : "bg-slate-200 text-slate-600"}`}>
                       {n}
                     </span>
@@ -283,8 +406,9 @@ export default function App() {
           className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-[13px] lg:hidden">☰</button>
         <div className="flex items-center gap-2.5">
           <span className="grid h-6 w-6 place-items-center rounded bg-[#EE1B2C] text-xs font-extrabold text-white">N</span>
-          <span className="font-bold tracking-tight">Ninja PNS</span>
+          <span className="hidden font-bold tracking-tight sm:inline">Ninja PNS</span>
         </div>
+        <GlobalSearch me={me} onOpenTicket={open} onGo={go} />
         <div className="ml-auto flex items-center gap-3 text-sm">
           <span className="hidden text-slate-500 sm:inline">Signed in as</span>
           <b className="hidden sm:inline">{me.name}</b>

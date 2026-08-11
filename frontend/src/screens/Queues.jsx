@@ -15,11 +15,15 @@ function useTickets(filters, dep = []) {
 }
 
 // Queue-local filtering. These lists are already scoped by status, so a search box and
-// a couple of dropdowns beat sending every keystroke back to the server.
+// a couple of dropdowns beat sending every keystroke back to the server. Every queue
+// carries the PNS PIC filter: PNS works by ticket assignment, so "just my tickets" has
+// to be one click away wherever a list appears.
 function useFilter(rows, extra = {}) {
-  const [f, setF] = useState({ q: "", service: "", ...extra });
+  const base = { q: "", service: "", owner: "", ...extra };
+  const [f, setF] = useState(base);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
-  const clear = () => setF({ q: "", service: "", ...extra });
+  const patch = (k, v) => setF((p) => ({ ...p, [k]: v }));
+  const clear = () => setF(base);
   const out = (rows || []).filter((t) => {
     const q = f.q.trim().toLowerCase();
     if (q && !`${t.ref} ${t.shipper}`.toLowerCase().includes(q)) return false;
@@ -28,10 +32,12 @@ function useFilter(rows, extra = {}) {
     if (f.owner && (t.owner || "") !== (f.owner === "__none__" ? "" : f.owner)) return false;
     return true;
   });
-  return [out, f, set, clear];
+  return [out, f, set, clear, patch];
 }
 
-function FilterBar({ f, set, clear, shown, total, children }) {
+function FilterBar({ f, set, clear, patch, me, shown, total, children }) {
+  const team = usePnsTeam();
+  const mineOn = me && f.owner === me.name;
   return (
     <Card className="mb-4 flex flex-wrap items-center gap-2.5 p-3">
       <input type="search" value={f.q} onChange={set("q")} placeholder="Search shipper or ID…"
@@ -40,6 +46,20 @@ function FilterBar({ f, set, clear, shown, total, children }) {
         <option value="">Any service</option>
         {SERVICES.map((s) => <option key={s}>{s}</option>)}
       </select>
+      <select className={`${inputCls} max-w-[160px]`} value={f.owner} onChange={set("owner")}>
+        <option value="">Any PNS PIC</option>
+        <option value="__none__">Unassigned</option>
+        {team.map((n) => <option key={n}>{n}</option>)}
+      </select>
+      {me && team.includes(me.name) && patch && (
+        <button type="button" aria-pressed={mineOn}
+          onClick={() => patch("owner", mineOn ? "" : me.name)}
+          className={`rounded-full border px-3 py-1.5 text-[12.5px] font-semibold ${
+            mineOn ? "border-[#EE1B2C] bg-[#EE1B2C] text-white"
+                   : "border-slate-300 bg-white text-slate-600 hover:border-slate-400"}`}>
+          Assigned to me
+        </button>
+      )}
       {children}
       <span className="text-[12px] text-slate-500">{shown} of {total}</span>
       <Btn onClick={clear}>Clear</Btn>
@@ -90,7 +110,10 @@ export function AwaitingPrice({ me, onOpen, notify }) {
   const [disc, setDisc] = useState({});
   const [askPsp, setAskPsp] = useState({});
   const [busy, setBusy] = useState(null);
-  const [list, f, set, clear] = useFilter(rows, { resp: "" });
+  const [list, f, set, clear, patch] = useFilter(rows, { resp: "" });
+
+  // Anyone may look at this queue; only the sides that owe prices get the form.
+  const canAct = ["PNS", "Commercial", "Admin"].includes(me.group);
 
   const act = async (ref, fn) => {
     setBusy(ref);
@@ -108,7 +131,8 @@ export function AwaitingPrice({ me, onOpen, notify }) {
       </span>}
       rows={rows} err={err} empty="Nothing awaiting a price."
       bar={
-        <FilterBar f={f} set={set} clear={clear} shown={list.length} total={(rows || []).length}>
+        <FilterBar f={f} set={set} clear={clear} patch={patch} me={me}
+          shown={list.length} total={(rows || []).length}>
           <select className={`${inputCls} max-w-[150px]`} value={f.resp} onChange={set("resp")}>
             <option value="">Priced by anyone</option>
             <option value="PNS">Priced by PNS</option>
@@ -128,7 +152,12 @@ export function AwaitingPrice({ me, onOpen, notify }) {
             t.psp_ready && <Pill key="psp" tone="bg-emerald-50 text-emerald-700">PSP approved</Pill>,
           ].filter(Boolean)}
         >
-          {t.psp_ready ? (
+          {!canAct ? (
+            <p className="text-[12.5px] text-slate-500">
+              View only — {t.priced_by === "PNS" ? "PNS" : "Sales"} attaches the price here.
+              {(t.price_file || t.price_url) && <> Currently attached: <PriceChip file={t.price_file} url={t.price_url} /></>}
+            </p>
+          ) : t.psp_ready ? (
             <div className="flex flex-wrap items-center gap-3">
               <p className="text-[13px] text-slate-600">
                 PSP approved this margin. The price and link don't change — confirm and
@@ -243,12 +272,16 @@ export function ToReview({ me, onOpen, notify }) {
   const [rows, err, reload] = useTickets({ status: "Pending PNS Review" });
   const [who, setWho] = useState({});
   const team = usePnsTeam();
+  const [list, f, set, clear, patch] = useFilter(rows);
   const act = async (fn) => { try { await fn(); notify("Done"); await reload(); } catch (e) { notify(e.message); } };
 
   return (
     <Shell title="To review"
       sub="Non-Strategic at or above 30 Mio: Sales priced it, PNS reviews before it goes out."
-      rows={rows} err={err} empty="Nothing waiting on review.">
+      rows={rows} err={err} empty="Nothing waiting on review."
+      bar={<FilterBar f={f} set={set} clear={clear} patch={patch} me={me}
+        shown={list.length} total={(rows || []).length} />}
+      filtered={list}>
       {(list) => list.map((t) => (
         <TicketCard key={t.ref} t={t} onOpen={onOpen}>
           {(t.price_file || t.price_url) && <p className="mb-3 text-[13px]"><PriceChip file={t.price_file} url={t.price_url} /></p>}
@@ -297,13 +330,22 @@ export function ToReview({ me, onOpen, notify }) {
 export function HeadReview({ me, onOpen, notify }) {
   const [rows, err, reload] = useTickets({ status: "Pending Head Review" });
   const [note, setNote] = useState({});
+  const [list, f, set, clear, patch] = useFilter(rows);
   const act = async (fn) => { try { await fn(); notify("Done"); await reload(); } catch (e) { notify(e.message); } };
 
+  // Everyone may watch this queue; only the Sales Head (or Admin) holds the pen.
+  const mayAck = me.permissions.headAck;
+
   return (
-    <Shell title="Need review"
+    <Shell title="Sales Head review"
       sub="Prices below the tier floor, checked automatically or flagged by hand. The Sales Head acknowledges, then PSP signs off on the margin before it goes out."
-      right={<span className="text-[12px] text-slate-500">Head only</span>}
-      rows={rows} err={err} empty="Nothing needs your review.">
+      right={<span className="text-[12px] text-slate-500">
+        {mayAck ? "You can acknowledge" : "View only — the Sales Head decides"}
+      </span>}
+      rows={rows} err={err} empty="Nothing needs the Sales Head."
+      bar={<FilterBar f={f} set={set} clear={clear} patch={patch} me={me}
+        shown={list.length} total={(rows || []).length} />}
+      filtered={list}>
       {(list) => list.map((t) => (
         <TicketCard key={t.ref} t={t} onOpen={onOpen}
           badges={[<Pill key="b" tone="bg-amber-50 text-amber-700">Below bottom rate</Pill>]}>
@@ -311,18 +353,24 @@ export function HeadReview({ me, onOpen, notify }) {
           {t.margin != null && (
             <p className="mb-3 text-[13px]">Margin submitted: <b className="font-mono">{t.margin}%</b></p>
           )}
-          <div className="flex flex-wrap items-center gap-2">
-            <input className={`${inputCls} max-w-[320px]`} placeholder="Note (required to send back)"
-              value={note[t.ref] || ""} onChange={(e) => setNote({ ...note, [t.ref]: e.target.value })} />
-            <Btn onClick={() => act(() => api.status(t.ref, {
-              status: t.priced_by === "PNS" ? "Pending PNS" : "Pending Sales", reason: note[t.ref],
-            }))}>
-              Send back to {t.priced_by === "PNS" ? "PNS" : "Sales"}
-            </Btn>
-            <Btn kind="primary" className="ml-auto" onClick={() => act(() => api.headAck(t.ref))}>
-              Acknowledge — send to PSP
-            </Btn>
-          </div>
+          {mayAck ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <input className={`${inputCls} max-w-[320px]`} placeholder="Note (required to send back)"
+                value={note[t.ref] || ""} onChange={(e) => setNote({ ...note, [t.ref]: e.target.value })} />
+              <Btn onClick={() => act(() => api.status(t.ref, {
+                status: t.priced_by === "PNS" ? "Pending PNS" : "Pending Sales", reason: note[t.ref],
+              }))}>
+                Send back to {t.priced_by === "PNS" ? "PNS" : "Sales"}
+              </Btn>
+              <Btn kind="primary" className="ml-auto" onClick={() => act(() => api.headAck(t.ref))}>
+                Acknowledge — send to PSP
+              </Btn>
+            </div>
+          ) : (
+            <p className="text-[12.5px] text-slate-500">
+              Waiting on the Sales Head to acknowledge or send back.
+            </p>
+          )}
         </TicketCard>
       ))}
     </Shell>
@@ -336,12 +384,16 @@ export function PspPending({ me, onOpen, notify }) {
   const [pick, setPick] = useState({});
   const people = useDirectory();
   const psp = people.filter((p) => p.group === "PSP");
+  const [list, f, set, clear, patch] = useFilter(rows);
   const act = async (fn) => { try { await fn(); notify("Done"); await reload(); } catch (e) { notify(e.message); } };
 
   return (
-    <Shell title="PSP — Pending"
+    <Shell title="PSP approval — pending"
       sub="PSP reviews the margin and approves or rejects. Mandatory for anything below the product bottom margin (after the Head acknowledges it); anyone can also ask for a second opinion from Awaiting price. Any PSP member can take any ticket — there's no head/staff split here."
-      rows={rows} err={err} empty="Nothing awaiting price approval.">
+      rows={rows} err={err} empty="Nothing awaiting price approval."
+      bar={<FilterBar f={f} set={set} clear={clear} patch={patch} me={me}
+        shown={list.length} total={(rows || []).length} />}
+      filtered={list}>
       {(list) => list.map((t) => (
         <TicketCard key={t.ref} t={t} onOpen={onOpen}
           badges={[t.psp_assignee && <Pill key="pic" tone="bg-amber-50 text-amber-700">PIC: {t.psp_assignee}</Pill>].filter(Boolean)}>
@@ -405,6 +457,7 @@ export function ExecSignoff({ me, onOpen, notify }) {
   const [rows, err, reload] = useTickets({ status: "Pending Exec Sign-off" });
   const [note, setNote] = useState({});
   const [draft, setDraft] = useState({});
+  const [list, f, set, clear, patch] = useFilter(rows);
   const act = async (fn) => { try { await fn(); notify("Done"); await reload(); } catch (e) { notify(e.message); } };
 
   const showDraft = async (ref) => {
@@ -417,7 +470,10 @@ export function ExecSignoff({ me, onOpen, notify }) {
   return (
     <Shell title="Executive sign-off"
       sub="Hypercare and Strategic solutions need Alex (CSO) and Dhinesh (COO). Every other approval has already cleared; this is the last gate before the proposal goes out."
-      rows={rows} err={err} empty="Nothing awaiting executive sign-off.">
+      rows={rows} err={err} empty="Nothing awaiting executive sign-off."
+      bar={<FilterBar f={f} set={set} clear={clear} patch={patch} me={me}
+        shown={list.length} total={(rows || []).length} />}
+      filtered={list}>
       {(list) => list.map((t) => (
         <TicketCard key={t.ref} t={t} onOpen={onOpen}>
           <div className="mb-3 flex flex-wrap items-center gap-2 text-[13px]">
@@ -450,15 +506,16 @@ export function ExecSignoff({ me, onOpen, notify }) {
 }
 
 /* ---------------------------------------------------------------- PSP finished */
-export function PspFinished({ onOpen }) {
+export function PspFinished({ me, onOpen }) {
   const [rows, err] = useTickets({ psp_reviewed: true });
-  const [list, f, set, clear] = useFilter(rows);
+  const [list, f, set, clear, patch] = useFilter(rows);
 
   return (
-    <Shell title="PSP — Finished"
+    <Shell title="PSP approval — finished"
       sub="Every ticket PSP has decided on, with what they decided and where it stands now — including which ones went on to win or lose."
       rows={rows} err={err} empty="PSP hasn't decided on anything yet."
-      bar={<FilterBar f={f} set={set} clear={clear} shown={list.length} total={(rows || []).length} />}
+      bar={<FilterBar f={f} set={set} clear={clear} patch={patch} me={me}
+        shown={list.length} total={(rows || []).length} />}
       filtered={list}>
       {(list) => list.map((t) => (
         <TicketCard key={t.ref} t={t} onOpen={onOpen}
@@ -485,8 +542,7 @@ export function Proposals({ me, onOpen, notify }) {
   const [rows, err, reload] = useTickets({ status: "Proposal Submitted" });
   const [next, setNext] = useState({});
   const [reason, setReason] = useState({});
-  const [list, f, set, clear] = useFilter(rows, { owner: "" });
-  const team = usePnsTeam();
+  const [list, f, set, clear, patch] = useFilter(rows);
   const act = async (fn) => { try { await fn(); notify("Done"); await reload(); } catch (e) { notify(e.message); } };
 
   const mayClose = me.permissions.acceptProposal;
@@ -496,15 +552,8 @@ export function Proposals({ me, onOpen, notify }) {
     <Shell title="Proposal submitted"
       sub="Proposals sitting with the shipper. Accepted and lost deals move out of this list."
       rows={rows} err={err} empty="No proposals submitted yet."
-      bar={
-        <FilterBar f={f} set={set} clear={clear} shown={list.length} total={(rows || []).length}>
-          <select className={`${inputCls} max-w-[160px]`} value={f.owner} onChange={set("owner")}>
-            <option value="">Any PNS owner</option>
-            <option value="__none__">Unassigned</option>
-            {team.map((n) => <option key={n}>{n}</option>)}
-          </select>
-        </FilterBar>
-      }
+      bar={<FilterBar f={f} set={set} clear={clear} patch={patch} me={me}
+        shown={list.length} total={(rows || []).length} />}
       filtered={list}>
       {(list) => list.map((t) => (
         <TicketCard key={t.ref} t={t} onOpen={onOpen}>
@@ -550,12 +599,16 @@ export function Proposals({ me, onOpen, notify }) {
 }
 
 /* ---------------------------------------------------------------- ready to ship */
-export function ReadyToShip({ onOpen }) {
+export function ReadyToShip({ me, onOpen }) {
   const [rows, err] = useTickets({ status: "Proposal Accepted / Ready to Ship" });
+  const [list, f, set, clear, patch] = useFilter(rows);
   return (
     <Shell title="Ready to ship"
       sub="Accepted proposals, handed to Legal for the contract and then to Ops."
-      rows={rows} err={err} empty="Nothing ready to ship yet.">
+      rows={rows} err={err} empty="Nothing ready to ship yet."
+      bar={<FilterBar f={f} set={set} clear={clear} patch={patch} me={me}
+        shown={list.length} total={(rows || []).length} />}
+      filtered={list}>
       {(list) => list.map((t) => (
         <TicketCard key={t.ref} t={t} onOpen={onOpen}>
           {(t.price_file || t.price_url) && <p className="text-[13px]"><PriceChip file={t.price_file} url={t.price_url} /></p>}
@@ -582,7 +635,7 @@ export function RecycleBin({ me, notify, onOpen }) {
     <>
       <Shell title="Recycle bin"
         sub="Deleted tickets, kept with their history. Restore one to put it back where it was, or delete it for good."
-        right={<span className="text-[12px] text-slate-500">PNS Admin only</span>}
+        right={<span className="text-[12px] text-slate-500">PNS Head &amp; Admin</span>}
         rows={rows} err={err} empty="The bin is empty.">
         {(list) => list.map((t) => (
           <TicketCard key={t.ref} t={t} onOpen={onOpen}>
