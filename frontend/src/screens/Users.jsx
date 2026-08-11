@@ -95,6 +95,69 @@ function EmailDelivery({ notify }) {
   );
 }
 
+// One confirmed casualty of the .30 deploy collision was a ticket sitting under a status
+// string ("Pending Review - PSP") this build has never used, invisible to the queue that
+// should have shown it. V15 fixed the one we found by hand. This checks for any others
+// without guessing at what an unfamiliar status ought to be renamed to.
+function OrphanedStatus({ notify }) {
+  const [r, setR] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  const run = async () => {
+    setBusy(true);
+    try { setR(await api.orphanedStatus()); }
+    catch (e) { notify(e.message); }
+    finally { setBusy(false); }
+  };
+
+  const tone = !r ? "border-slate-200"
+    : r.tickets.length === 0 ? "border-emerald-200 bg-emerald-50/40"
+    : "border-amber-200 bg-amber-50/40";
+
+  return (
+    <Card className={`mt-5 p-4 ${tone}`}>
+      <div className="mb-2 text-[10.5px] font-bold uppercase tracking-wider text-slate-400">
+        Orphaned ticket status
+      </div>
+      <p className="mb-3 text-[12.5px] text-slate-600">
+        Tickets whose status this build does not recognise, so no queue shows them. The
+        one confirmed case (SOF-2001322, left over from an overwritten deploy) is already
+        fixed; this finds anything similar still sitting undetected.
+      </p>
+
+      {r && r.tickets.length === 0 && (
+        <p className="mb-3 rounded-lg border border-slate-200 bg-white p-3 text-[12.5px] text-emerald-700">
+          None found. Every ticket's status matches a status this build knows about.
+        </p>
+      )}
+      {r && r.tickets.length > 0 && (
+        <div className="mb-3 overflow-hidden rounded-lg border border-slate-200 bg-white">
+          <table className="w-full text-[12.5px]">
+            <thead>
+              <tr className="bg-slate-50 text-left text-slate-500">
+                <th className="px-3 py-2">Ticket</th><th className="px-3 py-2">Shipper</th>
+                <th className="px-3 py-2">Unrecognised status</th><th className="px-3 py-2">Since</th>
+              </tr>
+            </thead>
+            <tbody>
+              {r.tickets.map((t) => (
+                <tr key={t.ref} className="border-t border-slate-100">
+                  <td className="px-3 py-2 font-mono font-semibold text-[#EE1B2C]">{t.ref}</td>
+                  <td className="px-3 py-2">{t.shipper}</td>
+                  <td className="px-3 py-2 font-mono text-amber-800">{t.status}</td>
+                  <td className="px-3 py-2 text-slate-500">{t.status_since}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <Btn disabled={busy} onClick={run}>{r ? "Check again" : "Check now"}</Btn>
+    </Card>
+  );
+}
+
 export default function Users({ me, notify }) {
   const [data, setData] = useState(null);
   const [err, setErr] = useState(null);
@@ -285,6 +348,7 @@ export default function Users({ me, notify }) {
       )}
 
       <EmailDelivery notify={notify} />
+      <OrphanedStatus notify={notify} />
 
       <Card className="mt-5 p-4">
         <div className="mb-2 text-[10.5px] font-bold uppercase tracking-wider text-slate-400">

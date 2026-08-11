@@ -839,6 +839,21 @@
           "401": { "$ref": "#/components/responses/NotSignedIn" }
         }
       }
+    },
+    "/api/diagnostics/orphaned-status": {
+      "get": {
+        "summary": "List tickets whose status this build does not recognise",
+        "description": "Admin or PNS Head (manageUsers). Written after a deploy collision left a ticket under a status string ('Pending Review - PSP') this build had never used, invisible to any queue that filters by status. V15 corrected the one confirmed case; this finds anything similar without guessing what an unfamiliar value ought to be renamed to, by comparing against the same status list the frontend uses.",
+        "operationId": "orphanedStatus",
+        "responses": {
+          "200": {
+            "description": "Tickets with an unrecognised status, empty if none",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OrphanedStatusCheck" } } }
+          },
+          "401": { "$ref": "#/components/responses/NotSignedIn" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
     }
   },
   "components": {
@@ -972,6 +987,23 @@
           "reachable": { "type": "boolean", "description": "A connection was opened successfully from the pod" },
           "detail": { "type": "string", "description": "What happened, including the exception type and message on failure" },
           "sent_to": { "type": "string", "nullable": true, "description": "Set when send=true and a test message went out" }
+        }
+      },
+      "OrphanedTicket": {
+        "type": "object",
+        "required": ["ref", "shipper", "status", "status_since"],
+        "properties": {
+          "ref": { "type": "string" },
+          "shipper": { "type": "string" },
+          "status": { "type": "string", "description": "The raw, unrecognised value stored on the ticket" },
+          "status_since": { "type": "string" }
+        }
+      },
+      "OrphanedStatusCheck": {
+        "type": "object",
+        "required": ["tickets"],
+        "properties": {
+          "tickets": { "type": "array", "items": { "$ref": "#/components/schemas/OrphanedTicket" } }
         }
       },
       "TicketFile": {
