@@ -3,6 +3,17 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-08-11",
+    title: "Deploy collision: Baskoro's live .30 was not in GitHub and got overwritten",
+    by: "Michael + Claude",
+    changes: [
+      "Before this deploy, the live app reported build 2026-08-11.30. The newest commit in GitHub at that point was 5e163d3 (2026-08-10.28). .29 and .30 were deployed directly and never pushed, so this repo has no record of what changed in them.",
+      "Michael chose to deploy anyway rather than wait, knowing this overwrites .30 on the live app. This entry exists so that choice, and what it cost, is written down rather than silently lost — the live build number will read lower after this deploy than it did before, which is the visible sign something upstream of it was never in git.",
+      "If you are Baskoro reading this: whatever .29/.30 did on your machine still exists there. Push it as its own commit against current main so it can be reconciled and re-applied, rather than redone from memory.",
+    ],
+    overruled: [],
+  },
+  {
+    date: "2026-08-11",
     title: "PSP entry gate closed on the forward path, Escalate as a button",
     by: "Michael + Claude",
     changes: [
