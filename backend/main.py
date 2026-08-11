@@ -732,7 +732,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-08-11.35"
+BUILD = "2026-08-11.36"
 
 
 class Me(BaseModel):
@@ -3717,6 +3717,47 @@ async def check_email(send: bool = False, u: User = Depends(current_user)):
 
     return {"configured": True, "host": SMTP_HOST, "port": SMTP_PORT, "sender": SMTP_FROM,
             "reachable": True, "detail": detail, "sent_to": sent_to}
+
+
+# Mirrors frontend STATUSES exactly. Kept here rather than derived from PENDING_STATUSES
+# etc. because this needs the complete set, terminal statuses included.
+KNOWN_STATUSES = [
+    "Pending Sales", "Pending Review - Head Sales", "Pending PNS",
+    "Pending Review - Head PNS", "Pending Review - PSP", "Pending Vendor",
+    "Pending Review - C-level", "Proposal Submitted",
+    "Proposal Accepted / Ready to Ship", "Lost", "Cancel",
+]
+
+
+class OrphanedTicket(BaseModel):
+    ref: str
+    shipper: str
+    status: str
+    status_since: str
+
+
+class OrphanedStatusCheck(BaseModel):
+    tickets: list[OrphanedTicket]
+
+
+@app.get("/api/diagnostics/orphaned-status", response_model=OrphanedStatusCheck)
+async def orphaned_status(u: User = Depends(current_user)):
+    """Tickets whose status the running code does not recognise.
+
+    Written for one specific, confirmed cause, V20 fixed it, but that migration only
+    corrects the one string we had direct evidence of ("Pending Review - PSP" from
+    Baskoro's overwritten .29/.30). If his unpushed build touched other statuses the same
+    way, this is how to find them without guessing at what to rename them to."""
+    require(u, "manageUsers")
+    marks = ",".join(["%s"] * len(KNOWN_STATUSES))
+    rows = await q(
+        f"SELECT t.ticket_ref AS ref, s.name AS shipper, t.status, t.status_since "
+        f"FROM tickets t JOIN shippers s ON s.id=t.shipper_id "
+        f"WHERE t.deleted_at IS NULL AND t.status NOT IN ({marks})",
+        tuple(KNOWN_STATUSES))
+    return {"tickets": [OrphanedTicket(ref=r["ref"], shipper=r["shipper"],
+                                       status=r["status"], status_since=str(r["status_since"]))
+                        for r in rows]}
 
 
 @app.post("/api/notifications/read", response_model=Ok)

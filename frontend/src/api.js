@@ -117,6 +117,7 @@ export const api = {
   setPrefs: (body) => call("/me/preferences", { method: "POST", body: JSON.stringify(body) }),
   checkEmail: (send = false) =>
     call(`/diagnostics/email${send ? "?send=true" : ""}`, { method: "POST" }),
+  orphanedStatus: () => call("/diagnostics/orphaned-status"),
 
   files: (ref) => call(`/tickets/${encodeURIComponent(ref)}/files`),
   uploadFile: (ref, file, kind = "document", caption = "") => {
