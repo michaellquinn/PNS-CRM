@@ -3,6 +3,19 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-08-11",
+    title: "Reconciled: Michael's PSP work and Baskoro's .30/.31 are both in .32",
+    by: "Baskoro + Michael + Claude",
+    changes: [
+      "The two clones had diverged. Michael's three commits (PSP entry gate on the forward path, Escalate as a button, PSP entering pricing while deciding, the edit-input go-live fix, rate-card links, Hypercare in the New Request dropdown) were in GitHub but not in the live .31. Baskoro's .29/.30/.31 were live but not in GitHub. Both are now merged into .32 and pushed; neither side was dropped.",
+      "Michael's new code paths were renamed onto the new status vocabulary as part of the merge, so Escalate and Send to PSP both target Pending Review - PSP.",
+      "From now on a change is previewed locally against a mock API before it is deployed, and the branch is compared against GitHub first. The .31 deploy overwrote Michael's live build because neither check was run.",
+    ],
+    overruled: [
+      "ask_psp on POST .../price stays retired, as Michael decided — escalation goes only through POST .../status, where the gate is now enforced. The Escalate checkbox added on the Baskoro side is replaced by his button.",
+    ],
+  },
+  {
+    date: "2026-08-11",
     title: "Review statuses renamed, sync closes tickets, PNS pilot, in-app guide",
     by: "Baskoro + Claude",
     changes: [
