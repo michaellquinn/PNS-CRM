@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, BOTTOM_MARGIN, PENDING, LOSS_REASONS, SERVICES, FTL, rp } from "../api";
+import { api, BOTTOM_MARGIN, PENDING, LOSS_REASONS, SERVICES, FTL, mayGoToPsp, rp } from "../api";
 import {
   Btn, Card, Confirm, Empty, Head, Pill, PriceChip, TicketCard, inputCls,
   useDirectory, usePnsTeam,
@@ -65,15 +65,25 @@ function Shell({ title, sub, right, rows, err, empty, bar, filtered, children })
 // Sameday has no rate-card link to point at, so the base rate is stated here directly
 // rather than being one more thing to look up while pricing.
 const SAMEDAY_RATE = "Regular Rp 20.000 / 5kg · Premium Rp 35.000 / 5kg";
+const WEB_PRICING_URL = "https://web-pricing.ninjavan.apps.substrait.build";
+const LINKED_SERVICES = ["LTL", "B2BR"];
 
 function RateCard({ service }) {
+  const linked = LINKED_SERVICES.includes(service);
+  const heading = <b className="underline decoration-slate-300 underline-offset-2">Rate card — {service}</b>;
   return (
     <div className="mb-3 flex items-start gap-2.5 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-[13px]">
       <span className="opacity-60">🔗</span>
       <div>
-        <b className="underline decoration-slate-300 underline-offset-2">Rate card — {service}</b>
+        {linked ? (
+          <a href={WEB_PRICING_URL} target="_blank" rel="noopener noreferrer" className="hover:no-underline">
+            {heading}
+          </a>
+        ) : heading}
         <p className="text-[11.5px] text-slate-500">
-          {service === "Sameday" ? SAMEDAY_RATE : "Build the price from the published card."}
+          {service === "Sameday" ? SAMEDAY_RATE
+            : linked ? "Opens the pricing tool in a new tab."
+            : "Build the price from the published card."}
         </p>
       </div>
     </div>
@@ -88,7 +98,6 @@ export function AwaitingPrice({ me, onOpen, notify }) {
   const [below, setBelow] = useState({});
   const [margin, setMargin] = useState({});
   const [disc, setDisc] = useState({});
-  const [askPsp, setAskPsp] = useState({});
   const [busy, setBusy] = useState(null);
   const [list, f, set, clear] = useFilter(rows, { resp: "" });
 
@@ -187,15 +196,17 @@ export function AwaitingPrice({ me, onOpen, notify }) {
                 Below bottom rate ({BOTTOM_MARGIN[t.service]}% floor)
               </label>
             )}
-            {/* PSP only takes managed accounts, or a ticket the PNS Head has opened on
-                Alex's exception. Offering the checkbox otherwise invites a 400. */}
-            {me.permissions.sendToPsp && (t.acct_type === "Strategic"
-              || t.acct_type === "Hypercare" || t.psp_allowed) && (
-              <label className="flex items-center gap-2 rounded-lg bg-sky-50 px-3 py-1.5 text-[12.5px] font-medium text-sky-800">
-                <input type="checkbox" checked={!!askPsp[t.ref]}
-                  onChange={(e) => setAskPsp({ ...askPsp, [t.ref]: e.target.checked })} />
+            {/* A button, not a checkbox tied to Attach price: escalating is its own
+                immediate action, not something that only takes effect once the price
+                form is also filled in and submitted — so it shows up on PSP's Pending
+                queue the moment it's clicked, whether or not a price exists yet.
+                PSP only takes managed accounts, or a ticket the PNS Head has opened on
+                Alex's exception. Offering it otherwise invites a 400. */}
+            {me.permissions.sendToPsp && mayGoToPsp(t) && (
+              <Btn onClick={() => act(t.ref, () => api.status(t.ref,
+                { status: "Pending PSP Approval", reason: "escalated for a second opinion" }))}>
                 Escalate to PSP
-              </label>
+              </Btn>
             )}
             {/* Vendor cost is an FTL-only detour; nothing else is priced through a vendor. */}
             {me.permissions.vendorToggle && FTL.includes(t.service) && t.status !== "Pending Vendor" && (
@@ -224,7 +235,6 @@ export function AwaitingPrice({ me, onOpen, notify }) {
                   margin_pct: num(margin[t.ref]),
                   discount_pct: num(disc[t.ref]),
                   below_bottom: !!below[t.ref],
-                  ask_psp: !!askPsp[t.ref],
                 }));
               }}>
               Attach price
@@ -275,7 +285,7 @@ export function ToReview({ me, onOpen, notify }) {
             ) : (
               <span className="text-[12.5px] text-slate-500">Waiting for the PNS Head to assign a reviewer.</span>
             )}
-            {me.permissions.sendToPsp && (
+            {me.permissions.sendToPsp && mayGoToPsp(t) && (
               <Btn onClick={() => act(() => api.status(t.ref, { status: "Pending PSP Approval", reason: "sent for margin approval" }))}>
                 Send to PSP
               </Btn>

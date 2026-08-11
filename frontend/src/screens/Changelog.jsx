@@ -2,6 +2,21 @@ import { Card, Head, Pill } from "../ui";
 
 const ENTRIES = [
   {
+    date: "2026-08-11",
+    title: "PSP entry gate closed on the forward path, Escalate as a button",
+    by: "Michael + Claude",
+    changes: [
+      "The PSP entry gate is now also enforced on POST .../status, not only on submit_price. That endpoint is what both Escalate to PSP and Send to PSP (mid-review) actually call, and it had no may_go_to_psp check at all, so either button could route any ticket to PSP with no exception recorded, the exact thing the gate exists to stop.",
+      "Escalate to PSP is a button, not a checkbox bundled into Attach price. It acts immediately, independent of whether a price is entered yet, so the ticket appears on PSP's Pending queue the moment it's clicked instead of only once someone also finishes and submits the price form.",
+      "Fixed edit-input save failing on unrelated changes: the missing-onboarding-IDs check read the merged payload, so a ticket that already had a go-live date (nearly every ticket the New Request form creates, since Sales CRM imports one too) failed to save any edit at all, a typo in the brief included, until Parent shipper ID, Shipper ID and Corporate branch ID were also filled in. It now only fires when go-live is part of the edit being made.",
+      "LTL and B2BR rate cards link to the pricing tool (web-pricing.ninjavan.apps.substrait.build), on Awaiting Price and in the ticket's Pricing tab.",
+      "Hypercare added to the New Request account-type dropdown: Hypercare, Strategic, Non-Strategic.",
+    ],
+    overruled: [
+      "The Escalate-to-PSP checkbox on Attach price, and ask_psp on POST .../price, are retired. Escalating now goes only through POST .../status, the same endpoint Send to PSP already used. Two endpoints doing the same discretionary-PSP job, gated separately, is how the gate ended up enforced on one and not the other.",
+    ],
+  },
+  {
     date: "2026-08-10",
     title: "Importer, assignment and sync sizing",
     by: "Baskoro + Claude",

@@ -675,7 +675,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-08-10.28"
+BUILD = "2026-08-11.29"
 
 
 class Me(BaseModel):
@@ -1630,7 +1630,9 @@ class PriceIn(BaseModel):
     margin_pct: float | None = None      # checked against the 5A ceiling for the tier
     discount_pct: float | None = None    # the lever Sameday is capped on, not margin
     below_bottom: bool = False           # manual, LTL and B2BR only, checked server-side
-    ask_psp: bool = False                # optional second opinion on margin, not mandatory
+    # Escalating to PSP is a standalone button (POST .../status), not a price-attach
+    # field, so it shows up on PSP's queue the moment it's clicked rather than only
+    # once a price is also submitted. See change_status.
 
 
 def clean_url(raw: str | None) -> str | None:
@@ -1705,19 +1707,6 @@ async def submit_price(ref: str, body: PriceIn, u: User = Depends(current_user))
         await notify(f"{ref}, price attached by {u.name} and flagged BELOW BOTTOM RATE"
                      f" ({g['why']})",
                      roles=[f"{head_for(t)} - Head"], ticket_ref=ref)
-    elif body.ask_psp:
-        # Optional second opinion, but still subject to the same entry gate: PSP takes
-        # managed accounts and tickets the PNS Head has opened on Alex's say-so, not
-        # anything a pricer feels uncertain about.
-        if not may_go_to_psp(t):
-            raise HTTPException(
-                400, f"{ref} cannot go to PSP. PSP takes Strategic and Hypercare "
-                     f"accounts, or a ticket the PNS Head has opened after Alex granted "
-                     f"an exception. Ask the PNS Head to open it first.")
-        # needs_pns_review is not lost: psp_decide re-applies it once PSP has answered.
-        nxt, note = "Pending PSP Approval", "escalated to PSP for a margin check"
-        await notify(f"{ref}, {t['shipper']}: escalated to PSP by {u.name}",
-                     groups=["PSP"], ticket_ref=ref)
     elif needs_pns_review(t):
         nxt, note = "Pending PNS Review", ""
         await notify(f"{ref}, priced by Sales, needs PNS review",
@@ -1757,7 +1746,18 @@ async def change_status(ref: str, body: StatusIn, u: User = Depends(current_user
     elif nxt == "Pending PSP Approval":
         # Forwarding for a margin check, not a send-back, no reason required, and this
         # is not "the ticket came back to you", so it skips the send-back notification.
+        # This is the only discretionary path to PSP now (both the Escalate button on
+        # Awaiting Price and the Send to PSP button mid-review use it), so it is subject
+        # to the entry gate: PSP takes managed accounts and tickets the PNS Head has
+        # opened on Alex's exception, not anything a reviewer feels uncertain about.
+        # Reaching PSP by rule (a manual-review band, Sameday past 20%) never goes
+        # through this endpoint, only through submit_price.
         require(u, "sendToPsp")
+        if not may_go_to_psp(t):
+            raise HTTPException(
+                400, f"{ref} cannot go to PSP. PSP takes Strategic and Hypercare "
+                     f"accounts, or a ticket the PNS Head has opened after Alex granted "
+                     f"an exception. Ask the PNS Head to open it first.")
     else:
         require(u, "sendBackProposal")
         # A send-back needs a reason; marking Lost carries its own.
@@ -1876,9 +1876,12 @@ async def edit_input(ref: str, body: InputPatch, u: User = Depends(current_user)
         merged = {**current, **body.payload}
 
         # A go-live date is a commitment to Ops, and Ops cannot act on it without the
-        # account identifiers. Enforced at the point the date is set rather than chased
-        # later, because by then the date is already in someone's plan.
-        if str(merged.get("golive") or "").strip():
+        # account identifiers. Enforced at the point the date is SET, not on the merged
+        # result — merged still carries an old go-live date on every later edit, so
+        # checking merged here blocked every subsequent save on a ticket (a typo fix in
+        # the brief, nothing to do with go-live) once a date existed with no IDs behind
+        # it, which was every ticket the New Request form ever creates.
+        if "golive" in body.payload and str(merged.get("golive") or "").strip():
             missing = [ONBOARDING_IDS[k] for k in ONBOARDING_IDS
                        if not str(merged.get(k) or "").strip()]
             if missing:
@@ -2511,15 +2514,22 @@ class TicketDetail(BaseModel):
     margin: float | None = None      # restricted
     bottom_margin: float | None = None
     rate_card: str | None = None
+    rate_card_url: str | None = None
 
 
+# url is the actual pricing tool where one exists; None means there is nothing to link
+# to yet and the name is shown as plain text instead.
+WEB_PRICING_URL = "https://web-pricing.ninjavan.apps.substrait.build"
 RATE_CARDS = {
-    "LTL": "Published LTL Rates, 1 December 2025 (Commercial Head + PNS only)",
-    "B2BR": "[ID] Ninja Xpress 2025 Rate Card, B2BR",
-    "B2C": "[ID] Ninja Xpress 2025 Rate Card, B2BR (B2C prices off this card)",
-    "FTL on-call": "[ID] Ninja Xpress 2026 Rate Card FTL",
-    "FTL monthly": "FTL monthly, PNS costing (no published card)",
-    "Sameday": "Sameday calculator, Regular Rp 20.000 / 5kg, Premium Rp 35.000 / 5kg",
+    "LTL": {"name": "Published LTL Rates, 1 December 2025 (Commercial Head + PNS only)",
+            "url": WEB_PRICING_URL},
+    "B2BR": {"name": "[ID] Ninja Xpress 2025 Rate Card, B2BR", "url": WEB_PRICING_URL},
+    "B2C": {"name": "[ID] Ninja Xpress 2025 Rate Card, B2BR (B2C prices off this card)",
+            "url": None},
+    "FTL on-call": {"name": "[ID] Ninja Xpress 2026 Rate Card FTL", "url": None},
+    "FTL monthly": {"name": "FTL monthly, PNS costing (no published card)", "url": None},
+    "Sameday": {"name": "Sameday calculator, Regular Rp 20.000 / 5kg, Premium Rp 35.000 / 5kg",
+                "url": None},
 }
 
 
@@ -2572,7 +2582,8 @@ async def ticket_detail(ref: str, u: User = Depends(current_user)):
                               note=h["note"], at=str(h["at"])) for h in hist],
         price_file=t.get("price_file"), price_url=t.get("price_url"),
         open_questions=int(t.get("open_q") or 0),
-        rate_card=RATE_CARDS.get(t["service_type"]),
+        rate_card=(RATE_CARDS.get(t["service_type"]) or {}).get("name"),
+        rate_card_url=(RATE_CARDS.get(t["service_type"]) or {}).get("url"),
     )
     # Cost and margin never leave the server for roles without seeMargin.
     if can(u, "seeMargin"):
