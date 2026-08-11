@@ -27,13 +27,18 @@ export default function Sync({ notify }) {
   const [pages, setPages] = useState(0);
   const [busy, setBusy] = useState(false);
   const [res, setRes] = useState(null);
-  const [mode, setMode] = useState("both");   // both | new | refresh
+  const [mode, setMode] = useState("both");   // both | new | refresh | ids
+  const [ids, setIds] = useState("");
+
+  // Accept anything paste-shaped: commas, spaces, newlines, one per line from a sheet.
+  const idList = ids.split(/[\s,;]+/).map((s) => s.trim()).filter(Boolean);
 
   const run = async (dry, override = {}) => {
     const body = {
-      days: mode === "refresh" ? 0 : Number(days) || 7,
-      pages: mode === "refresh" ? 0 : Number(pages) || 0,
-      refresh: mode !== "new",
+      days: mode === "refresh" || mode === "ids" ? 0 : Number(days) || 7,
+      pages: mode === "refresh" || mode === "ids" ? 0 : Number(pages) || 0,
+      refresh: mode !== "new" && mode !== "ids",
+      ids: mode === "ids" ? idList : [],
       dry_run: dry,
       ...override,
     };
@@ -57,6 +62,7 @@ export default function Sync({ notify }) {
     ["both", "New + refresh", "The routine run: import new opportunities and re-check the ones you already hold."],
     ["new", "New only", "Import only, leave held tickets untouched."],
     ["refresh", "Re-check held tickets only", "No date window at all — re-reads every opportunity behind a ticket you hold, by id, to see whether its Sales CRM stage has moved."],
+    ["ids", "These opportunity IDs only", "Paste Sales CRM opportunity ids and import exactly those, nothing else. This is how you rebuild the board deliberately: clear it down, then pull in the deals you actually want."],
   ];
   const modeHint = MODES.find(([v]) => v === mode)[2];
 
@@ -76,15 +82,32 @@ export default function Sync({ notify }) {
             </button>
           ))}
           <p className="w-full text-[11.5px] text-slate-500">{modeHint}</p>
+          {mode === "ids" && (
+            <div className="w-full">
+              <textarea className={`${inputCls} min-h-[84px] font-mono text-[12.5px]`}
+                value={ids} onChange={(e) => setIds(e.target.value)}
+                placeholder={"Paste Sales CRM opportunity IDs — one per line, or separated by commas\n0067000000123456\n0067000000123457"} />
+              <p className="mt-1 text-[11px] text-slate-400">
+                Up to 200 at a time. An id that does not exist in Sales CRM is reported in
+                the skip list rather than passed over, so a typo cannot look like a deal
+                that was filtered out. Ids already imported are refreshed, never duplicated.
+              </p>
+            </div>
+          )}
         </div>
         <div className="flex flex-wrap items-center gap-3 p-4">
-          <Btn onClick={() => run(true)} disabled={busy}>
+          <Btn onClick={() => run(true)} disabled={busy || (mode === "ids" && !idList.length)}>
             {busy ? "Scanning…" : "Dry run"}
           </Btn>
           <Btn kind="primary" disabled={busy || !res} onClick={() => run(false)}>
             Run for real
           </Btn>
-          {mode !== "refresh" && (
+          {mode === "ids" && (
+            <span className="text-[12px] text-slate-500">
+              {idList.length} id{idList.length === 1 ? "" : "s"} ready
+            </span>
+          )}
+          {mode !== "refresh" && mode !== "ids" && (
             <label className="ml-auto flex items-center gap-2 text-[12px] text-slate-500">
               Last
               <input className={`${inputCls} w-16`} type="number" min="1" max="60"

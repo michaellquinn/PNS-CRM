@@ -86,7 +86,9 @@ export function Tile({ label, value, sub, tone, onClick, on }) {
       className={`rounded-xl border bg-white px-4 py-3.5 text-left ${
         on ? "border-[#EE1B2C] ring-1 ring-[#EE1B2C]" : "border-slate-200"} ${
         onClick ? "cursor-pointer hover:border-slate-400" : ""}`}>
-      <div className="truncate text-[13px] text-slate-600">{label}</div>
+      {/* Not truncated: these carry full status names now ("Pending Review - Head
+          Sales"), and a clipped label defeats the whole point of the tile. */}
+      <div className="min-h-[2.4em] text-[12.5px] font-medium leading-snug text-slate-600">{label}</div>
       <div className={`mt-1.5 font-mono text-[27px] font-bold leading-none tabular-nums tracking-tight ${tone || "text-slate-900"}`}>
         {value}
       </div>

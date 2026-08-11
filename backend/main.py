@@ -148,6 +148,25 @@ AUTO_ASSIGN = os.getenv("AUTO_ASSIGN", "1").strip() not in ("0", "false", "False
 PNS_DEFAULT_PAIR = ["m.ramdhani@ninjavan.co", "niko.yannova@ninjavan.co"]
 PNS_WIP_CAP = 10          # tickets one person may hold at Pending PNS before it stops
 
+# Who checks a Sales-built price on a non-managed deal at or above 30 Mio.
+#
+# This used to sit unassigned until the PNS Head placed it, which put the Head in the
+# path of the most routine review there is. Baskoro's call (2026-08-11): delegate that
+# band standing to one reviewer and keep the Head's attention for Strategic and
+# Hypercare, where the oversight is actually worth something. The Head can still
+# reassign any individual ticket, and a managed account is never auto-delegated.
+PNS_REVIEW_DELEGATE = os.getenv("PNS_REVIEW_DELEGATE",
+                                "michael.quinnfarand@ninjavan.co").strip()
+
+
+async def review_delegate() -> str | None:
+    """The standing reviewer's name, or None if nobody is registered under that address."""
+    if not PNS_REVIEW_DELEGATE:
+        return None
+    row = await q("SELECT name FROM users WHERE email=%s AND active=1",
+                  (PNS_REVIEW_DELEGATE,), one=True)
+    return (row or {}).get("name")
+
 
 async def pending_pns_load(names: list[str]) -> dict[str, int]:
     """How many tickets each named person is holding at Pending PNS right now."""
@@ -406,6 +425,9 @@ def can(u: User, action: str, t: dict | None = None) -> bool:
     pns_head = admin or (u.group == "PNS" and u.level == "head")
     # The Sales Manager tier: everything staff can do, plus reassigning the Sales PIC.
     com_mgr = com_head or (u.group == "Commercial" and u.level == "manager")
+    # Anyone who works the pipeline rather than only reading it. Sales Planning is in:
+    # they already correct intake, so raising one is no wider a right.
+    works_group = u.group not in READ_ONLY_GROUPS
 
     # Read-mostly audiences never mutate. Stated once here rather than being spelled out
     # as an exclusion on every line below, where one omission would grant a right nobody
@@ -427,7 +449,11 @@ def can(u: User, action: str, t: dict | None = None) -> bool:
         return com_head or (PNS_PILOT and pns_head)
 
     return {
-        "createTicket":     u.group == "Commercial" or admin,
+        # Raising a ticket by hand is open to everyone who works the pipeline, not just
+        # Sales. Most tickets arrive from the Sales CRM sync; this is the escape hatch
+        # for the ones that do not exist there yet, and gate-keeping it only means the
+        # work happens in a chat instead. The raiser is recorded either way.
+        "createTicket":     works_group,
         # Soft delete and restore are the PNS Head's call too — a mis-imported or
         # plainly wrong ticket should not need an Admin. Purge stays Admin only:
         # erasing history is a different act from parking a mistake in the bin.
@@ -700,7 +726,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-08-11.32"
+BUILD = "2026-08-11.33"
 
 
 class Me(BaseModel):
@@ -742,6 +768,9 @@ class Ticket(BaseModel):
     psp_allowed: bool = False # non-managed ticket opened to PSP on Alex's exception
     psp_decision: str | None = None   # approved | rejected | None, PSP's latest decision, if any
     stage: str | None = None  # Sales CRM's commercial stage, reference only — NOT our status
+    # The number a salesperson actually has in front of them. Blank on a ticket raised
+    # by hand in this app, which is how you tell the two apart in a list.
+    opportunity_id: str | None = None
 
 
 class TicketList(BaseModel):
@@ -879,6 +908,7 @@ def shape(t: dict, u: User) -> Ticket:
         psp_allowed=bool(t.get("psp_allowed")),
         psp_decision=t.get("psp_decision"),
         stage=t.get("stage"),
+        opportunity_id=(str(t["opportunity_id"]) if t.get("opportunity_id") else None),
     )
     # Margin is restricted at the API, not by hiding a column in the UI.
     if can(u, "seeMargin") and t.get("margin_pct") is not None:
@@ -895,6 +925,8 @@ async def list_tickets(
     acct_type: str | None = None,
     owner: str | None = None,
     sales: str | None = None,
+    sales_manager: str | None = None,   # email — everyone reporting to this manager
+    sales_head: str | None = None,      # email — the whole line under this head
     submitted_from: str | None = None,
     submitted_to: str | None = None,
     search: str | None = None,
@@ -968,6 +1000,17 @@ async def list_tickets(
             args.append(owner)
     if sales:
         sql += " AND t.sales_name=%s"; args.append(sales)
+    if sales_manager:
+        # Everything owned by the people who report to this manager. Resolved through
+        # the users table rather than stored on the ticket, so moving someone between
+        # managers re-scopes their history too, which is what a manager expects.
+        sql += (" AND t.sales_email IN (SELECT email FROM users "
+                "WHERE manager_email=%s OR email=%s)")
+        args += [sales_manager, sales_manager]
+    if sales_head:
+        sql += (" AND t.sales_email IN (SELECT email FROM users "
+                "WHERE head_email=%s OR manager_email=%s OR email=%s)")
+        args += [sales_head, sales_head, sales_head]
     if submitted_from:
         sql += " AND t.submitted_on >= %s"; args.append(submitted_from)
     if submitted_to:
@@ -1175,6 +1218,10 @@ class SyncIn(BaseModel):
     refresh: bool = True
     pages: int = 0
     dry_run: bool = True
+    # `ids`  import exactly these Sales CRM opportunity ids and nothing else. `id` is a
+    #        filterable field, so this is one cheap call per id. Set it and every other
+    #        mode is ignored: this run is only about the ids you named. Max 200.
+    ids: list[str] = []
     # An explicit window, for backfilling history in chunks small enough to finish. Both
     # inclusive, YYYY-MM-DD. When set, `days` is ignored.
     since: str | None = None
@@ -1221,10 +1268,42 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
             caught_up = False
             batches: list[tuple[str, list[dict]]] = []
 
+            # 0. Named opportunity ids. `id` is the one other filter this API accepts,
+            #    so a list of ids is the cheapest and most precise call there is: one
+            #    round trip each, no date window, nothing else swept in. This is how you
+            #    rebuild a dashboard deliberately — start empty and pull in exactly the
+            #    opportunities you want, rather than importing a range and deleting the
+            #    rest afterwards.
+            if body.ids:
+                wanted_ids = [str(i).strip() for i in body.ids if str(i).strip()][:200]
+                sem_ids = asyncio.Semaphore(SYNC_CONCURRENCY)
+
+                async def by_id(oid: str):
+                    async with sem_ids:
+                        try:
+                            d = await crm.records("Opportunity", id=oid)
+                            items = d.get("items") or []
+                            return oid, (items[0] if items else None)
+                        except Exception as e:
+                            return oid, e
+
+                for oid, got in await asyncio.gather(*(by_id(i) for i in wanted_ids)):
+                    if isinstance(got, Exception):
+                        errors.append({"id": oid, "name": None,
+                                       "error": f"could not be read: {str(got)[:120]}"})
+                    elif got is None:
+                        # Said out loud: a typo in an id would otherwise look exactly
+                        # like an opportunity that exists but was filtered out.
+                        skipped.append({"id": oid, "name": None,
+                                        "why": "no opportunity with this id in Sales CRM"})
+                    else:
+                        batches.append((f"id {oid}", [got]))
+                wanted = []          # an id run asks for nothing else
+
             # 1. Recent days. new_date is a plain date, it is populated on every
             #    opportunity, and exact match on it is one of the few filters this API
             #    accepts. A day is five or six opportunities, against a hundred a page.
-            if body.since:
+            elif body.since:
                 start = date.fromisoformat(body.since)
                 end = date.fromisoformat(body.until) if body.until else date.today()
                 if start > end:
@@ -1263,7 +1342,7 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
 
             # 2. Opportunities behind tickets we already hold, read directly by id so
             #    their stage and revenue stay current. Bounded by our own ticket count.
-            if body.refresh and not truncated and known:
+            if body.refresh and not truncated and known and not body.ids:
                 ids = sorted(known)[:SYNC_REFRESH_MAX]
                 sem = asyncio.Semaphore(SYNC_CONCURRENCY)
 
@@ -1280,7 +1359,7 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
                 batches.append(("existing tickets", [g for g in got if g]))
 
             # 3. Backfill, only when explicitly asked for. This is the expensive path.
-            for page in range(1, max(0, min(body.pages, 40)) + 1):
+            for page in range(1, (0 if body.ids else max(0, min(body.pages, 40))) + 1):
                 if time.monotonic() > deadline:
                     truncated = True
                     break
@@ -1799,8 +1878,20 @@ async def submit_price(ref: str, body: PriceIn, u: User = Depends(current_user))
                      roles=[f"{head_for(t)} - Head"], ticket_ref=ref)
     elif needs_pns_review(t):
         nxt, note = "Pending Review - Head PNS", ""
-        await notify(f"{ref}, priced by Sales, needs PNS review",
-                     roles=["PNS - Head"], groups=["PNS"], ticket_ref=ref)
+        # Non-managed at or above 30 Mio is the routine band, so it goes straight to the
+        # standing reviewer instead of queueing for the Head. A managed account is left
+        # unassigned deliberately: those are the ones the Head wants to place personally.
+        who = None if t.get("acct_type") in MANAGED_ACCTS else await review_delegate()
+        if who and not t.get("reviewer_name"):
+            await execute("UPDATE tickets SET reviewer_name=%s WHERE id=%s",
+                          (who, t["id"]))
+            note = f"review delegated to {who}"
+            await notify(f"{ref}, {t['shipper']}: priced by Sales, yours to review",
+                         people=[who], ticket_ref=ref,
+                         subject=f"Review {t['shipper']}")
+        else:
+            await notify(f"{ref}, priced by Sales, needs PNS review ({t.get('acct_type')})",
+                         roles=["PNS - Head"], groups=["PNS"], ticket_ref=ref)
     else:
         nxt, note = proposal_or_signoff(t), ""
         if nxt == "Pending Review - C-level":
@@ -1913,8 +2004,15 @@ async def assign(ref: str, body: AssignIn, u: User = Depends(current_user)):
             notes.append("owner cleared")
 
     if body.reviewer is not None:
-        require(u, "assignReviewer", t)
         reviewer = body.reviewer.strip() or None
+        # Self-serve: any PNS member may take a review, or hand back one they hold,
+        # without the Head placing it. Reviews are interchangeable work and routing
+        # them through one person only adds a wait. Assigning *someone else* is still
+        # the Head's call.
+        claiming = u.group == "PNS" and reviewer == u.name
+        releasing = u.group == "PNS" and reviewer is None and t.get("reviewer_name") == u.name
+        if not (claiming or releasing):
+            require(u, "assignReviewer", t)
         await execute("UPDATE tickets SET reviewer_name=%s WHERE id=%s", (reviewer, t["id"]))
         await audit(u.email, "assign", "ticket", ref, "reviewer", t["reviewer_name"], reviewer)
         if reviewer:
@@ -2881,6 +2979,10 @@ class UserRow(BaseModel):
     group: str
     level: str
     team: str | None
+    # The sales reporting line, so a Manager or Head can scope the pipeline to their own
+    # people instead of picking names one at a time. Emails, both optional.
+    manager_email: str | None = None
+    head_email: str | None = None
     active: bool
     created_at: str
     is_self: bool = False
@@ -2903,6 +3005,8 @@ class NewUser(BaseModel):
     group: str
     level: str = "staff"
     team: str | None = None
+    manager_email: str | None = None
+    head_email: str | None = None
 
 
 class UserPatch(BaseModel):
@@ -2910,6 +3014,8 @@ class UserPatch(BaseModel):
     group: str | None = None
     level: str | None = None
     team: str | None = None
+    manager_email: str | None = None
+    head_email: str | None = None
     active: bool | None = None
 
 
@@ -2932,6 +3038,12 @@ def clean_user_fields(group: str | None, level: str | None, team: str | None):
     return team
 
 
+def clean_line(email: str | None) -> str | None:
+    """Normalise a manager/head address. Empty string means "clear it"."""
+    e = (email or "").strip().lower()
+    return e or None
+
+
 async def active_admin_count() -> int:
     row = await q("SELECT COUNT(*) AS n FROM users WHERE role_group='Admin' AND active=1",
                   one=True)
@@ -2940,7 +3052,9 @@ async def active_admin_count() -> int:
 
 def shape_user(r: dict, u: User) -> UserRow:
     return UserRow(email=r["email"], name=r["name"], group=r["role_group"],
-                   level=r["role_level"], team=r["team"], active=bool(r["active"]),
+                   level=r["role_level"], team=r["team"],
+                   manager_email=r.get("manager_email"), head_email=r.get("head_email"),
+                   active=bool(r["active"]),
                    created_at=str(r["created_at"])[:10], is_self=r["email"] == u.email)
 
 
@@ -2948,7 +3062,8 @@ def shape_user(r: dict, u: User) -> UserRow:
 async def list_users(u: User = Depends(current_user)):
     """Everyone with access to the app, for the Administration screen."""
     require(u, "manageUsers")
-    rows = await q("SELECT email, name, role_group, role_level, team, active, created_at "
+    rows = await q("SELECT email, name, role_group, role_level, team, manager_email, "
+                   "head_email, active, created_at "
                    "FROM users ORDER BY active DESC, role_group, role_level DESC, name")
     return {"users": [shape_user(r, u) for r in rows],
             "groups": ROLE_GROUPS, "levels": ROLE_LEVELS, "teams": TEAMS}
@@ -3000,9 +3115,11 @@ async def register_user(body: NewUser, u: User = Depends(current_user)):
     if await q("SELECT email FROM users WHERE email=%s", (email,), one=True):
         raise HTTPException(409, f"{email} is already registered; edit that row instead")
 
-    await execute("INSERT INTO users (email, name, role_group, role_level, team, active) "
-                  "VALUES (%s,%s,%s,%s,%s,1)",
-                  (email, body.name.strip(), body.group, body.level, team))
+    await execute("INSERT INTO users (email, name, role_group, role_level, team, "
+                  "manager_email, head_email, active) "
+                  "VALUES (%s,%s,%s,%s,%s,%s,%s,1)",
+                  (email, body.name.strip(), body.group, body.level, team,
+                   clean_line(body.manager_email), clean_line(body.head_email)))
     await audit(u.email, "register", "user", email, "role",
                 None, f"{body.group}/{body.level}")
     await notify(f"{body.name.strip()} was given {body.group} access by {u.name}",
@@ -3014,8 +3131,8 @@ async def register_user(body: NewUser, u: User = Depends(current_user)):
 async def update_user(email: str, body: UserPatch, u: User = Depends(current_user)):
     require(u, "manageUsers")
     email = email.strip().lower()
-    row = await q("SELECT email, name, role_group, role_level, team, active FROM users "
-                  "WHERE email=%s", (email,), one=True)
+    row = await q("SELECT email, name, role_group, role_level, team, manager_email, "
+                  "head_email, active FROM users WHERE email=%s", (email,), one=True)
     if not row:
         raise HTTPException(404, f"{email} is not registered")
 
@@ -3046,9 +3163,14 @@ async def update_user(email: str, body: UserPatch, u: User = Depends(current_use
     if not name:
         raise HTTPException(400, "name cannot be empty")
 
+    manager = row["manager_email"] if body.manager_email is None         else clean_line(body.manager_email)
+    head = row["head_email"] if body.head_email is None else clean_line(body.head_email)
+    if manager == email or head == email:
+        raise HTTPException(400, "somebody cannot report to themselves")
+
     await execute("UPDATE users SET name=%s, role_group=%s, role_level=%s, team=%s, "
-                  "active=%s WHERE email=%s",
-                  (name, group, level, team, active, email))
+                  "manager_email=%s, head_email=%s, active=%s WHERE email=%s",
+                  (name, group, level, team, manager, head, active, email))
     await audit(u.email, "update", "user", email, "role",
                 f"{row['role_group']}/{row['role_level']}/active={row['active']}",
                 f"{group}/{level}/active={active}")
@@ -3160,6 +3282,8 @@ class Comment(BaseModel):
     group: str
     body: str
     field_key: str | None = None     # None = the ticket thread; otherwise an intake field
+    thread_key: str | None = None    # None = the general thread
+    thread_title: str | None = None
     is_question: bool
     mentions: list[str]
     resolved_by: str | None
@@ -3178,12 +3302,18 @@ class NewComment(BaseModel):
     is_question: bool = False
     mentions: list[str] = []      # emails; @name@domain in the body is picked up too
     field_key: str | None = None  # an intake field key, or None for the ticket thread
+    # Post into an existing thread by key, or start one by giving it a title. A ticket
+    # carries several open points at once and one flat list makes "what is still open"
+    # unanswerable without reading everything.
+    thread_key: str | None = None
+    new_thread_title: str | None = None
 
 
 def shape_comment(r: dict, u: User) -> Comment:
     return Comment(
         id=r["id"], author=r["author_name"], author_email=r["author_email"],
         group=r["author_group"], body=r["body"], field_key=r.get("field_key"),
+        thread_key=r.get("thread_key"), thread_title=r.get("thread_title"),
         is_question=bool(r["is_question"]),
         mentions=[m for m in (r["mentions"] or "").split(",") if m],
         resolved_by=r["resolved_by"],
@@ -3224,11 +3354,31 @@ async def add_comment(ref: str, body: NewComment, u: User = Depends(current_user
     if field and field not in CHARTER_FIELD_LABELS:
         raise HTTPException(400, f"'{field}' is not an intake field")
 
+    # A thread is either named into existence here, or joined by key. The title travels
+    # on every row of the thread so reading one row tells you what it is about; the key
+    # is what groups them.
+    thread_key, thread_title = None, None
+    new_title = (body.new_thread_title or "").strip()
+    if new_title:
+        last = await q("SELECT thread_key FROM ticket_comments WHERE ticket_id=%s "
+                       "AND thread_key IS NOT NULL ORDER BY id DESC LIMIT 1",
+                       (t["id"],), one=True)
+        n = int(str((last or {}).get("thread_key") or "t0")[1:] or 0) + 1
+        thread_key, thread_title = f"t{n}", new_title[:200]
+    elif (body.thread_key or "").strip():
+        thread_key = body.thread_key.strip()
+        row = await q("SELECT thread_title FROM ticket_comments WHERE ticket_id=%s "
+                      "AND thread_key=%s LIMIT 1", (t["id"], thread_key), one=True)
+        if not row:
+            raise HTTPException(400, f"no thread '{thread_key}' on {ref}")
+        thread_title = row["thread_title"]
+
     cid = await execute(
-        "INSERT INTO ticket_comments (ticket_id, field_key, author_email, author_name, "
-        "author_group, body, is_question, mentions) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
-        (t["id"], field, u.email, u.name, u.group, text, int(body.is_question),
-         ",".join(r["email"] for r in tagged) or None))
+        "INSERT INTO ticket_comments (ticket_id, field_key, thread_key, thread_title, "
+        "author_email, author_name, author_group, body, is_question, mentions) "
+        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+        (t["id"], field, thread_key, thread_title, u.email, u.name, u.group, text,
+         int(body.is_question), ",".join(r["email"] for r in tagged) or None))
 
     # Whoever was tagged, plus the two people accountable for the ticket. A question
     # that only its author can see is not a question.
