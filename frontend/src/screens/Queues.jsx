@@ -344,9 +344,31 @@ export function PspPending({ me, onOpen, notify }) {
   const [rows, err, reload] = useTickets({ status: "Pending PSP Approval" });
   const [note, setNote] = useState({});
   const [pick, setPick] = useState({});
+  const [link, setLink] = useState({});
+  const [file, setFile] = useState({});
+  const [margin, setMargin] = useState({});
+  const [disc, setDisc] = useState({});
   const people = useDirectory();
   const psp = people.filter((p) => p.group === "PSP");
   const act = async (fn) => { try { await fn(); notify("Done"); await reload(); } catch (e) { notify(e.message); } };
+
+  // A ticket reaches PSP because someone else could not price it, or PSP is checking a
+  // figure someone else already entered — either way, the PIC's own calculation should
+  // be enterable in the same step as deciding, not a separate trip through Awaiting
+  // price first. Blank fields mean "deciding on what's already attached."
+  const pricePayload = (ref) => {
+    const url = (link[ref] || "").trim();
+    if (url && !/^https?:\/\//i.test(url)) {
+      notify("The link must start with http:// or https://");
+      return null;
+    }
+    const num = (v) => (v === "" || v == null ? null : Number(v));
+    const out = {};
+    if (url) { out.price_url = url; out.price_file = (file[ref] || "").trim() || "Pricing spreadsheet"; }
+    if (margin[ref] !== undefined && margin[ref] !== "") out.margin_pct = num(margin[ref]);
+    if (disc[ref] !== undefined && disc[ref] !== "") out.discount_pct = num(disc[ref]);
+    return out;
+  };
 
   return (
     <Shell title="PSP — Pending"
@@ -383,17 +405,43 @@ export function PspPending({ me, onOpen, notify }) {
                   is recorded as an override, not as a PSP decision.
                 </p>
               )}
+              <div className="mb-2 grid grid-cols-1 gap-2 border-t border-slate-100 pt-3 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+                <input className={inputCls} type="url" inputMode="url"
+                  placeholder="Link to your pricing — https://docs.google.com/spreadsheets/…"
+                  value={link[t.ref] ?? ""} onChange={(e) => setLink({ ...link, [t.ref]: e.target.value })} />
+                <input className={inputCls} placeholder="Label (optional)"
+                  value={file[t.ref] ?? ""} onChange={(e) => setFile({ ...file, [t.ref]: e.target.value })} />
+              </div>
+              <div className="mb-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <input className={inputCls} type="number" step="0.1" min="0" max="100"
+                  placeholder="Margin % (leave blank to keep as-is)"
+                  value={margin[t.ref] ?? ""} onChange={(e) => setMargin({ ...margin, [t.ref]: e.target.value })} />
+                <input className={inputCls} type="number" step="0.1" min="0" max="100"
+                  placeholder="Discount % (leave blank to keep as-is)"
+                  value={disc[t.ref] ?? ""} onChange={(e) => setDisc({ ...disc, [t.ref]: e.target.value })} />
+              </div>
+              <p className="mb-3 text-[11px] text-slate-400">
+                Only fill these in if you're entering or correcting the figure yourself —
+                blank leaves whatever is already attached untouched.
+              </p>
               <div className="flex flex-wrap items-center gap-2">
                 <input className={`${inputCls} max-w-[320px]`}
                   placeholder={me.permissions.pspDecide
                     ? "Note (required to reject)"
                     : "Why PSP could not decide (required)"}
                   value={note[t.ref] || ""} onChange={(e) => setNote({ ...note, [t.ref]: e.target.value })} />
-                <Btn kind="danger" onClick={() => act(() => api.psp(t.ref, { approve: false, note: note[t.ref] }))}>
+                <Btn kind="danger" onClick={() => {
+                  const p = pricePayload(t.ref);
+                  if (!p) return;
+                  act(() => api.psp(t.ref, { ...p, approve: false, note: note[t.ref] }));
+                }}>
                   Reject
                 </Btn>
-                <Btn kind="primary" className="ml-auto"
-                  onClick={() => act(() => api.psp(t.ref, { approve: true, note: note[t.ref] }))}>
+                <Btn kind="primary" className="ml-auto" onClick={() => {
+                  const p = pricePayload(t.ref);
+                  if (!p) return;
+                  act(() => api.psp(t.ref, { ...p, approve: true, note: note[t.ref] }));
+                }}>
                   {me.permissions.pspDecide ? "Approve price" : "Approve on behalf of PSP"}
                 </Btn>
               </div>

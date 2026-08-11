@@ -3,6 +3,16 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-08-11",
+    title: "PSP can enter pricing on the ticket they're deciding, not just approve or reject",
+    by: "Michael + Claude",
+    changes: [
+      "PSP — Pending now has link, label, margin and discount fields, submitted in the same action as Approve or Reject. Left blank, PSP decides on whatever is already attached, unchanged. A ticket reaches PSP precisely because someone else could not price it as often as it reaches PSP to check someone else's number, and there was no way to enter the first case without a separate trip through Awaiting price.",
+      "Confirmed and left alone: for a managed account (Strategic/Hypercare), both Approve and Reject already returned the ticket to whoever priced it (Pending PNS or Pending Sales) — Approve does it via psp_ready and an explicit Submit proposal, Reject via the normal re-quote path. That part was already correct.",
+    ],
+    overruled: [],
+  },
+  {
+    date: "2026-08-11",
     title: "Deploy collision: Baskoro's live .30 was not in GitHub and got overwritten",
     by: "Michael + Claude",
     changes: [

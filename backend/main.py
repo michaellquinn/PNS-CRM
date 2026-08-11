@@ -675,7 +675,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-08-11.29"
+BUILD = "2026-08-11.31"
 
 
 class Me(BaseModel):
@@ -2303,6 +2303,16 @@ async def signoff_draft(ref: str, u: User = Depends(current_user)):
 class PspIn(BaseModel):
     approve: bool
     note: str | None = None
+    # A ticket reaches PSP because the price needs PSP's own read on it, not
+    # infrequently because nobody else could price it in the first place (a managed
+    # account with no rate card to build from). These let PSP enter or correct the
+    # figure in the same action as approving or rejecting it, rather than needing a
+    # separate trip through Awaiting price first. All optional: leave them blank to
+    # decide on whatever is already attached.
+    price_file: str | None = None
+    price_url: str | None = None
+    margin_pct: float | None = None
+    discount_pct: float | None = None
 
 
 @app.post("/api/tickets/{ref}/psp", response_model=Ok)
@@ -2321,6 +2331,22 @@ async def psp_decide(ref: str, body: PspIn, u: User = Depends(current_user)):
     else:
         require(u, "pspDecide")
 
+    if body.price_file or body.price_url:
+        url = clean_url(body.price_url)
+        await execute(
+            "INSERT INTO pricing (ticket_id, price_file, price_url, margin_pct, "
+            "discount_pct, priced_by, priced_at) VALUES (%s,%s,%s,%s,%s,%s,NOW()) "
+            "ON DUPLICATE KEY UPDATE "
+            "price_file=VALUES(price_file), price_url=VALUES(price_url), "
+            "margin_pct=VALUES(margin_pct), discount_pct=VALUES(discount_pct), "
+            "priced_by=VALUES(priced_by), priced_at=NOW()",
+            (t["id"], body.price_file or "Pricing spreadsheet", url, body.margin_pct,
+             body.discount_pct, u.name))
+        # get_ticket() does not join pricing, so there is no prior value here to log
+        # without a second query; the approvals row inserted below already carries
+        # PSP's note as the record of why the figure changed.
+        await audit(u.email, "price", "ticket", ref, "price_file", None, body.price_file)
+
     ready_to_submit = False
     if body.approve:
         # A ticket can reach PSP three ways: mandatory after a below-bottom head
@@ -2336,7 +2362,8 @@ async def psp_decide(ref: str, body: PspIn, u: User = Depends(current_user)):
         else:
             # No review needed either way, but PSP approving is not the same as the
             # proposal being ready. It goes back to whoever priced it for an explicit
-            # final submit; nothing about the price itself is re-entered.
+            # final submit — PSP may have just corrected the figure above, but the
+            # owner still confirms before it goes out, same as any other price.
             nxt = pending_for(t["resp"])
             ready_to_submit = True
             await execute("UPDATE tickets SET psp_ready=1 WHERE id=%s", (t["id"],))

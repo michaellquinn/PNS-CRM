@@ -436,7 +436,7 @@
     "/api/tickets/{ref}/psp": {
       "post": {
         "summary": "Approve or reject a margin as the pricing desk",
-        "description": "PSP (or Admin) only — any PSP member, no head/staff distinction. If PSP cannot decide, the PNS Head may approve or reject on their behalf via pspOverride; a note is required and the decision is recorded as an override. A ticket can arrive here three ways: mandatory after a below-bottom head acknowledgement on a ticket carrying a PSP exception, or a manual-review 5A band (Strategic/Hypercare, either FTL line ≥30 Mio, Sameday discount >20%), or a discretionary Escalate/Send-to-PSP via POST .../status. On approve: if the ticket was already Pending PNS Review, it goes straight to Proposal Submitted (that review is done); if it still needs PNS review, it goes to Pending PNS Review rather than skip that; otherwise it goes back to Pending PNS or Pending Sales (whoever priced it) with psp_ready set, for an explicit final submit via /submit-proposal — approval is not the same as the proposal being ready. Rejecting requires a note and returns the ticket to whichever side owes the price, to re-quote.",
+        "description": "PSP (or Admin) only — any PSP member, no head/staff distinction. If PSP cannot decide, the PNS Head may approve or reject on their behalf via pspOverride; a note is required and the decision is recorded as an override. price_file/price_url/margin_pct/discount_pct let PSP enter or correct the pricing figure in the same call, which matters because a ticket often reaches PSP precisely because nobody else could price it (a managed account with no rate card) — leave them blank to decide on whatever is already attached. A ticket can arrive here three ways: mandatory after a below-bottom head acknowledgement on a ticket carrying a PSP exception, or a manual-review 5A band (Strategic/Hypercare, either FTL line ≥30 Mio, Sameday discount >20%), or a discretionary Escalate/Send-to-PSP via POST .../status. On approve: if the ticket was already Pending PNS Review, it goes straight to Proposal Submitted (that review is done); if it still needs PNS review, it goes to Pending PNS Review rather than skip that; otherwise it goes back to Pending PNS or Pending Sales (whoever priced it) with psp_ready set, for an explicit final submit via /submit-proposal — approval is not the same as the proposal being ready. Rejecting requires a note and returns the ticket to whichever side owes the price, to re-quote.",
         "operationId": "pspDecide",
         "parameters": [ { "$ref": "#/components/parameters/TicketRef" } ],
         "requestBody": {
@@ -1248,7 +1248,11 @@
         "required": ["approve"],
         "properties": {
           "approve": { "type": "boolean" },
-          "note": { "type": "string", "nullable": true, "description": "Required when rejecting" }
+          "note": { "type": "string", "nullable": true, "description": "Required when rejecting, or when a PNS Head is deciding on PSP's behalf (pspOverride)" },
+          "price_file": { "type": "string", "nullable": true, "description": "Human label for PSP's own pricing figure. Only written if price_file or price_url is given; leave both blank to decide on whatever is already attached." },
+          "price_url": { "type": "string", "nullable": true, "description": "Link to PSP's own pricing spreadsheet. Must be http(s); same validation as POST .../price." },
+          "margin_pct": { "type": "number", "nullable": true, "description": "Percent. Overwrites the ticket's margin if given; does not affect routing here, PSP's decision is already the manual-review outcome." },
+          "discount_pct": { "type": "number", "nullable": true, "description": "Percent. Overwrites the ticket's discount if given." }
         }
       },
       "Capa": {
