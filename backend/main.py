@@ -675,7 +675,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-08-11.32"
+BUILD = "2026-08-11.33"
 
 
 class Me(BaseModel):
@@ -3368,7 +3368,7 @@ class OrphanedStatusCheck(BaseModel):
 async def orphaned_status(u: User = Depends(current_user)):
     """Tickets whose status the running code does not recognise.
 
-    Written for one specific, confirmed cause, V15 fixed it, but that migration only
+    Written for one specific, confirmed cause, V20 fixed it, but that migration only
     corrects the one string we had direct evidence of ("Pending Review - PSP" from
     Baskoro's overwritten .29/.30). If his unpushed build touched other statuses the same
     way, this is how to find them without guessing at what to rename them to."""

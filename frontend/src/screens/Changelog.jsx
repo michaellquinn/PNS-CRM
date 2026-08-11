@@ -7,7 +7,7 @@ const ENTRIES = [
     by: "Michael + Claude",
     changes: [
       "Baskoro's overwritten .29/.30 used \"Pending Review - PSP\" as the status a ticket carries once sent to PSP. This build has always used \"Pending PSP Approval\". Deploying over his version fixed the code but not data already written with his string, so SOF-2001322 (PT Supa Surya Niaga) sat under a status nothing in the running app matched, and stopped appearing in PSP — Pending with no error, no deletion, nothing to see. Reported by Michael, traced from a screenshot of the ticket's own status pill, not found by any test in tests/.",
-      "V15 corrects that one confirmed ticket. status_since is left alone, this is a label fix, not a real transition.",
+      "V20 corrects that one confirmed ticket. status_since is left alone, this is a label fix, not a real transition.",
       "Administration now has an Orphaned ticket status check: any ticket whose status isn't one the running code recognises, found without guessing what an unfamiliar value should become. Baskoro's unpushed build may have touched other statuses the same way; this is how to find them instead of waiting for someone to notice a ticket went quiet.",
     ],
     overruled: [],

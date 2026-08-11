@@ -843,7 +843,7 @@
     "/api/diagnostics/orphaned-status": {
       "get": {
         "summary": "List tickets whose status this build does not recognise",
-        "description": "Admin or PNS Head (manageUsers). Written after a deploy collision left a ticket under a status string ('Pending Review - PSP') this build had never used, invisible to any queue that filters by status. V15 corrected the one confirmed case; this finds anything similar without guessing what an unfamiliar value ought to be renamed to, by comparing against the same status list the frontend uses.",
+        "description": "Admin or PNS Head (manageUsers). Written after a deploy collision left a ticket under a status string ('Pending Review - PSP') this build had never used, invisible to any queue that filters by status. V20 corrected the one confirmed case; this finds anything similar without guessing what an unfamiliar value ought to be renamed to, by comparing against the same status list the frontend uses.",
         "operationId": "orphanedStatus",
         "responses": {
           "200": {

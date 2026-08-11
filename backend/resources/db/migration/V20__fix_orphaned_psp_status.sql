@@ -11,5 +11,12 @@
 --
 -- status_since is left untouched. This corrects a label, not a real transition, and the
 -- SLA clock should keep counting from whenever the ticket actually reached PSP.
+--
+-- Numbered V20, not V15: this was first written as V15 and rejected at deploy with a
+-- checksum mismatch, because Baskoro's own V15 already applied to this database from
+-- his .29/.30 run, even though his application code was overwritten. Migrations run
+-- directly against the shared database and are not undone by a later deploy of
+-- different code, only the app logic reverted, not the schema/data change his V15 made.
+-- Jumping to V20 leaves headroom for V16-V19, which may also be his and unknown here.
 
 UPDATE tickets SET status = 'Pending PSP Approval' WHERE status = 'Pending Review - PSP';

@@ -97,7 +97,7 @@ function EmailDelivery({ notify }) {
 
 // One confirmed casualty of the .30 deploy collision was a ticket sitting under a status
 // string ("Pending Review - PSP") this build has never used, invisible to the queue that
-// should have shown it. V15 fixed the one we found by hand. This checks for any others
+// should have shown it. V20 fixed the one we found by hand. This checks for any others
 // without guessing at what an unfamiliar status ought to be renamed to.
 function OrphanedStatus({ notify }) {
   const [r, setR] = useState(null);
