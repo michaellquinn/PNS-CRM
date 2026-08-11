@@ -99,11 +99,13 @@ SYNC_OWNER_EMAIL = os.getenv("SYNC_OWNER_EMAIL", "baskoro.nugroho@ninjavan.co").
 # for every service from the 5A tables. Both run: the guard catches a breach the pricer
 # did not declare, the checkbox catches one the numbers do not show.
 BOTTOM_MARGIN = {"LTL": 5.0, "B2BR": 10.0}
-LOSS_REASONS = ["pricing", "shipper", "solution", "ops", "no_vendor", "billing", "pns"]
+LOSS_REASONS = ["pricing", "shipper", "solution", "ops", "no_vendor", "billing", "pns",
+                # Set by the Sales CRM sync when the opportunity is Closed-Lost there.
+                "salescrm"]
 AWAIT_STATUSES = ("Pending Sales", "Pending PNS", "Pending Vendor")
-PENDING_STATUSES = ["Pending Sales", "Pending PNS", "Pending PNS Review",
-                    "Pending Head Review", "Pending PSP Approval", "Pending Vendor",
-                    "Pending Exec Sign-off"]
+PENDING_STATUSES = ["Pending Sales", "Pending PNS", "Pending Review - Head PNS",
+                    "Pending Review - Head Sales", "Pending Review - PSP", "Pending Vendor",
+                    "Pending Review - C-level"]
 # Fields the intake keeps as free text but remembers: the dropdown would otherwise have
 # to predict every commodity Ninja ever carries (a shipper turned up with medicine).
 REMEMBERED_FIELDS = ["commodity", "product", "pallet", "destType", "truck", "freq"]
@@ -349,7 +351,7 @@ def proposal_or_signoff(t: dict) -> str:
     *last* gate, it runs after PSP and the Sales Head have cleared, never instead of
     them, so every other approval still has to happen first."""
     if t.get("acct_type") in MANAGED_ACCTS and not t.get("exec_signoff"):
-        return "Pending Exec Sign-off"
+        return "Pending Review - C-level"
     return "Proposal Submitted"
 
 
@@ -417,7 +419,12 @@ def can(u: User, action: str, t: dict | None = None) -> bool:
             return True
         if t is None:
             return com_head or pns_head
-        return pns_head if head_for(t) == "PNS" else com_head
+        if head_for(t) == "PNS":
+            return pns_head
+        # Pilot period: the tool runs inside PNS before Sales is onboarded, so the PNS
+        # Head may acknowledge in the Sales Head's place. Recorded in the note either
+        # way. Turn off by setting PNS_PILOT=0 once Sales works its own queue.
+        return com_head or (PNS_PILOT and pns_head)
 
     return {
         "createTicket":     u.group == "Commercial" or admin,
@@ -442,7 +449,9 @@ def can(u: User, action: str, t: dict | None = None) -> bool:
         "editAcctOrRev":    com_head,
         "setAcct":          com_head,
         "setSales":         com_mgr,
-        "reopen":           com_head,
+        # Any salesperson may put a lost or cancelled deal back into the pipeline —
+        # Sales owns the shipper relationship that reopening reflects. (Was Head only.)
+        "reopen":           u.group == "Commercial" or admin,
         "pspDecide":        u.group == "PSP" or admin,
         # Standing delegation so an absent PSP cannot stall the pipeline. Used through
         # the same endpoint, recorded as an override, see psp_decide.
@@ -481,11 +490,20 @@ def require(u: User, action: str, t: dict | None = None) -> None:
         raise HTTPException(403, f"{u.group} ({u.level}) may not {action}")
 
 
+# Pilot period: the whole tool runs inside PNS first, so PNS also works the Sales side
+# — attaching Sales-owed prices (below-floor included) and, via headAck above, the PNS
+# Head acknowledging in the Sales Head's place. Set PNS_PILOT=0 in the portal the day
+# Sales starts working its own queues; every rule then snaps back without a deploy.
+PNS_PILOT = os.getenv("PNS_PILOT", "1").strip().lower() not in ("0", "false", "")
+
+
 def attach_price(u: User, t: dict) -> bool:
-    """Only the side that owes the price may attach it."""
+    """Only the side that owes the price may attach it (PNS covers both in the pilot)."""
     if u.group == "Admin":
         return True
-    return u.group == "PNS" if t["resp"] == "PNS" else u.group == "Commercial"
+    if u.group == "PNS":
+        return PNS_PILOT or t["resp"] == "PNS"
+    return u.group == "Commercial" and t["resp"] == "Sales"
 
 
 # ------------------------------------------------------------------ email
@@ -630,7 +648,7 @@ async def owed_by(t: dict, status: str) -> list[str]:
 
     if status == "Pending PNS":
         return [owner] if owner else await names_in("PNS", head_only=True) or await names_in("PNS")
-    if status == "Pending PNS Review":
+    if status == "Pending Review - Head PNS":
         # The assigned reviewer owns a review; otherwise it is the ticket's PNS owner.
         who = reviewer or owner
         return [who] if who else await names_in("PNS", head_only=True) or await names_in("PNS")
@@ -638,9 +656,9 @@ async def owed_by(t: dict, status: str) -> list[str]:
         return [sales] if sales else await names_in("Commercial", head_only=True)
     if status == "Pending Vendor":
         return [owner] if owner else await names_in("PNS", head_only=True)
-    if status == "Pending PSP Approval":
+    if status == "Pending Review - PSP":
         return await names_in("PSP")
-    if status == "Pending Head Review":
+    if status == "Pending Review - Head Sales":
         return await names_in(head_for(t), head_only=True) or await names_in("Admin")
     return []
 
@@ -682,7 +700,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-08-11.30"
+BUILD = "2026-08-11.31"
 
 
 class Me(BaseModel):
@@ -874,6 +892,7 @@ async def list_tickets(
     status: str | None = None,
     service: str | None = None,
     stage: str | None = None,
+    acct_type: str | None = None,
     owner: str | None = None,
     sales: str | None = None,
     submitted_from: str | None = None,
@@ -895,7 +914,7 @@ async def list_tickets(
     args: list = []
 
     # The "Finished" PSP queue: every ticket PSP has ever decided on, regardless of where
-    # it sits now, a ticket can be back in Pending PSP Approval for a fresh round and
+    # it sits now, a ticket can be back in Pending Review - PSP for a fresh round and
     # still show up here with its prior outcome.
     if psp_reviewed:
         sql += (" AND EXISTS (SELECT 1 FROM approvals a WHERE a.ticket_id=t.id "
@@ -917,8 +936,9 @@ async def list_tickets(
 
     if awaiting:
         sql += " AND t.status IN (%s,%s,%s)"; args += list(AWAIT_STATUSES)
-        # Queue by who owes the price; a vendor wait is visible to both sides.
-        if u.group == "PNS":
+        # Queue by who owes the price; a vendor wait is visible to both sides. During
+        # the pilot PNS works the Sales side too, so their queue is left unscoped.
+        if u.group == "PNS" and not PNS_PILOT:
             sql += " AND (t.resp=%s OR t.status=%s)"; args += ["PNS", "Pending Vendor"]
         elif u.group == "Commercial":
             sql += " AND (t.resp=%s OR t.status=%s)"; args += ["Sales", "Pending Vendor"]
@@ -937,6 +957,11 @@ async def list_tickets(
         else:
             marks = ",".join(["%s"] * len(stage.split(",")))
             sql += f" AND t.stage IN ({marks})"; args += stage.split(",")
+    if acct_type:
+        # The tier (Strategic/Hypercare/Non-Strategic) — imported from the Sales CRM
+        # account group's customer_success_manager field, correctable in-app.
+        marks = ",".join(["%s"] * len(acct_type.split(",")))
+        sql += f" AND s.acct_type IN ({marks})"; args += acct_type.split(",")
     if owner:
         sql += " AND t.owner_name=%s" if owner != "__unassigned__" else " AND t.owner_name IS NULL"
         if owner != "__unassigned__":
@@ -1317,10 +1342,25 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
                                 n = await _refresh_from_salescrm(o)
                                 if n:
                                     refreshed.append({"id": oid, "name": o.get("name"),
-                                                      "stage": o.get("stage")})
+                                                      "stage": o.get("stage"),
+                                                      "moved": n["moved"],
+                                                      "missing": n["missing"]})
                             else:
+                                # Predict the status move without writing, so the dry
+                                # run shows what "for real" would do to held tickets.
+                                trow = await q(
+                                    "SELECT status, resp FROM tickets WHERE opportunity_id=%s",
+                                    (oid,), one=True)
+                                would = None
+                                if trow:
+                                    w = status_for_stage(o.get("stage"), trow["resp"])
+                                    if w and trow["status"] != w and trow["status"] not in (
+                                            "Lost", "Cancel",
+                                            "Proposal Accepted / Ready to Ship"):
+                                        would = w
                                 refreshed.append({"id": oid, "name": o.get("name"),
-                                                  "stage": o.get("stage")})
+                                                  "stage": o.get("stage"),
+                                                  "moved": would, "missing": []})
                         continue
 
                     new_on_this_page += 1
@@ -1396,28 +1436,66 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
                        "unknown_sales": len(unknown_sales)}}
 
 
-async def _refresh_from_salescrm(o: dict) -> int:
+async def _refresh_from_salescrm(o: dict) -> dict | None:
     """Re-copy the fields Sales CRM owns onto a ticket we already hold.
 
     Stage, committed revenue and the close date are Sales CRM's to state; ours are a
     copy and a copy that disagrees with its source is worse than no copy. Deliberately
     narrow: potential revenue, service and account tier are NOT refreshed, because PNS
-    corrects those here on purpose and an overwrite would silently undo the correction."""
+    corrects those here on purpose and an overwrite would silently undo the correction.
+
+    Terminal stages DO move our status (Baskoro, 2026-08-11): a deal that closed in
+    Sales CRM must not sit open here. Closed-Lost/Future Opportunity -> Lost; the
+    accepted stages -> Ready to Ship. When the move lands on a ticket whose onboarding
+    fields are still blank, PNS and Sales are flagged to fill them, because Ops cannot
+    onboard a shipper the account systems cannot find. Returns what happened, or None
+    when no ticket holds this opportunity."""
     oid = str(o.get("id"))
-    t = await q("SELECT id, stage FROM tickets WHERE opportunity_id=%s", (oid,), one=True)
+    t = await q("SELECT id, ticket_ref, status, resp, stage, "
+                "(SELECT name FROM shippers s WHERE s.id=shipper_id) AS shipper "
+                "FROM tickets WHERE opportunity_id=%s", (oid,), one=True)
     if not t:
-        return 0
+        return None
     await execute("UPDATE tickets SET stage=%s, parent_stage=%s WHERE id=%s",
                   (o.get("stage"), o.get("parent_stage"), t["id"]))
 
+    payload = {}
     row = await q("SELECT payload FROM ticket_input WHERE ticket_id=%s", (t["id"],), one=True)
     if row:
-        p = row["payload"] if isinstance(row["payload"], dict) else json.loads(row["payload"] or "{}")
-        p["committedRev"] = str(o.get("committed_revenue_mth") or "")
-        p["sfCloseDate"] = str(o.get("closed_won_date") or o.get("close_date") or "")
+        payload = row["payload"] if isinstance(row["payload"], dict) \
+            else json.loads(row["payload"] or "{}")
+        payload["committedRev"] = str(o.get("committed_revenue_mth") or "")
+        payload["sfCloseDate"] = str(o.get("closed_won_date") or o.get("close_date") or "")
         await execute("UPDATE ticket_input SET payload=%s WHERE ticket_id=%s",
-                      (json.dumps(p), t["id"]))
-    return 1
+                      (json.dumps(payload), t["id"]))
+
+    moved, missing = None, []
+    wants = status_for_stage(o.get("stage"), t["resp"])
+    # Only open tickets follow the stage; a decided ticket keeps its recorded outcome.
+    if wants and t["status"] != wants and t["status"] not in (
+            "Lost", "Cancel", "Proposal Accepted / Ready to Ship"):
+        ref = t["ticket_ref"]
+        if wants == "Lost":
+            await execute("UPDATE tickets SET outcome='lost', loss_reason='salescrm' "
+                          "WHERE id=%s", (t["id"],))
+            note = f"Sales CRM closed this opportunity ({o.get('stage')})"
+        else:
+            await execute("UPDATE tickets SET outcome='accepted' WHERE id=%s", (t["id"],))
+            missing = [label for key, label in ONBOARDING_IDS.items()
+                       if not str(payload.get(key) or "").strip()]
+            if not str(payload.get("golive") or "").strip():
+                missing.append("Go live date")
+            note = f"Sales CRM stage is {o.get('stage')}"
+            if missing:
+                note += " — still blank: " + ", ".join(missing)
+        await log_status(t["id"], wants, "Sales CRM sync", note)
+        if missing:
+            await notify(
+                f"{ref}, {t['shipper']} moved to {wants} by the Sales CRM sync, but "
+                f"onboarding needs: {', '.join(missing)}. Fill them on the ticket input.",
+                groups=["PNS", "Commercial"], ticket_ref=ref)
+        moved = wants
+    return {"moved": moved, "missing": missing}
 
 
 async def _import_opportunity(o: dict, account: dict | None, plan: dict,
@@ -1520,7 +1598,7 @@ async def workload(u: User = Depends(current_user)):
     pns = await q(
         "SELECT u.name, "
         "  SUM(t.status='Pending PNS') AS pending_pns, "
-        "  SUM(t.status IN ('Pending PNS','Pending PNS Review','Pending Vendor')) AS open_total, "
+        "  SUM(t.status IN ('Pending PNS','Pending Review - Head PNS','Pending Vendor')) AS open_total, "
         "  SUM(t.outcome='accepted') AS won, "
         "  SUM(t.outcome IS NOT NULL) AS decided "
         "FROM users u LEFT JOIN tickets t "
@@ -1540,7 +1618,7 @@ async def workload(u: User = Depends(current_user)):
         "      WHERE status='Pending PNS' GROUP BY ticket_id) first_seen "
         "  ON first_seen.ticket_id=t.id "
         "JOIN (SELECT ticket_id, MIN(at) AS at FROM ticket_history "
-        "      WHERE status IN ('Proposal Submitted','Pending PNS Review') GROUP BY ticket_id) done "
+        "      WHERE status IN ('Proposal Submitted','Pending Review - Head PNS') GROUP BY ticket_id) done "
         "  ON done.ticket_id=t.id AND done.at >= first_seen.at "
         "WHERE t.deleted_at IS NULL AND t.owner_name IS NOT NULL "
         "GROUP BY t.owner_name")
@@ -1707,12 +1785,12 @@ async def submit_price(ref: str, body: PriceIn, u: User = Depends(current_user))
     to_psp = g["kind"] == "manual" or (breach and g["kind"] in ("discount", "standard"))
 
     if to_psp:
-        nxt, note = "Pending PSP Approval", g["why"]
+        nxt, note = "Pending Review - PSP", g["why"]
         await execute("UPDATE tickets SET manual_review=1 WHERE id=%s", (t["id"],))
         await notify(f"{ref}, price attached by {u.name}; needs PSP approval ({g['why']})",
                      groups=["PSP"], ticket_ref=ref)
     elif breach or body.below_bottom:
-        nxt, note = "Pending Head Review", g["why"] or "flagged below bottom rate"
+        nxt, note = "Pending Review - Head Sales", g["why"] or "flagged below bottom rate"
         await execute("UPDATE tickets SET below_bottom=1 WHERE id=%s", (t["id"],))
         await notify(f"{ref}, price attached by {u.name} and flagged BELOW BOTTOM RATE"
                      f" ({g['why']})",
@@ -1727,16 +1805,16 @@ async def submit_price(ref: str, body: PriceIn, u: User = Depends(current_user))
                      f"accounts, or a ticket the PNS Head has opened after Alex granted "
                      f"an exception. Ask the PNS Head to open it first.")
         # needs_pns_review is not lost: psp_decide re-applies it once PSP has answered.
-        nxt, note = "Pending PSP Approval", "escalated to PSP for a margin check"
+        nxt, note = "Pending Review - PSP", "escalated to PSP for a margin check"
         await notify(f"{ref}, {t['shipper']}: escalated to PSP by {u.name}",
                      groups=["PSP"], ticket_ref=ref)
     elif needs_pns_review(t):
-        nxt, note = "Pending PNS Review", ""
+        nxt, note = "Pending Review - Head PNS", ""
         await notify(f"{ref}, priced by Sales, needs PNS review",
                      roles=["PNS - Head"], groups=["PNS"], ticket_ref=ref)
     else:
         nxt, note = proposal_or_signoff(t), ""
-        if nxt == "Pending Exec Sign-off":
+        if nxt == "Pending Review - C-level":
             await notify(f"{ref}, {t['shipper']} ({t['acct_type']}): priced and awaiting "
                          f"Alex and Dhinesh sign-off", groups=["PNS"], ticket_ref=ref)
         else:
@@ -1766,7 +1844,7 @@ async def change_status(ref: str, body: StatusIn, u: User = Depends(current_user
             raise HTTPException(400, f"loss_reason must be one of {LOSS_REASONS}")
     elif nxt == "Proposal Accepted / Ready to Ship":
         require(u, "acceptProposal")
-    elif nxt == "Pending PSP Approval":
+    elif nxt == "Pending Review - PSP":
         # Forwarding for a margin check, not a send-back, no reason required, and this
         # is not "the ticket came back to you", so it skips the send-back notification.
         require(u, "sendToPsp")
@@ -1793,13 +1871,13 @@ async def change_status(ref: str, body: StatusIn, u: User = Depends(current_user
         await execute("UPDATE tickets SET outcome='accepted' WHERE id=%s", (t["id"],))
         await notify(f"{ref}, {t['shipper']} ACCEPTED. Contract needed.",
                      groups=["Legal", "PNS", "Commercial"], ticket_ref=ref)
-    elif nxt == "Pending PSP Approval":
+    elif nxt == "Pending Review - PSP":
         await notify(f"{ref}, {t['shipper']}: sent to PSP for a margin check by {u.name}",
                      groups=["PSP"], ticket_ref=ref)
     else:
         # A send-back told nobody at all before this: the ticket just reappeared in a
         # queue. resp has already been rewritten above, so pass the new value through.
-        await tell_owed({**t, "resp": "PNS" if nxt.startswith("Pending PNS") else "Sales"},
+        await tell_owed({**t, "resp": "PNS" if nxt in ("Pending PNS", "Pending Review - Head PNS") else "Sales"},
                         nxt, u.name,
                         f"{ref}, {t['shipper']} was sent back to {nxt} by {u.name}: {body.reason}",
                         f"Sent back to you, {t['shipper']}", ref)
@@ -1970,7 +2048,7 @@ class ReopenIn(BaseModel):
 
 @app.post("/api/tickets/{ref}/reopen", response_model=Ok)
 async def reopen(ref: str, body: ReopenIn, u: User = Depends(current_user)):
-    """Put a lost or cancelled deal back into the pipeline. Commercial Head only."""
+    """Put a lost or cancelled deal back into the pipeline. Any Commercial user."""
     require(u, "reopen")
     t = await get_ticket(ref)
     if t["status"] not in ("Lost", "Cancel"):
@@ -1978,10 +2056,10 @@ async def reopen(ref: str, body: ReopenIn, u: User = Depends(current_user)):
     if body.status not in PENDING_STATUSES:
         raise HTTPException(400, f"reopen into one of {PENDING_STATUSES}")
 
-    resp = "PNS" if body.status in ("Pending PNS", "Pending PNS Review") else "Sales"
+    resp = "PNS" if body.status in ("Pending PNS", "Pending Review - Head PNS") else "Sales"
     await execute("UPDATE tickets SET outcome=NULL, loss_reason=NULL, resp=%s WHERE id=%s",
                   (resp, t["id"]))
-    await log_status(t["id"], body.status, u.name, "reopened by Commercial Head")
+    await log_status(t["id"], body.status, u.name, f"reopened by {u.name} (Sales)")
     await notify(f"{ref}, {t['shipper']} reopened as {body.status} by {u.name}",
                  groups=["PNS", "Commercial"], ticket_ref=ref)
     await audit(u.email, "reopen", "ticket", ref, "status", t["status"], body.status)
@@ -2000,12 +2078,12 @@ async def head_ack(ref: str, u: User = Depends(current_user)):
     t = await get_ticket(ref)
     require(u, "headAck", t)   # the Sales Head: Sales owns the commercial concession
     if may_go_to_psp(t):
-        nxt, note = "Pending PSP Approval", "below bottom rate acknowledged, sent to PSP"
+        nxt, note = "Pending Review - PSP", "below bottom rate acknowledged, sent to PSP"
         await notify(f"{ref}, {t['shipper']}: below-bottom price acknowledged by "
                      f"{u.name}, needs your margin sign-off",
                      groups=["PSP"], ticket_ref=ref)
     else:
-        nxt = "Pending PNS Review" if needs_pns_review(t) else proposal_or_signoff(t)
+        nxt = "Pending Review - Head PNS" if needs_pns_review(t) else proposal_or_signoff(t)
         note = "below bottom rate acknowledged by the Sales Head"
     await log_status(t["id"], nxt, u.name, note)
     await execute("INSERT INTO approvals (ticket_id, kind, decision, actor, actor_role) "
@@ -2061,12 +2139,6 @@ CHARTER_SECTIONS = [
         ("pickSlot", "Pickup time"), ("pickWait", "Pickup waiting time"),
         ("delSlot", "Delivery time"), ("delWait", "Delivery waiting time"),
         ("sfid", "Salesforce Opportunity ID"), ("jiraId", "Jira ID"),
-        # Ops cannot onboard a shipper they cannot find in the account systems, so these
-        # three travel with the go-live date rather than being chased afterwards.
-        # shipperId is the global shipper id, there is only one such number, and
-        # carrying it twice under two names is how the two versions start disagreeing.
-        ("parentShipperId", "Parent shipper ID"), ("shipperId", "Shipper ID"),
-        ("branchId", "Corporate branch ID"),
     ]),
     ("2 Â· Cargo knowledge", [
         ("commodity", "Product"), ("product", "Specific product"), ("dim", "Dimension"),
@@ -2075,8 +2147,17 @@ CHARTER_SECTIONS = [
     ("3 Â· Ninja's service", [
         ("destType", "Delivery destination type"), ("sla", "SLA"), ("mps", "MPS"),
         ("rdo", "RDO"), ("cod", "COD"), ("tkbmO", "TKBM origin"), ("tkbmD", "TKBM destination"),
-        ("ins", "Insurance"), ("truck", "Vehicle request"), ("golive", "Go live"),
+        ("ins", "Insurance"), ("truck", "Vehicle request"),
         ("handling", "Custom handling request"), ("notes", "Notes"),
+    ]),
+    # Solutioning vs onboarding, split on Baskoro's call (2026-08-11): sections 1-3 are
+    # the Project Charter (what PNS designed and priced); section 4 is the Kick-Off data
+    # (what Ops needs to onboard). One document still carries both, clearly labelled,
+    # until the charter audience question is settled; the IDs stay required for go-live.
+    ("4 Â· Kick-off — onboarding & go-live", [
+        ("golive", "Go live"),
+        ("parentShipperId", "Parent shipper ID"), ("shipperId", "Shipper ID"),
+        ("branchId", "Corporate branch ID"),
     ]),
 ]
 CHARTER_HOURS = ("pickWait", "delWait")
@@ -2239,7 +2320,7 @@ async def exec_signoff(ref: str, body: SignoffIn, u: User = Depends(current_user
     note = ("executive sign-off recorded" if body.done else "executive sign-off withdrawn") \
         + (f", {body.note}" if body.note else "")
     status = t["status"]
-    if body.done and status == "Pending Exec Sign-off":
+    if body.done and status == "Pending Review - C-level":
         # This was the last gate, so recording it releases the proposal.
         status = "Proposal Submitted"
         await log_status(t["id"], status, u.name, note)
@@ -2335,13 +2416,13 @@ async def psp_decide(ref: str, body: PspIn, u: User = Depends(current_user)):
         # A ticket can reach PSP three ways: mandatory after a below-bottom head
         # acknowledgement, an optional early send from Awaiting price, or an optional
         # send from mid-review.
-        if t["status"] == "Pending PNS Review":
+        if t["status"] == "Pending Review - Head PNS":
             # PNS was already reviewing when it went to PSP, so that review still counts.
             nxt = proposal_or_signoff(t)
         elif needs_pns_review(t):
             # Hasn't been reviewed yet and still needs to be. PSP clearing the margin
             # does not stand in for that: a Sales-priced >= 30 Mio deal must not skip it.
-            nxt = "Pending PNS Review"
+            nxt = "Pending Review - Head PNS"
         else:
             # No review needed either way, but PSP approving is not the same as the
             # proposal being ready. It goes back to whoever priced it for an explicit
@@ -2414,7 +2495,7 @@ async def submit_proposal(ref: str, u: User = Depends(current_user)):
     # decision; the executive sign-off is about the solution, and it stays last.
     nxt = proposal_or_signoff(t)
     await log_status(t["id"], nxt, u.name, "submitted after PSP approval")
-    if nxt == "Pending Exec Sign-off":
+    if nxt == "Pending Review - C-level":
         await notify(f"{ref}, {t['shipper']} ({t['acct_type']}): PSP cleared the margin, "
                      f"awaiting Alex and Dhinesh sign-off", groups=["PNS"], ticket_ref=ref)
     else:

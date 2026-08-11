@@ -19,34 +19,34 @@ const LADDER = [
 
 const OWED = [
   ["Pending PNS", "The assigned PNS owner", "PNS Head, so they can assign someone"],
-  ["Pending PNS Review", "The assigned reviewer", "The PNS owner, then the PNS Head"],
+  ["Pending Review - Head PNS", "The assigned reviewer", "The PNS owner, then the PNS Head"],
   ["Pending Sales", "The sales PIC", "Commercial Head"],
   ["Pending Vendor", "The assigned PNS owner", "PNS Head"],
-  ["Pending PSP Approval", "Everyone in PSP", "—"],
-  ["Pending Head Review", "Head of the team that priced it", "Admin"],
+  ["Pending Review - PSP", "Everyone in PSP", "—"],
+  ["Pending Review - Head Sales", "Head of the team that priced it", "Admin"],
 ];
 
 // Some routes are PSP's by rule. The rest are discretionary, and there PSP only takes
 // what Alex has granted an exception for.
 const APPROVAL = [
   ["Inside the tier ceiling", "Nobody. Attach and go.", "—"],
-  ["Sameday discount over 20%", "PSP, by rule.", "Pending PSP Approval"],
-  ["Either FTL line at or above Rp 30 Mio", "PSP, by rule.", "Pending PSP Approval"],
+  ["Sameday discount over 20%", "PSP, by rule.", "Pending Review - PSP"],
+  ["Either FTL line at or above Rp 30 Mio", "PSP, by rule.", "Pending Review - PSP"],
   ["Hypercare or Strategic account", "PSP, by rule. Manual review at every band.",
-   "Pending PSP Approval"],
+   "Pending Review - PSP"],
   ["Margin below the tier floor", "Sales Head. Sales owns the concession.",
-   "Pending Head Review"],
+   "Pending Review - Head Sales"],
   ["Sales Head acknowledges a below-bottom price",
    "Ends there, unless the ticket carries a PSP exception, in which case PSP signs off.",
-   "Proposal, or Pending PSP Approval"],
+   "Proposal, or Pending Review - PSP"],
   ["Alex grants a one-off exception in a meeting",
    "PNS Head records it against that ticket, which opens PSP for that ticket only.",
-   "Unlocks Pending PSP Approval"],
+   "Unlocks Pending Review - PSP"],
 ];
 
 const PSP_AFTER = [
-  ["Was already Pending PNS Review", "Proposal Submitted", "That review already covers it — PSP was consulted mid-review."],
-  ["Still needs PNS review (Sales priced, ≥30 Mio)", "Pending PNS Review", "PSP clearing the margin doesn't stand in for the review this ticket already needed."],
+  ["Was already Pending Review - Head PNS", "Proposal Submitted", "That review already covers it — PSP was consulted mid-review."],
+  ["Still needs PNS review (Sales priced, ≥30 Mio)", "Pending Review - Head PNS", "PSP clearing the margin doesn't stand in for the review this ticket already needed."],
   ["No review needed either way", "Back to whoever priced it — Pending PNS or Pending Sales", "PSP approving isn't the same as the proposal being ready. They confirm with a plain Submit — nothing about the price is re-entered."],
   ["Rejected", "Back to whoever priced it, to re-quote", "Same as any send-back."],
 ];

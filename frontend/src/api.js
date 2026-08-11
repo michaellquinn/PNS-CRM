@@ -149,8 +149,8 @@ export const SERVICES = ["LTL", "B2BR", "B2C", "FTL on-call", "FTL monthly", "Sa
 export const FTL = ["FTL on-call", "FTL monthly"];
 
 export const STATUSES = [
-  "Pending Sales", "Pending Head Review", "Pending PNS", "Pending PNS Review",
-  "Pending PSP Approval", "Pending Vendor", "Pending Exec Sign-off", "Proposal Submitted",
+  "Pending Sales", "Pending Review - Head Sales", "Pending PNS", "Pending Review - Head PNS",
+  "Pending Review - PSP", "Pending Vendor", "Pending Review - C-level", "Proposal Submitted",
   "Proposal Accepted / Ready to Ship", "Lost", "Cancel",
 ];
 
@@ -164,7 +164,13 @@ export const LOSS_REASONS = [
   ["no_vendor", "No vendor available"],
   ["billing", "Lost on billing terms"],
   ["pns", "Lost due to PNS"],
+  // Set by the sync, not offered as a choice to people — kept here so the label
+  // resolves wherever a loss reason is displayed.
+  ["salescrm", "Closed in Sales CRM"],
 ];
+
+// What a person may choose when recording a loss. "salescrm" is the sync's to set.
+export const PICKABLE_LOSS_REASONS = LOSS_REASONS.filter(([v]) => v !== "salescrm");
 
 export const rp = (n) => "Rp " + Number(n || 0).toLocaleString("id-ID");
 

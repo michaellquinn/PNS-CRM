@@ -27,49 +27,78 @@ export default function Sync({ notify }) {
   const [pages, setPages] = useState(0);
   const [busy, setBusy] = useState(false);
   const [res, setRes] = useState(null);
+  const [mode, setMode] = useState("both");   // both | new | refresh
 
-  const run = async (dry) => {
+  const run = async (dry, override = {}) => {
+    const body = {
+      days: mode === "refresh" ? 0 : Number(days) || 7,
+      pages: mode === "refresh" ? 0 : Number(pages) || 0,
+      refresh: mode !== "new",
+      dry_run: dry,
+      ...override,
+    };
     if (!dry && !window.confirm(
-      `Import ${res ? res.counts.created : "the listed"} opportunities as real tickets? ` +
-      `This writes to Solutions CRM. Sales CRM is never written to.`)) return;
+      `Run this for real? New opportunities become tickets, and tickets whose Sales CRM ` +
+      `opportunity has closed move to Lost or Ready to Ship. Sales CRM is never written to.`))
+      return;
     setBusy(true);
     try {
-      const d = await api.syncSalesCrm({
-        days: Number(days) || 7, pages: Number(pages) || 0, dry_run: dry });
+      const d = await api.syncSalesCrm(body);
       setRes(d);
+      const moved = (d.refreshed || []).filter((r) => r.moved).length;
       notify(dry
-        ? `Dry run: ${d.counts.created} would be created, ${d.counts.skipped} skipped`
-        : `Imported ${d.counts.created} tickets`);
+        ? `Dry run: ${d.counts.created} would be created, ${moved} would change status`
+        : `${d.counts.created} imported, ${moved} status changes, ${d.counts.refreshed} refreshed`);
     } catch (e) { notify(e.message); }
     finally { setBusy(false); }
   };
 
+  const MODES = [
+    ["both", "New + refresh", "The routine run: import new opportunities and re-check the ones you already hold."],
+    ["new", "New only", "Import only, leave held tickets untouched."],
+    ["refresh", "Re-check held tickets only", "No date window at all — re-reads every opportunity behind a ticket you hold, by id, to see whether its Sales CRM stage has moved."],
+  ];
+  const modeHint = MODES.find(([v]) => v === mode)[2];
+
   return (
     <>
       <Head title="Sales CRM sync"
-        sub="Walks the newest-first opportunity list, creating tickets for new opportunities and refreshing ones already imported. Read-only against Sales CRM: nothing is ever written back." />
+        sub="Reads Sales CRM and writes here. Read-only against Sales CRM: nothing is ever written back." />
 
       <Card className="mb-4">
+        <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 p-4">
+          {MODES.map(([v, label]) => (
+            <button key={v} type="button" onClick={() => setMode(v)} aria-pressed={mode === v}
+              className={`rounded-full border px-3.5 py-1.5 text-[13px] ${mode === v
+                ? "border-[#EE1B2C] bg-[#EE1B2C] font-semibold text-white"
+                : "border-slate-300 bg-white font-medium text-slate-600 hover:border-slate-400"}`}>
+              {label}
+            </button>
+          ))}
+          <p className="w-full text-[11.5px] text-slate-500">{modeHint}</p>
+        </div>
         <div className="flex flex-wrap items-center gap-3 p-4">
           <Btn onClick={() => run(true)} disabled={busy}>
             {busy ? "Scanning…" : "Dry run"}
           </Btn>
-          <Btn kind="primary" disabled={busy || !res || !res.counts.created}
-            onClick={() => run(false)}>
-            Import for real
+          <Btn kind="primary" disabled={busy || !res} onClick={() => run(false)}>
+            Run for real
           </Btn>
-          <label className="ml-auto flex items-center gap-2 text-[12px] text-slate-500">
-            Last
-            <input className={`${inputCls} w-16`} type="number" min="1" max="60"
-              value={days} onChange={(e) => setDays(e.target.value)} />
-            days
-          </label>
+          {mode !== "refresh" && (
+            <label className="ml-auto flex items-center gap-2 text-[12px] text-slate-500">
+              Last
+              <input className={`${inputCls} w-16`} type="number" min="1" max="60"
+                value={days} onChange={(e) => setDays(e.target.value)} />
+              days
+            </label>
+          )}
           <p className="w-full text-[11.5px] text-slate-400">
-            Asks Sales CRM for the days that could hold something new, and separately
-            re-reads the opportunities behind tickets you already have, so their stage
-            and revenue stay current. It never reads the whole book: 72,000 opportunities
-            is 726 pages and no single request survives that. Run a dry run first;
-            &ldquo;Import for real&rdquo; stays disabled until you have.
+            <b>The day window is the opportunity&rsquo;s creation date, not its last edit.</b>{" "}
+            Sales CRM has no filter on when a record was edited, so a deal created two
+            months ago and moved to Closed-Won yesterday will never appear in
+            &ldquo;last 7 days&rdquo;. That is what <b>Re-check held tickets</b> is for: it
+            ignores dates entirely and reads every opportunity behind a ticket you hold,
+            by id. Run a dry run first; the real run stays disabled until you have.
           </p>
         </div>
 
@@ -159,18 +188,36 @@ export default function Sync({ notify }) {
                 Already imported &mdash; {res.dry_run ? "would refresh" : "refreshed"} from Sales CRM
               </h2>
               <p className="text-[12px] text-slate-500">
-                Stage, committed revenue and close date are re-copied. Potential revenue,
-                service and account tier are left alone: PNS corrects those here on
-                purpose, and an overwrite would undo the correction.
+                Stage, committed revenue and close date are re-copied. A <b>closed</b> stage
+                also moves our status: Closed-Lost and Future Opportunity become Lost;
+                the accepted stages become Ready to Ship, and if the onboarding fields are
+                still blank, PNS and Sales are told which ones. Potential revenue, service
+                and account tier are left alone — PNS corrects those here on purpose.
               </p>
             </div>
-            <Table head={["Opportunity", "Name", "Sales CRM stage"]} rows={res.refreshed || []}
-              empty="Nothing already imported in this range."
+            <Table head={["Opportunity", "Name", "Sales CRM stage", "Our status"]}
+              rows={res.refreshed || []}
+              empty="No held tickets were re-read in this run."
               render={(r, idx) => (
                 <tr key={`${r.id}-${idx}`} className="border-t border-slate-100">
                   <td className="px-4 py-2.5 font-mono text-[12px]">{r.id}</td>
                   <td className="px-4 py-2.5 text-slate-600">{r.name || "—"}</td>
                   <td className="px-4 py-2.5">{r.stage}</td>
+                  <td className="px-4 py-2.5">
+                    {r.moved ? (
+                      <>
+                        <Pill tone={r.moved === "Lost"
+                          ? "bg-rose-50 text-rose-700" : "bg-emerald-50 text-emerald-700"}>
+                          {res.dry_run ? "would move to " : "moved to "}{r.moved}
+                        </Pill>
+                        {r.missing?.length > 0 && (
+                          <span className="ml-2 text-[11.5px] text-amber-700">
+                            still blank: {r.missing.join(", ")}
+                          </span>
+                        )}
+                      </>
+                    ) : <span className="text-slate-400">unchanged</span>}
+                  </td>
                 </tr>
               )} />
           </Card>

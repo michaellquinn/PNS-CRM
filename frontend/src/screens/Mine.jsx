@@ -25,7 +25,7 @@ export default function Mine({ me, onOpen }) {
   const open = rows.filter((t) => !t.status.startsWith("Proposal Accepted")
     && t.status !== "Lost" && t.status !== "Cancel");
   const onMe = open.filter((t) => isPns
-    ? ["Pending PNS", "Pending PNS Review", "Pending Vendor"].includes(t.status)
+    ? ["Pending PNS", "Pending Review - Head PNS", "Pending Vendor"].includes(t.status)
     : OWED_BY_SALES.includes(t.status));
   const elsewhere = open.filter((t) => !onMe.includes(t));
   const closed = rows.filter((t) => !open.includes(t));

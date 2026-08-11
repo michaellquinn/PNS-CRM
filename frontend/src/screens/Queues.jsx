@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, BOTTOM_MARGIN, PENDING, LOSS_REASONS, SERVICES, FTL, rp } from "../api";
+import { api, BOTTOM_MARGIN, PENDING, PICKABLE_LOSS_REASONS, SERVICES, FTL, rp } from "../api";
 import {
   Btn, Card, Confirm, Empty, Head, Pill, PriceChip, TicketCard, inputCls,
   useDirectory, usePnsTeam,
@@ -269,14 +269,14 @@ export function AwaitingPrice({ me, onOpen, notify }) {
 
 /* ---------------------------------------------------------------- PNS review */
 export function ToReview({ me, onOpen, notify }) {
-  const [rows, err, reload] = useTickets({ status: "Pending PNS Review" });
+  const [rows, err, reload] = useTickets({ status: "Pending Review - Head PNS" });
   const [who, setWho] = useState({});
   const team = usePnsTeam();
   const [list, f, set, clear, patch] = useFilter(rows);
   const act = async (fn) => { try { await fn(); notify("Done"); await reload(); } catch (e) { notify(e.message); } };
 
   return (
-    <Shell title="To review"
+    <Shell title="Review - Head PNS"
       sub="Non-Strategic at or above 30 Mio: Sales priced it, PNS reviews before it goes out."
       rows={rows} err={err} empty="Nothing waiting on review."
       bar={<FilterBar f={f} set={set} clear={clear} patch={patch} me={me}
@@ -309,7 +309,7 @@ export function ToReview({ me, onOpen, notify }) {
               <span className="text-[12.5px] text-slate-500">Waiting for the PNS Head to assign a reviewer.</span>
             )}
             {me.permissions.sendToPsp && (
-              <Btn onClick={() => act(() => api.status(t.ref, { status: "Pending PSP Approval", reason: "sent for margin approval" }))}>
+              <Btn onClick={() => act(() => api.status(t.ref, { status: "Pending Review - PSP", reason: "sent for margin approval" }))}>
                 Send to PSP
               </Btn>
             )}
@@ -328,7 +328,7 @@ export function ToReview({ me, onOpen, notify }) {
 
 /* ---------------------------------------------------------------- head review */
 export function HeadReview({ me, onOpen, notify }) {
-  const [rows, err, reload] = useTickets({ status: "Pending Head Review" });
+  const [rows, err, reload] = useTickets({ status: "Pending Review - Head Sales" });
   const [note, setNote] = useState({});
   const [list, f, set, clear, patch] = useFilter(rows);
   const act = async (fn) => { try { await fn(); notify("Done"); await reload(); } catch (e) { notify(e.message); } };
@@ -337,7 +337,7 @@ export function HeadReview({ me, onOpen, notify }) {
   const mayAck = me.permissions.headAck;
 
   return (
-    <Shell title="Sales Head review"
+    <Shell title="Review - Head Sales"
       sub="Prices below the tier floor, checked automatically or flagged by hand. The Sales Head acknowledges, then PSP signs off on the margin before it goes out."
       right={<span className="text-[12px] text-slate-500">
         {mayAck ? "You can acknowledge" : "View only — the Sales Head decides"}
@@ -379,7 +379,7 @@ export function HeadReview({ me, onOpen, notify }) {
 
 /* ---------------------------------------------------------------- PSP */
 export function PspPending({ me, onOpen, notify }) {
-  const [rows, err, reload] = useTickets({ status: "Pending PSP Approval" });
+  const [rows, err, reload] = useTickets({ status: "Pending Review - PSP" });
   const [note, setNote] = useState({});
   const [pick, setPick] = useState({});
   const people = useDirectory();
@@ -388,7 +388,7 @@ export function PspPending({ me, onOpen, notify }) {
   const act = async (fn) => { try { await fn(); notify("Done"); await reload(); } catch (e) { notify(e.message); } };
 
   return (
-    <Shell title="PSP approval — pending"
+    <Shell title="Review - PSP"
       sub="PSP reviews the margin and approves or rejects. Mandatory for anything below the product bottom margin (after the Head acknowledges it); anyone can also ask for a second opinion from Awaiting price. Any PSP member can take any ticket — there's no head/staff split here."
       rows={rows} err={err} empty="Nothing awaiting price approval."
       bar={<FilterBar f={f} set={set} clear={clear} patch={patch} me={me}
@@ -454,7 +454,7 @@ export function PspPending({ me, onOpen, notify }) {
 // happened and releases the proposal. The draft button exists because writing that
 // email by hand, per ticket, is the job this app is meant to remove.
 export function ExecSignoff({ me, onOpen, notify }) {
-  const [rows, err, reload] = useTickets({ status: "Pending Exec Sign-off" });
+  const [rows, err, reload] = useTickets({ status: "Pending Review - C-level" });
   const [note, setNote] = useState({});
   const [draft, setDraft] = useState({});
   const [list, f, set, clear, patch] = useFilter(rows);
@@ -468,7 +468,7 @@ export function ExecSignoff({ me, onOpen, notify }) {
   };
 
   return (
-    <Shell title="Executive sign-off"
+    <Shell title="Review - C-level"
       sub="Hypercare and Strategic solutions need Alex (CSO) and Dhinesh (COO). Every other approval has already cleared; this is the last gate before the proposal goes out."
       rows={rows} err={err} empty="Nothing awaiting executive sign-off."
       bar={<FilterBar f={f} set={set} clear={clear} patch={patch} me={me}
@@ -511,7 +511,7 @@ export function PspFinished({ me, onOpen }) {
   const [list, f, set, clear, patch] = useFilter(rows);
 
   return (
-    <Shell title="PSP approval — finished"
+    <Shell title="Review - PSP, decided"
       sub="Every ticket PSP has decided on, with what they decided and where it stands now — including which ones went on to win or lose."
       rows={rows} err={err} empty="PSP hasn't decided on anything yet."
       bar={<FilterBar f={f} set={set} clear={clear} patch={patch} me={me}
@@ -567,7 +567,7 @@ export function Proposals({ me, onOpen, notify }) {
                 </optgroup>
                 {mayClose && (
                   <optgroup label="Lost">
-                    {LOSS_REASONS.map(([v, l]) => <option key={v} value={`Lost:${v}`}>{l}</option>)}
+                    {PICKABLE_LOSS_REASONS.map(([v, l]) => <option key={v} value={`Lost:${v}`}>{l}</option>)}
                   </optgroup>
                 )}
               </select>

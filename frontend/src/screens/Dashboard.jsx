@@ -2,7 +2,12 @@ import { useCallback, useEffect, useState } from "react";
 import { api, SERVICES, STATUSES, rp } from "../api";
 import { Chip, Head, Pill, Sla, Tile, usePnsTeam } from "../ui";
 
-const EMPTY = { search: "", status: [], service: [], owner: "", sales: "", stage: "", from: "", to: "" };
+const EMPTY = { search: "", status: [], service: [], acct: [], owner: "", sales: "",
+                stage: "", from: "", to: "" };
+
+// The account tier decides routing, pricing ceilings, PSP entry and exec sign-off — it
+// is the single most consequential field on a ticket, so it filters like status does.
+const TIERS = ["Hypercare", "Strategic", "Non-Strategic"];
 
 // The eleven statuses read as a wall when they sit in one flat row, and half of them
 // share the word "Pending". Grouped by who is acting, the row answers the question
@@ -11,8 +16,8 @@ const EMPTY = { search: "", status: [], service: [], owner: "", sales: "", stage
 // falls into a trailing group so it can never silently disappear from the filter.
 const STATUS_GROUPS = [
   ["Being worked", ["Pending Sales", "Pending PNS", "Pending Vendor"]],
-  ["In approval", ["Pending PNS Review", "Pending Head Review",
-                   "Pending PSP Approval", "Pending Exec Sign-off"]],
+  ["In approval", ["Pending Review - Head PNS", "Pending Review - Head Sales",
+                   "Pending Review - PSP", "Pending Review - C-level"]],
   ["With shipper", ["Proposal Submitted"]],
   ["Decided", ["Proposal Accepted / Ready to Ship", "Lost", "Cancel"]],
 ];
@@ -35,7 +40,7 @@ export default function Dashboard({ me, onOpen }) {
   const load = useCallback(() => {
     api.tickets({
       search: f.search, status: f.status, service: f.service,
-      owner: f.owner, sales: f.sales, stage: f.stage,
+      owner: f.owner, sales: f.sales, stage: f.stage, acct_type: f.acct,
       submitted_from: f.from, submitted_to: f.to,
     }).then((d) => setRows(d.tickets)).catch(() => setRows([]));
   }, [f]);
@@ -53,8 +58,11 @@ export default function Dashboard({ me, onOpen }) {
     api.tickets({}).then((d) => {
       setSalesNames([...new Set(d.tickets.map((t) => t.sales).filter(Boolean))].sort());
       setStageNames([...new Set(d.tickets.map((t) => t.stage).filter(Boolean))].sort());
-      const c = {};
-      for (const t of d.tickets) c[t.status] = (c[t.status] || 0) + 1;
+      const c = { __acct: {} };
+      for (const t of d.tickets) {
+        c[t.status] = (c[t.status] || 0) + 1;
+        c.__acct[t.acct_type] = (c.__acct[t.acct_type] || 0) + 1;
+      }
       setCounts(c);
     }).catch(() => {});
     // "Mine" is role-aware on the server: what I raised (Sales) or what I'm assigned
@@ -84,8 +92,8 @@ export default function Dashboard({ me, onOpen }) {
                 "Priced by", "In status", canSeeMargin && "Margin", "PNS PIC",
                 me.permissions.setSales && "Sales"].filter(Boolean);
   const active =
-    f.search || f.status.length || f.service.length || f.owner || f.sales || f.stage
-    || f.from || f.to;
+    f.search || f.status.length || f.service.length || f.acct.length || f.owner
+    || f.sales || f.stage || f.from || f.to;
 
   const sel = "rounded-lg border border-slate-300 px-3 py-2 text-[13.5px]";
 
@@ -214,6 +222,16 @@ export default function Dashboard({ me, onOpen }) {
             <Chip key={s} on={f.service.includes(s)} onClick={() => toggle("service", s)}>{s}</Chip>
           ))}
         </div>
+        {/* Tier decides routing, ceilings, PSP entry and exec sign-off, so it filters
+            alongside status rather than hiding in a dropdown. */}
+        <div className="mt-3.5 flex flex-wrap items-center gap-2.5">
+          <span className="w-14 shrink-0 text-[10.5px] font-bold uppercase tracking-wider text-slate-400">Tier</span>
+          {TIERS.map((s) => (
+            <Chip key={s} on={f.acct.includes(s)} onClick={() => toggle("acct", s)}>
+              {s}{counts.__acct?.[s] ? ` · ${counts.__acct[s]}` : ""}
+            </Chip>
+          ))}
+        </div>
       </div>
 
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
@@ -241,9 +259,16 @@ export default function Dashboard({ me, onOpen }) {
                     )}
                   </td>
                   <td className="whitespace-nowrap px-4 py-3.5 font-mono tabular-nums text-slate-600">{t.submitted_on}</td>
-                  <td className="max-w-[230px] truncate px-4 py-3.5 font-medium">
+                  {/* Shipper names run long — "PT. Mostrans Global Digilog - Project PT
+                      Agroveta Husada Dharma - LTL (B2BR)" — and truncating them hid the
+                      part that tells two tickets apart. The name wraps in full instead. */}
+                  <td className="min-w-[260px] px-4 py-3.5 font-medium">
                     {t.shipper}
-                    <span className="ml-2 text-[11.5px] font-normal text-slate-400">{t.acct_type} · {t.region}</span>
+                    <span className={`ml-2 rounded px-1.5 text-[11px] font-semibold ${
+                      t.acct_type === "Hypercare" ? "bg-fuchsia-50 text-fuchsia-700"
+                      : t.acct_type === "Strategic" ? "bg-violet-50 text-violet-700"
+                      : "text-slate-400 font-normal"}`}>{t.acct_type}</span>
+                    <span className="ml-1.5 text-[11.5px] font-normal text-slate-400">{t.region}</span>
                     {/* Reference only: the Sales CRM stage is not this app's status, so it stays quieter than everything around it. */}
                     {t.stage && (
                       <span className="ml-1.5 rounded bg-slate-100 px-1.5 text-[10.5px] font-normal text-slate-400">

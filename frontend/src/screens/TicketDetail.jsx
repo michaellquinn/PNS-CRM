@@ -18,11 +18,6 @@ const SECTIONS = [
     ["volume", "Shipment volume"], ["pickSlot", "Pickup time"], ["pickWait", "Pickup waiting time"],
     ["delSlot", "Delivery time"], ["delWait", "Delivery waiting time"],
     ["sfid", "Salesforce Opportunity ID"], ["jiraId", "Jira ID"],
-    // Ops cannot onboard a shipper they cannot find in the account systems, so these
-    // three travel with the go-live date rather than being chased afterwards.
-    // shipperId is the global shipper id — one number, one name.
-    ["parentShipperId", "Parent shipper ID"], ["shipperId", "Shipper ID"],
-    ["branchId", "Corporate branch ID"],
   ]],
   ["2 · Cargo knowledge", [
     ["commodity", "Product"], ["product", "Specific product"],
@@ -31,8 +26,16 @@ const SECTIONS = [
   ["3 · Ninja's service", [
     ["destType", "Delivery destination type"], ["sla", "SLA"], ["mps", "MPS"],
     ["rdo", "RDO"], ["cod", "COD"], ["tkbmO", "TKBM origin"], ["tkbmD", "TKBM destination"],
-    ["ins", "Insurance"], ["truck", "Vehicle request"], ["golive", "Go live"],
+    ["ins", "Insurance"], ["truck", "Vehicle request"],
     ["handling", "Custom handling request"], ["notes", "Notes"],
+  ]],
+  // Sections 1-3 are the Project Charter — solutioning. Section 4 is Kick-Off data —
+  // what Ops needs to onboard (go-live and the account-system IDs). Keep in step with
+  // CHARTER_SECTIONS in the backend.
+  ["4 · Kick-off — onboarding & go-live", [
+    ["golive", "Go live"],
+    ["parentShipperId", "Parent shipper ID"], ["shipperId", "Shipper ID"],
+    ["branchId", "Corporate branch ID"],
   ]],
 ];
 
@@ -266,29 +269,50 @@ export default function TicketDetail({ ticketRef: initialRef, me, notify, onBack
                 only on a ticket that does not already carry the exception. */}
             {p.allowPsp && t.acct_type !== "Strategic" && t.acct_type !== "Hypercare" && (
               <div className="rounded-xl border border-slate-200 p-3">
-                <p className="mb-1 text-[12.5px] font-semibold">PSP exception</p>
+                <p className="mb-1 text-[12.5px] font-semibold">PSP exception request</p>
                 <p className="mb-2 text-[11.5px] text-slate-500">
                   {t.psp_allowed
-                    ? "Open to PSP. Recorded against this ticket."
-                    : "This ticket cannot go to PSP. Open it only if Alex granted it verbatim in a meeting."}
+                    ? "Open to PSP. Recorded against this ticket — you can send it to PSP now, or let a below-floor price take it there."
+                    : "This ticket is not a managed account, so PSP does not take it. Open it only if Alex granted the exception verbatim in a meeting."}
                 </p>
                 {!t.psp_allowed ? (
                   <div className="flex flex-wrap items-center gap-2">
                     <input className={`${inputCls} max-w-[280px]`}
                       placeholder="What Alex granted, and where (required)"
                       value={pspNote} onChange={(e) => setPspNote(e.target.value)} />
+                    {/* One toggle records the exception. The second button is the
+                        separate act of actually sending it — recording that Alex
+                        granted an exception is not the same as using it today. */}
                     <Btn disabled={busy || !pspNote.trim()}
                       onClick={() => run(() => api.allowPsp(ref, { allowed: true, note: pspNote }),
                         `${ref} opened to PSP`)}>
                       Open to PSP
                     </Btn>
+                    <Btn kind="primary" disabled={busy || !pspNote.trim()}
+                      onClick={() => run(async () => {
+                        await api.allowPsp(ref, { allowed: true, note: pspNote });
+                        await api.status(ref, { status: "Pending Review - PSP",
+                          reason: `PSP exception: ${pspNote}` });
+                      }, `${ref} opened and sent to PSP`)}>
+                      Open &amp; send now
+                    </Btn>
                   </div>
                 ) : (
-                  <Btn disabled={busy}
-                    onClick={() => run(() => api.allowPsp(ref, { allowed: false }),
-                      `${ref} closed to PSP`)}>
-                    Withdraw
-                  </Btn>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {t.status !== "Pending Review - PSP" && p.sendToPsp && (
+                      <Btn kind="primary" disabled={busy}
+                        onClick={() => run(() => api.status(ref, {
+                          status: "Pending Review - PSP", reason: "sent on the recorded PSP exception",
+                        }), `${ref} sent to PSP`)}>
+                        Send to PSP now
+                      </Btn>
+                    )}
+                    <Btn disabled={busy}
+                      onClick={() => run(() => api.allowPsp(ref, { allowed: false }),
+                        `${ref} closed to PSP`)}>
+                      Withdraw exception
+                    </Btn>
+                  </div>
                 )}
               </div>
             )}
@@ -342,7 +366,15 @@ export default function TicketDetail({ ticketRef: initialRef, me, notify, onBack
               </div>
               {SECTIONS.map(([label, fields]) => (
                 <div key={label} className="mb-5 last:mb-0">
-                  <div className="mb-2 text-[10.5px] font-bold uppercase tracking-wider text-slate-400">{label}</div>
+                  <div className="mb-2 flex items-center gap-2 text-[10.5px] font-bold uppercase tracking-wider text-slate-400">
+                    {label}
+                    {/* Sections 1-3 are the charter (solutioning); 4 is the Kick-Off
+                        block Ops works from. Tagged so the two never blur together. */}
+                    <span className={`rounded px-1.5 py-0.5 text-[9px] ${label.startsWith("4")
+                      ? "bg-teal-50 text-teal-700" : "bg-violet-50 text-violet-700"}`}>
+                      {label.startsWith("4") ? "Kick-off · onboarding" : "Charter · solutioning"}
+                    </span>
+                  </div>
                   <dl>
                     {fields.map(([k, l]) => (
                       <Row key={k} label={l}>

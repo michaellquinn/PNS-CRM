@@ -9,6 +9,7 @@ import Workload from "./screens/Workload";
 import Mine from "./screens/Mine";
 import Sync from "./screens/Sync";
 import Changelog from "./screens/Changelog";
+import Guide from "./screens/Guide";
 import { NewRequest, NewCapa } from "./screens/Forms";
 import {
   AwaitingPrice, ToReview, HeadReview, PspPending, PspFinished, ExecSignoff,
@@ -34,19 +35,19 @@ const NAV = [
     { id: "mine", label: "My requests", icon: "◐", when: works, keywords: "my tickets assignment" },
     { id: "new", label: "New request", icon: "＋", when: (m) => m.permissions.createTicket },
     { id: "awaiting", label: "Awaiting price", icon: "◷", count: "awaiting", keywords: "pricing" },
-    { id: "review", label: "To review", icon: "◎", count: "Pending PNS Review",
+    { id: "review", label: "Review - Head PNS", icon: "◎", count: "Pending Review - Head PNS",
       keywords: "pns view pns review" },
     // Named for the head who actually owes it — "Need review" told nobody whose it was.
-    { id: "head", label: "Sales Head review", icon: "⚑", count: "Pending Head Review",
-      keywords: "sales view head review below bottom" },
-    { id: "psp-pending", label: "PSP approval", icon: "✓", count: "Pending PSP Approval",
+    { id: "head", label: "Review - Head Sales", icon: "⚑", count: "Pending Review - Head Sales",
+      keywords: "sales view head review below bottom floor" },
+    { id: "psp-pending", label: "Review - PSP", icon: "✓", count: "Pending Review - PSP",
       tag: "PSP", keywords: "psp pending margin approval" },
-    { id: "signoff", label: "Exec sign-off", icon: "★", count: "Pending Exec Sign-off",
-      keywords: "executive alex dhinesh" },
+    { id: "signoff", label: "Review - C-level", icon: "★", count: "Pending Review - C-level",
+      keywords: "executive exec sign-off alex dhinesh cso coo" },
     { id: "proposals", label: "Proposal submitted", icon: "◫", count: "Proposal Submitted" },
     { id: "ship", label: "Ready to ship", icon: "➔", count: "Proposal Accepted / Ready to Ship" },
-    { id: "psp-finished", label: "PSP finished", icon: "◫", tag: "PSP",
-      keywords: "psp decided history" },
+    { id: "psp-finished", label: "Review - PSP, decided", icon: "◫", tag: "PSP",
+      keywords: "psp finished decided history" },
     { id: "meeting", label: "Review meeting", icon: "☷", when: works, keywords: "weekly agenda" },
     { id: "workload", label: "Workload", icon: "◴", when: (m) => m.permissions.assign,
       keywords: "pns capacity assignment" },
@@ -61,6 +62,10 @@ const NAV = [
     { id: "capa-raise", label: "Raise CAPA", icon: "＋", when: (m) => m.permissions.capaRaise },
   ]],
   ["Reference", [
+    // First in Reference on purpose: it is the entry point for anyone who does not yet
+    // know which of the other screens they need.
+    { id: "guide", label: "How do I…", icon: "?",
+      keywords: "guide help how to flow steps explain onboarding tutorial" },
     { id: "matrix", label: "Routing & limits", icon: "☰" },
     { id: "changelog", label: "What changed", icon: "🗒" },
   ]],
@@ -345,6 +350,7 @@ export default function App() {
     "capa-submitted": <Capa view="submitted" me={me} notify={notify} onRaise={() => go("capa-raise")} />,
     "capa-closed": <Capa view="closed" me={me} notify={notify} onRaise={() => go("capa-raise")} />,
     "capa-raise": <NewCapa notify={notify} onCreated={() => go("capa-all")} />,
+    guide: <Guide onGo={go} />,
     matrix: <Matrix />,
     changelog: <Changelog />,
     users: <Users me={me} notify={notify} />,

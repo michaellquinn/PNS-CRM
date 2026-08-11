@@ -56,30 +56,30 @@ def route_price(t, margin=None, discount=None):
         breach = True
     to_psp = g["kind"] == "manual" or (breach and g["kind"] in ("discount", "standard"))
     if to_psp:
-        return "Pending PSP Approval"
+        return "Pending Review - PSP"
     if breach:
-        return "Pending Head Review"
+        return "Pending Review - Head Sales"
     return "clear"
 
 
 rcases = [
     ({"acct_type": "Non-Strategic", "service_type": "Sameday", "potential_rev": 5_000_000,
-      "psp_allowed": 0}, None, 25.0, "Pending PSP Approval",
+      "psp_allowed": 0}, None, 25.0, "Pending Review - PSP",
      "Sameday over 20% discount: PSP by rule, no exception needed"),
     ({"acct_type": "Non-Strategic", "service_type": "FTL monthly",
-      "potential_rev": 50_000_000, "psp_allowed": 0}, None, None, "Pending PSP Approval",
+      "potential_rev": 50_000_000, "psp_allowed": 0}, None, None, "Pending Review - PSP",
      "FTL >=30 Mio manual band: PSP by rule"),
     ({"acct_type": "Non-Strategic", "service_type": "FTL on-call",
-      "potential_rev": 50_000_000, "psp_allowed": 0}, None, None, "Pending PSP Approval",
+      "potential_rev": 50_000_000, "psp_allowed": 0}, None, None, "Pending Review - PSP",
      "FTL on-call >=30 Mio: PSP by rule, mirrors monthly"),
     ({"acct_type": "Strategic", "service_type": "LTL", "potential_rev": 5_000_000,
-      "psp_allowed": 0}, 30.0, None, "Pending PSP Approval",
+      "psp_allowed": 0}, 30.0, None, "Pending Review - PSP",
      "Strategic is manual review and always reaches PSP"),
     ({"acct_type": "Non-Strategic", "service_type": "LTL", "potential_rev": 5_000_000,
-      "psp_allowed": 0}, 19.0, None, "Pending Head Review",
+      "psp_allowed": 0}, 19.0, None, "Pending Review - Head Sales",
      "plain margin breach stays with the Sales Head"),
     ({"acct_type": "Non-Strategic", "service_type": "B2BR", "potential_rev": 20_000_000,
-      "psp_allowed": 0}, 9.0, None, "Pending Head Review",
+      "psp_allowed": 0}, 9.0, None, "Pending Review - Head Sales",
      "B2BR margin breach: Sales Head, not PSP"),
     ({"acct_type": "Non-Strategic", "service_type": "Sameday", "potential_rev": 5_000_000,
       "psp_allowed": 0}, None, 20.0, "clear",

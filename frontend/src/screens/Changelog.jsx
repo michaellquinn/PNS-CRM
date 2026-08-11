@@ -3,6 +3,29 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-08-11",
+    title: "Review statuses renamed, sync closes tickets, PNS pilot, in-app guide",
+    by: "Baskoro + Claude",
+    changes: [
+      "The four review statuses are renamed to say who owes the decision: Pending Review - Head PNS, Pending Review - Head Sales, Pending Review - PSP, Pending Review - C-level. Existing tickets and their history were renamed with them, so the timeline reads in today's vocabulary.",
+      "The Sales CRM sync now moves our status when the opportunity closes there. Closed-Lost and Future Opportunity become Lost (reason: closed in Sales CRM); the accepted stages become Ready to Ship. If the ticket's onboarding fields are still blank when that happens, PNS and Sales are notified with the exact list of what is missing.",
+      "The sync screen has explicit modes. 'Re-check held tickets only' ignores dates entirely and re-reads every opportunity behind a ticket you hold — this is how you find deals that closed in Sales CRM after they were imported. The day window has always been the opportunity's creation date, never its last edit; the screen now says so.",
+      "Account tier (Hypercare / Strategic / Non-Strategic) filters on the dashboard with counts, and is colour-coded in the table. It decides routing, pricing ceilings, PSP entry and exec sign-off, so it sits beside status rather than hiding.",
+      "PNS pilot: while the tool runs inside PNS before Sales is onboarded, PNS can attach prices on Sales-owed tickets including below the floor, and the PNS Head can acknowledge in the Sales Head's place. Set PNS_PILOT=0 in the portal the day Sales starts working its own queues and every rule snaps back with no deploy.",
+      "New 'How do I…' screen under Reference: every flow written as the thing you are trying to do, with a button that takes you to the right screen. Open to everyone.",
+      "The intake and charter now separate Kick-off from Charter. Sections 1-3 are solutioning; section 4 holds go-live and the account-system IDs Ops needs to onboard.",
+      "Reopening a lost or cancelled deal is any salesperson's to do, not only the Sales Head.",
+      "The PSP exception card gained 'Open & send now', so recording Alex's exception and sending the ticket to PSP is one step when you mean both.",
+      "Shipper names are no longer truncated in the dashboard table — the part that told two tickets apart was the part being cut off.",
+    ],
+    overruled: [
+      "The old status names (Pending PNS Review, Pending Head Review, Pending PSP Approval, Pending Exec Sign-off) are gone. Same gates, named for who decides.",
+      "The sync was strictly one-way for status: it copied the Sales CRM stage but never acted on it, and status_for_stage() was dead code. Baskoro's call is that a closed opportunity closes our ticket, with a flag when required fields are blank.",
+      "Reopen was Commercial Head only.",
+      "Pricing was strictly the responsible side's. PNS covers both during the pilot only.",
+    ],
+  },
+  {
+    date: "2026-08-11",
     title: "Open visibility, global search, phases and the Sales Manager tier",
     by: "Baskoro + Claude",
     changes: [

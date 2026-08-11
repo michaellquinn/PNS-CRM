@@ -23,8 +23,8 @@ fails = []
 # ---------------------------------------------------------------- approval gate
 print("=== proposal_or_signoff")
 gate_cases = [
-    ({"acct_type": "Strategic", "exec_signoff": 0}, "Pending Exec Sign-off"),
-    ({"acct_type": "Hypercare", "exec_signoff": 0}, "Pending Exec Sign-off"),
+    ({"acct_type": "Strategic", "exec_signoff": 0}, "Pending Review - C-level"),
+    ({"acct_type": "Hypercare", "exec_signoff": 0}, "Pending Review - C-level"),
     ({"acct_type": "Strategic", "exec_signoff": 1}, "Proposal Submitted"),
     ({"acct_type": "Hypercare", "exec_signoff": 1}, "Proposal Submitted"),
     ({"acct_type": "Non-Strategic", "exec_signoff": 0}, "Proposal Submitted"),
