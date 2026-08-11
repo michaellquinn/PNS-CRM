@@ -78,7 +78,7 @@
     "/api/tickets/{ref}/price": {
       "post": {
         "summary": "Attach a price and advance the ticket to its next stage",
-        "description": "Only the side that owes the price may call this. below_bottom is a manual flag, only accepted for services with a published floor (BOTTOM_MARGIN — 5% LTL, 10% B2BR; refused with 400 for anything else, including Sameday). Below-bottom routes to Pending Head Review, then always to Pending PSP Approval once the head acknowledges — PSP sign-off on margin is mandatory in that case. Otherwise ask_psp optionally sends it straight to Pending PSP Approval for a non-mandatory second opinion, available on any service. Failing both of those, it goes to PNS review when Sales priced a deal at or above 30 Mio, or straight to Proposal Submitted.",
+        "description": "Only the side that owes the price may call this. Routing checks, in order: (1) the 5A ceiling for the ticket's service/account/revenue band (PRICING_GUARD via guard_for) — a manual-review band (managed account, either FTL line ≥30 Mio) or a breached discount tier goes straight to Pending PSP Approval, PSP's by rule; (2) a breached margin tier, or the manual below_bottom flag (LTL/B2BR only, 400 otherwise), goes to Pending Head Review for the Sales Head to acknowledge; (3) otherwise PNS review if Sales priced a deal ≥30 Mio; (4) otherwise Proposal Submitted, or Pending Exec Sign-off for a managed account. Escalating to PSP outside these rules is not part of this endpoint — see POST .../status.",
         "operationId": "submitPrice",
         "parameters": [ { "$ref": "#/components/parameters/TicketRef" } ],
         "requestBody": {
@@ -98,7 +98,7 @@
     "/api/tickets/{ref}/status": {
       "post": {
         "summary": "Move a ticket to another status, accept it, or close it as lost",
-        "description": "Accepting or marking lost requires the acceptProposal permission (Commercial owns the shipper outcome). status=\"Pending PSP Approval\" is a forward for a margin check, not a send-back: it requires sendToPsp, no reason, and does not notify anyone as \"sent back to you\" — PSP as a group is notified instead. Every other status requires sendBackProposal and a reason, and reassigns who owes the re-quote.",
+        "description": "Accepting or marking lost requires the acceptProposal permission (Commercial owns the shipper outcome). status=\"Pending PSP Approval\" is a forward for a margin check, not a send-back: it requires sendToPsp, no reason, and does not notify anyone as \"sent back to you\" — PSP as a group is notified instead. It is also the only discretionary path to PSP (used by both the Escalate-to-PSP and Send-to-PSP buttons), so it additionally requires the ticket to pass may_go_to_psp — a managed account (Strategic/Hypercare) or one the PNS Head has opened on an exception — refused with 400 otherwise. Every other status requires sendBackProposal and a reason, and reassigns who owes the re-quote.",
         "operationId": "changeStatus",
         "parameters": [ { "$ref": "#/components/parameters/TicketRef" } ],
         "requestBody": {
@@ -436,7 +436,7 @@
     "/api/tickets/{ref}/psp": {
       "post": {
         "summary": "Approve or reject a margin as the pricing desk",
-        "description": "PSP (or Admin) only — any PSP member, no head/staff distinction. A ticket can arrive here three ways: mandatory after a below-bottom head acknowledgement, an optional early send from Awaiting price (ask_psp), or an optional send from mid-review. On approve: if the ticket was already Pending PNS Review, it goes straight to Proposal Submitted (that review is done); if it still needs PNS review, it goes to Pending PNS Review rather than skip that; otherwise it goes back to Pending PNS or Pending Sales (whoever priced it) with psp_ready set, for an explicit final submit via /submit-proposal — approval is not the same as the proposal being ready. Rejecting requires a note and returns the ticket to whichever side owes the price, to re-quote.",
+        "description": "PSP (or Admin) only — any PSP member, no head/staff distinction. If PSP cannot decide, the PNS Head may approve or reject on their behalf via pspOverride; a note is required and the decision is recorded as an override. price_file/price_url/margin_pct/discount_pct let PSP enter or correct the pricing figure in the same call, which matters because a ticket often reaches PSP precisely because nobody else could price it (a managed account with no rate card) — leave them blank to decide on whatever is already attached. A ticket can arrive here three ways: mandatory after a below-bottom head acknowledgement on a ticket carrying a PSP exception, or a manual-review 5A band (Strategic/Hypercare, either FTL line ≥30 Mio, Sameday discount >20%), or a discretionary Escalate/Send-to-PSP via POST .../status. On approve: if the ticket was already Pending PNS Review, it goes straight to Proposal Submitted (that review is done); if it still needs PNS review, it goes to Pending PNS Review rather than skip that; otherwise it goes back to Pending PNS or Pending Sales (whoever priced it) with psp_ready set, for an explicit final submit via /submit-proposal — approval is not the same as the proposal being ready. Rejecting requires a note and returns the ticket to whichever side owes the price, to re-quote.",
         "operationId": "pspDecide",
         "parameters": [ { "$ref": "#/components/parameters/TicketRef" } ],
         "requestBody": {
@@ -1135,7 +1135,8 @@
           "cost": { "type": "number", "nullable": true, "description": "Restricted — omitted for callers without seeMargin" },
           "margin": { "type": "number", "nullable": true, "description": "Percent. Restricted — omitted for callers without seeMargin" },
           "bottom_margin": { "type": "number", "nullable": true, "description": "Product bottom margin for this service; null where none is published (Sameday). Restricted." },
-          "rate_card": { "type": "string", "nullable": true, "description": "Name of the published rate card the price must be built from" }
+          "rate_card": { "type": "string", "nullable": true, "description": "Name of the published rate card the price must be built from" },
+          "rate_card_url": { "type": "string", "nullable": true, "description": "Link to the pricing tool for this service, where one exists (currently LTL and B2BR)" }
         }
       },
       "Stats": {
@@ -1179,9 +1180,9 @@
           "price_file": { "type": "string", "description": "Human label shown next to the link, e.g. \"Rate card v2\". Required; the UI substitutes \"Pricing spreadsheet\" when only a link is given." },
           "price_url": { "type": "string", "nullable": true, "description": "Link to the pricing spreadsheet. Must be http(s) — any other scheme is refused with 400, because the value is rendered as an anchor other users click. Max 1000 characters." },
           "price_size": { "type": "integer", "nullable": true },
-          "margin_pct": { "type": "number", "nullable": true, "description": "Percent. Not collected by the Awaiting Price form; accepted for any caller with an existing integration, but does not affect routing." },
-          "below_bottom": { "type": "boolean", "default": false, "description": "Manual flag. Only accepted when the ticket's service has a published bottom margin (LTL, B2BR) — 400 otherwise. Routes to the pricing team's head for acknowledgement, then mandatorily to PSP." },
-          "ask_psp": { "type": "boolean", "default": false, "description": "Optional — send straight to Pending PSP Approval for a non-mandatory second opinion on margin. Ignored if below_bottom already applies." }
+          "margin_pct": { "type": "number", "nullable": true, "description": "Percent. Checked against the 5A ceiling for the ticket's service and revenue band (PRICING_GUARD); a margin below the band's floor routes to the Sales Head, or to PSP where the band itself is manual-review." },
+          "discount_pct": { "type": "number", "nullable": true, "description": "Percent. The lever Sameday is capped on (20%) instead of margin; also used where a service's tier is \"standard\" (any discount at all is a breach)." },
+          "below_bottom": { "type": "boolean", "default": false, "description": "Manual flag, in addition to the computed 5A check. Only accepted when the ticket's service has a published bottom margin (LTL, B2BR) — 400 otherwise. Routes to the Sales Head for acknowledgement; PSP sign-off follows only if the ticket also carries a PSP exception (see may_go_to_psp), otherwise the Sales Head's acknowledgement is the final sign-off." }
         }
       },
       "StatusIn": {
@@ -1247,7 +1248,11 @@
         "required": ["approve"],
         "properties": {
           "approve": { "type": "boolean" },
-          "note": { "type": "string", "nullable": true, "description": "Required when rejecting" }
+          "note": { "type": "string", "nullable": true, "description": "Required when rejecting, or when a PNS Head is deciding on PSP's behalf (pspOverride)" },
+          "price_file": { "type": "string", "nullable": true, "description": "Human label for PSP's own pricing figure. Only written if price_file or price_url is given; leave both blank to decide on whatever is already attached." },
+          "price_url": { "type": "string", "nullable": true, "description": "Link to PSP's own pricing spreadsheet. Must be http(s); same validation as POST .../price." },
+          "margin_pct": { "type": "number", "nullable": true, "description": "Percent. Overwrites the ticket's margin if given; does not affect routing here, PSP's decision is already the manual-review outcome." },
+          "discount_pct": { "type": "number", "nullable": true, "description": "Percent. Overwrites the ticket's discount if given." }
         }
       },
       "Capa": {

@@ -505,7 +505,14 @@ export default function TicketDetail({ ticketRef: initialRef, me, notify, onBack
 
           {tab === "pricing" && (
             <dl>
-              <Row label="Rate card">{d.rate_card || "—"}</Row>
+              <Row label="Rate card">
+                {d.rate_card_url ? (
+                  <a href={d.rate_card_url} target="_blank" rel="noopener noreferrer"
+                    className="text-sky-700 underline decoration-sky-300 underline-offset-2 hover:decoration-sky-600">
+                    {d.rate_card || d.rate_card_url}
+                  </a>
+                ) : (d.rate_card || "—")}
+              </Row>
               <Row label="Priced by">{t.priced_by}</Row>
               <Row label="Price spreadsheet">
                 <PriceChip file={d.price_file} url={d.price_url} />

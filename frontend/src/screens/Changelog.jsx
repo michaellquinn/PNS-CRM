@@ -47,6 +47,42 @@ const ENTRIES = [
     ],
   },
   {
+    date: "2026-08-11",
+    title: "PSP can enter pricing on the ticket they're deciding, not just approve or reject",
+    by: "Michael + Claude",
+    changes: [
+      "PSP — Pending now has link, label, margin and discount fields, submitted in the same action as Approve or Reject. Left blank, PSP decides on whatever is already attached, unchanged. A ticket reaches PSP precisely because someone else could not price it as often as it reaches PSP to check someone else's number, and there was no way to enter the first case without a separate trip through Awaiting price.",
+      "Confirmed and left alone: for a managed account (Strategic/Hypercare), both Approve and Reject already returned the ticket to whoever priced it (Pending PNS or Pending Sales) — Approve does it via psp_ready and an explicit Submit proposal, Reject via the normal re-quote path. That part was already correct.",
+    ],
+    overruled: [],
+  },
+  {
+    date: "2026-08-11",
+    title: "Deploy collision: Baskoro's live .30 was not in GitHub and got overwritten",
+    by: "Michael + Claude",
+    changes: [
+      "Before this deploy, the live app reported build 2026-08-11.30. The newest commit in GitHub at that point was 5e163d3 (2026-08-10.28). .29 and .30 were deployed directly and never pushed, so this repo has no record of what changed in them.",
+      "Michael chose to deploy anyway rather than wait, knowing this overwrites .30 on the live app. This entry exists so that choice, and what it cost, is written down rather than silently lost — the live build number will read lower after this deploy than it did before, which is the visible sign something upstream of it was never in git.",
+      "If you are Baskoro reading this: whatever .29/.30 did on your machine still exists there. Push it as its own commit against current main so it can be reconciled and re-applied, rather than redone from memory.",
+    ],
+    overruled: [],
+  },
+  {
+    date: "2026-08-11",
+    title: "PSP entry gate closed on the forward path, Escalate as a button",
+    by: "Michael + Claude",
+    changes: [
+      "The PSP entry gate is now also enforced on POST .../status, not only on submit_price. That endpoint is what both Escalate to PSP and Send to PSP (mid-review) actually call, and it had no may_go_to_psp check at all, so either button could route any ticket to PSP with no exception recorded, the exact thing the gate exists to stop.",
+      "Escalate to PSP is a button, not a checkbox bundled into Attach price. It acts immediately, independent of whether a price is entered yet, so the ticket appears on PSP's Pending queue the moment it's clicked instead of only once someone also finishes and submits the price form.",
+      "Fixed edit-input save failing on unrelated changes: the missing-onboarding-IDs check read the merged payload, so a ticket that already had a go-live date (nearly every ticket the New Request form creates, since Sales CRM imports one too) failed to save any edit at all, a typo in the brief included, until Parent shipper ID, Shipper ID and Corporate branch ID were also filled in. It now only fires when go-live is part of the edit being made.",
+      "LTL and B2BR rate cards link to the pricing tool (web-pricing.ninjavan.apps.substrait.build), on Awaiting Price and in the ticket's Pricing tab.",
+      "Hypercare added to the New Request account-type dropdown: Hypercare, Strategic, Non-Strategic.",
+    ],
+    overruled: [
+      "The Escalate-to-PSP checkbox on Attach price, and ask_psp on POST .../price, are retired. Escalating now goes only through POST .../status, the same endpoint Send to PSP already used. Two endpoints doing the same discretionary-PSP job, gated separately, is how the gate ended up enforced on one and not the other.",
+    ],
+  },
+  {
     date: "2026-08-10",
     title: "Importer, assignment and sync sizing",
     by: "Baskoro + Claude",

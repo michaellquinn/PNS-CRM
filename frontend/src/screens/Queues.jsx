@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { api, BOTTOM_MARGIN, PENDING, PICKABLE_LOSS_REASONS, SERVICES, FTL, rp } from "../api";
+import { api, BOTTOM_MARGIN, PENDING, PICKABLE_LOSS_REASONS, SERVICES, FTL,
+         mayGoToPsp, rp } from "../api";
 import {
   Btn, Card, Confirm, Empty, Head, Pill, PriceChip, TicketCard, inputCls,
   useDirectory, usePnsTeam,
@@ -85,15 +86,25 @@ function Shell({ title, sub, right, rows, err, empty, bar, filtered, children })
 // Sameday has no rate-card link to point at, so the base rate is stated here directly
 // rather than being one more thing to look up while pricing.
 const SAMEDAY_RATE = "Regular Rp 20.000 / 5kg · Premium Rp 35.000 / 5kg";
+const WEB_PRICING_URL = "https://web-pricing.ninjavan.apps.substrait.build";
+const LINKED_SERVICES = ["LTL", "B2BR"];
 
 function RateCard({ service }) {
+  const linked = LINKED_SERVICES.includes(service);
+  const heading = <b className="underline decoration-slate-300 underline-offset-2">Rate card — {service}</b>;
   return (
     <div className="mb-3 flex items-start gap-2.5 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-[13px]">
       <span className="opacity-60">🔗</span>
       <div>
-        <b className="underline decoration-slate-300 underline-offset-2">Rate card — {service}</b>
+        {linked ? (
+          <a href={WEB_PRICING_URL} target="_blank" rel="noopener noreferrer" className="hover:no-underline">
+            {heading}
+          </a>
+        ) : heading}
         <p className="text-[11.5px] text-slate-500">
-          {service === "Sameday" ? SAMEDAY_RATE : "Build the price from the published card."}
+          {service === "Sameday" ? SAMEDAY_RATE
+            : linked ? "Opens the pricing tool in a new tab."
+            : "Build the price from the published card."}
         </p>
       </div>
     </div>
@@ -108,7 +119,6 @@ export function AwaitingPrice({ me, onOpen, notify }) {
   const [below, setBelow] = useState({});
   const [margin, setMargin] = useState({});
   const [disc, setDisc] = useState({});
-  const [askPsp, setAskPsp] = useState({});
   const [busy, setBusy] = useState(null);
   const [list, f, set, clear, patch] = useFilter(rows, { resp: "" });
 
@@ -216,15 +226,17 @@ export function AwaitingPrice({ me, onOpen, notify }) {
                 Below bottom rate ({BOTTOM_MARGIN[t.service]}% floor)
               </label>
             )}
-            {/* PSP only takes managed accounts, or a ticket the PNS Head has opened on
-                Alex's exception. Offering the checkbox otherwise invites a 400. */}
-            {me.permissions.sendToPsp && (t.acct_type === "Strategic"
-              || t.acct_type === "Hypercare" || t.psp_allowed) && (
-              <label className="flex items-center gap-2 rounded-lg bg-sky-50 px-3 py-1.5 text-[12.5px] font-medium text-sky-800">
-                <input type="checkbox" checked={!!askPsp[t.ref]}
-                  onChange={(e) => setAskPsp({ ...askPsp, [t.ref]: e.target.checked })} />
+            {/* A button, not a checkbox tied to Attach price: escalating is its own
+                immediate action, not something that only takes effect once the price
+                form is also filled in and submitted — so it shows up on PSP's Pending
+                queue the moment it's clicked, whether or not a price exists yet.
+                PSP only takes managed accounts, or a ticket the PNS Head has opened on
+                Alex's exception. Offering it otherwise invites a 400. */}
+            {me.permissions.sendToPsp && mayGoToPsp(t) && (
+              <Btn onClick={() => act(t.ref, () => api.status(t.ref,
+                { status: "Pending Review - PSP", reason: "escalated for a second opinion" }))}>
                 Escalate to PSP
-              </label>
+              </Btn>
             )}
             {/* Vendor cost is an FTL-only detour; nothing else is priced through a vendor. */}
             {me.permissions.vendorToggle && FTL.includes(t.service) && t.status !== "Pending Vendor" && (
@@ -253,7 +265,6 @@ export function AwaitingPrice({ me, onOpen, notify }) {
                   margin_pct: num(margin[t.ref]),
                   discount_pct: num(disc[t.ref]),
                   below_bottom: !!below[t.ref],
-                  ask_psp: !!askPsp[t.ref],
                 }));
               }}>
               Attach price
@@ -308,7 +319,7 @@ export function ToReview({ me, onOpen, notify }) {
             ) : (
               <span className="text-[12.5px] text-slate-500">Waiting for the PNS Head to assign a reviewer.</span>
             )}
-            {me.permissions.sendToPsp && (
+            {me.permissions.sendToPsp && mayGoToPsp(t) && (
               <Btn onClick={() => act(() => api.status(t.ref, { status: "Pending Review - PSP", reason: "sent for margin approval" }))}>
                 Send to PSP
               </Btn>
@@ -382,10 +393,32 @@ export function PspPending({ me, onOpen, notify }) {
   const [rows, err, reload] = useTickets({ status: "Pending Review - PSP" });
   const [note, setNote] = useState({});
   const [pick, setPick] = useState({});
+  const [link, setLink] = useState({});
+  const [file, setFile] = useState({});
+  const [margin, setMargin] = useState({});
+  const [disc, setDisc] = useState({});
   const people = useDirectory();
   const psp = people.filter((p) => p.group === "PSP");
   const [list, f, set, clear, patch] = useFilter(rows);
   const act = async (fn) => { try { await fn(); notify("Done"); await reload(); } catch (e) { notify(e.message); } };
+
+  // A ticket reaches PSP because someone else could not price it, or PSP is checking a
+  // figure someone else already entered — either way, the PIC's own calculation should
+  // be enterable in the same step as deciding, not a separate trip through Awaiting
+  // price first. Blank fields mean "deciding on what's already attached."
+  const pricePayload = (ref) => {
+    const url = (link[ref] || "").trim();
+    if (url && !/^https?:\/\//i.test(url)) {
+      notify("The link must start with http:// or https://");
+      return null;
+    }
+    const num = (v) => (v === "" || v == null ? null : Number(v));
+    const out = {};
+    if (url) { out.price_url = url; out.price_file = (file[ref] || "").trim() || "Pricing spreadsheet"; }
+    if (margin[ref] !== undefined && margin[ref] !== "") out.margin_pct = num(margin[ref]);
+    if (disc[ref] !== undefined && disc[ref] !== "") out.discount_pct = num(disc[ref]);
+    return out;
+  };
 
   return (
     <Shell title="Review - PSP"
@@ -425,17 +458,43 @@ export function PspPending({ me, onOpen, notify }) {
                   is recorded as an override, not as a PSP decision.
                 </p>
               )}
+              <div className="mb-2 grid grid-cols-1 gap-2 border-t border-slate-100 pt-3 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+                <input className={inputCls} type="url" inputMode="url"
+                  placeholder="Link to your pricing — https://docs.google.com/spreadsheets/…"
+                  value={link[t.ref] ?? ""} onChange={(e) => setLink({ ...link, [t.ref]: e.target.value })} />
+                <input className={inputCls} placeholder="Label (optional)"
+                  value={file[t.ref] ?? ""} onChange={(e) => setFile({ ...file, [t.ref]: e.target.value })} />
+              </div>
+              <div className="mb-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <input className={inputCls} type="number" step="0.1" min="0" max="100"
+                  placeholder="Margin % (leave blank to keep as-is)"
+                  value={margin[t.ref] ?? ""} onChange={(e) => setMargin({ ...margin, [t.ref]: e.target.value })} />
+                <input className={inputCls} type="number" step="0.1" min="0" max="100"
+                  placeholder="Discount % (leave blank to keep as-is)"
+                  value={disc[t.ref] ?? ""} onChange={(e) => setDisc({ ...disc, [t.ref]: e.target.value })} />
+              </div>
+              <p className="mb-3 text-[11px] text-slate-400">
+                Only fill these in if you're entering or correcting the figure yourself —
+                blank leaves whatever is already attached untouched.
+              </p>
               <div className="flex flex-wrap items-center gap-2">
                 <input className={`${inputCls} max-w-[320px]`}
                   placeholder={me.permissions.pspDecide
                     ? "Note (required to reject)"
                     : "Why PSP could not decide (required)"}
                   value={note[t.ref] || ""} onChange={(e) => setNote({ ...note, [t.ref]: e.target.value })} />
-                <Btn kind="danger" onClick={() => act(() => api.psp(t.ref, { approve: false, note: note[t.ref] }))}>
+                <Btn kind="danger" onClick={() => {
+                  const p = pricePayload(t.ref);
+                  if (!p) return;
+                  act(() => api.psp(t.ref, { ...p, approve: false, note: note[t.ref] }));
+                }}>
                   Reject
                 </Btn>
-                <Btn kind="primary" className="ml-auto"
-                  onClick={() => act(() => api.psp(t.ref, { approve: true, note: note[t.ref] }))}>
+                <Btn kind="primary" className="ml-auto" onClick={() => {
+                  const p = pricePayload(t.ref);
+                  if (!p) return;
+                  act(() => api.psp(t.ref, { ...p, approve: true, note: note[t.ref] }));
+                }}>
                   {me.permissions.pspDecide ? "Approve price" : "Approve on behalf of PSP"}
                 </Btn>
               </div>

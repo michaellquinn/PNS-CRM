@@ -33,7 +33,7 @@ export function NewRequest({ me, notify, onCreated }) {
   const mem = opts?.remembered || {};
 
   const rev = parseInt(String(f.revenue).replace(/\D/g, ""), 10) || 0;
-  const routed = f.acct_type === "Strategic"
+  const routed = (f.acct_type === "Strategic" || f.acct_type === "Hypercare")
     ? { by: "PNS", review: false }
     : rev >= 30000000
       ? { by: "Sales", review: true }
@@ -100,7 +100,7 @@ export function NewRequest({ me, notify, onCreated }) {
           </Field>
           <Field label="Account type" required hint="Later changes are Commercial Head only">
             <select className={inputCls} value={f.acct_type} onChange={set("acct_type")}>
-              <option>Non-Strategic</option><option>Strategic</option>
+              <option>Hypercare</option><option>Strategic</option><option>Non-Strategic</option>
             </select>
           </Field>
           <Field label="Project type" required>
