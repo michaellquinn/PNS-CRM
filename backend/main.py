@@ -502,9 +502,11 @@ def can(u: User, action: str, t: dict | None = None) -> bool:
         # it stays with one named owner, otherwise the same sync returns different
         # results depending on who pressed the button.
         "syncSalesCrm":     u.email.lower() == SYNC_OWNER_EMAIL or admin,
-        # PSP has no staff/head split: any PSP member assigns a ticket to themselves
-        # or a teammate, same as any PSP member may approve or reject.
-        "pspAssign":        u.group == "PSP" or admin,
+        # PSP works one shared, unassigned queue. There is no PIC: naming one only
+        # created a second question ("who has this?") on top of the one that matters
+        # ("has it been decided?"), and any PSP member may decide any ticket anyway.
+        # Kept declared so /api/me keeps sending it while the UI is retired.
+        "pspAssign":        False,
         # Only the PNS Head may open a non-managed ticket to PSP, and only on an
         # exception Alex granted verbatim. See allow_psp.
         "allowPsp":         pns_head,
@@ -726,7 +728,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-08-11.33"
+BUILD = "2026-08-11.34"
 
 
 class Me(BaseModel):
@@ -771,6 +773,9 @@ class Ticket(BaseModel):
     # The number a salesperson actually has in front of them. Blank on a ticket raised
     # by hand in this app, which is how you tell the two apart in a list.
     opportunity_id: str | None = None
+    # The onboarding facts, so the Onboarding screens can list them without a request
+    # per ticket. Keys match the intake payload.
+    input: dict = {}
 
 
 class TicketList(BaseModel):
@@ -909,6 +914,10 @@ def shape(t: dict, u: User) -> Ticket:
         psp_decision=t.get("psp_decision"),
         stage=t.get("stage"),
         opportunity_id=(str(t["opportunity_id"]) if t.get("opportunity_id") else None),
+        input={k: v for k, v in (
+            ("golive", t.get("ob_golive")), ("shipperId", t.get("ob_shipper_id")),
+            ("parentShipperId", t.get("ob_parent_id")), ("branchId", t.get("ob_branch_id")),
+        ) if v and v != "null"},
     )
     # Margin is restricted at the API, not by hiding a column in the UI.
     if can(u, "seeMargin") and t.get("margin_pct") is not None:
@@ -933,15 +942,27 @@ async def list_tickets(
     awaiting: bool = False,
     mine: bool = False,
     psp_reviewed: bool = False,
+    # Onboarding, which is a different job from solutioning and gets its own screens.
+    #   onboarding=ready   won, but still missing a shipper ID or a go-live date
+    #   onboarding=live    won and both filled in — Ops can act on it
+    onboarding: str | None = None,
 ):
     sql = ("SELECT t.*, s.name AS shipper, s.acct_type, p.margin_pct, p.price_file, p.price_url, "
            "(SELECT COUNT(*) FROM ticket_comments c WHERE c.ticket_id=t.id "
            "AND c.is_question=1 AND c.resolved_at IS NULL) AS open_q, "
            "(SELECT a.decision FROM approvals a WHERE a.ticket_id=t.id AND a.kind='psp' "
            "ORDER BY a.decided_at DESC LIMIT 1) AS psp_decision, "
-           "TIMESTAMPDIFF(DAY, t.status_since, NOW()) AS sla_days_db "
+           "TIMESTAMPDIFF(DAY, t.status_since, NOW()) AS sla_days_db, "
+           # The four onboarding facts, read straight out of the intake payload. They
+           # travel on every row because the Onboarding screens are lists, and fetching
+           # each ticket individually to find a go-live date would be a request per row.
+           "JSON_UNQUOTE(JSON_EXTRACT(i.payload,'$.golive')) AS ob_golive, "
+           "JSON_UNQUOTE(JSON_EXTRACT(i.payload,'$.shipperId')) AS ob_shipper_id, "
+           "JSON_UNQUOTE(JSON_EXTRACT(i.payload,'$.parentShipperId')) AS ob_parent_id, "
+           "JSON_UNQUOTE(JSON_EXTRACT(i.payload,'$.branchId')) AS ob_branch_id "
            "FROM tickets t JOIN shippers s ON s.id=t.shipper_id "
            "LEFT JOIN pricing p ON p.ticket_id=t.id "
+           "LEFT JOIN ticket_input i ON i.ticket_id=t.id "
            "WHERE t.deleted_at IS NULL")
     args: list = []
 
@@ -989,6 +1010,17 @@ async def list_tickets(
         else:
             marks = ",".join(["%s"] * len(stage.split(",")))
             sql += f" AND t.stage IN ({marks})"; args += stage.split(",")
+    if onboarding:
+        # Onboarding starts where solutioning ends: an accepted proposal. What separates
+        # "ready to onboard" from "handed over" is whether Sales has supplied the two
+        # facts Ops cannot work without — the shipper ID and the go-live date. Both live
+        # in the intake payload, so they are read with JSON_EXTRACT rather than columns.
+        sql += " AND t.status=%s"; args.append("Proposal Accepted / Ready to Ship")
+        have = ("(JSON_UNQUOTE(JSON_EXTRACT(i.payload,'$.shipperId')) NOT IN ('','null') "
+                "AND JSON_UNQUOTE(JSON_EXTRACT(i.payload,'$.golive')) NOT IN ('','null') "
+                "AND JSON_EXTRACT(i.payload,'$.shipperId') IS NOT NULL "
+                "AND JSON_EXTRACT(i.payload,'$.golive') IS NOT NULL)")
+        sql += f" AND {'' if onboarding == 'live' else 'NOT '}{have}"
     if acct_type:
         # The tier (Strategic/Hypercare/Non-Strategic) — imported from the Sales CRM
         # account group's customer_success_manager field, correctable in-app.
@@ -1871,11 +1903,25 @@ async def submit_price(ref: str, body: PriceIn, u: User = Depends(current_user))
         await notify(f"{ref}, price attached by {u.name}; needs PSP approval ({g['why']})",
                      groups=["PSP"], ticket_ref=ref)
     elif breach or body.below_bottom:
-        nxt, note = "Pending Review - Head Sales", g["why"] or "flagged below bottom rate"
+        # Below the floor. PSP first, the Sales Head last (Baskoro, 2026-08-11): the
+        # Head is being asked to accept a commercial concession, and that question is
+        # only worth asking once PSP has said the margin is survivable. Asking the Head
+        # first meant they signed off on numbers PSP might still reject, and then had to
+        # be told the deal changed. Where PSP does not take the ticket at all, the Head
+        # is the only gate and it goes straight to them.
         await execute("UPDATE tickets SET below_bottom=1 WHERE id=%s", (t["id"],))
-        await notify(f"{ref}, price attached by {u.name} and flagged BELOW BOTTOM RATE"
-                     f" ({g['why']})",
-                     roles=[f"{head_for(t)} - Head"], ticket_ref=ref)
+        if may_go_to_psp(t):
+            nxt = "Pending Review - PSP"
+            note = (g["why"] or "flagged below bottom rate") + " — PSP first, then the Sales Head"
+            await notify(f"{ref}, {t['shipper']}: BELOW BOTTOM RATE ({g['why']}), "
+                         f"priced by {u.name}. PSP decides the margin first.",
+                         groups=["PSP"], ticket_ref=ref)
+        else:
+            nxt = "Pending Review - Head Sales"
+            note = g["why"] or "flagged below bottom rate"
+            await notify(f"{ref}, price attached by {u.name} and flagged BELOW BOTTOM RATE"
+                         f" ({g['why']}); no PSP route, so this is yours to accept or refuse",
+                         roles=[f"{head_for(t)} - Head"], ticket_ref=ref)
     elif needs_pns_review(t):
         nxt, note = "Pending Review - Head PNS", ""
         # Non-managed at or above 30 Mio is the routine band, so it goes straight to the
@@ -2169,23 +2215,15 @@ async def reopen(ref: str, body: ReopenIn, u: User = Depends(current_user)):
 
 @app.post("/api/tickets/{ref}/head-ack", response_model=Ok)
 async def head_ack(ref: str, u: User = Depends(current_user)):
-    """The Sales Head acknowledges a below-bottom price. Where it goes next depends on
-    whether the ticket is allowed into PSP's queue.
-
-    For a managed account, or one the PNS Head has opened on Alex's exception, the
-    acknowledgement is visibility and PSP still signs off the margin. For everything
-    else the Sales Head IS the sign-off, because PSP does not review deals that carry
-    no exception."""
+    """The Sales Head accepts a below-bottom price. This is now the LAST gate on that
+    path, not the first: PSP has already ruled on the margin where PSP takes the ticket
+    at all, so what the Head is signing is the commercial concession itself, with the
+    margin question already settled. Sales owns that concession, which is why it ends
+    here rather than with PNS or PSP."""
     t = await get_ticket(ref)
     require(u, "headAck", t)   # the Sales Head: Sales owns the commercial concession
-    if may_go_to_psp(t):
-        nxt, note = "Pending Review - PSP", "below bottom rate acknowledged, sent to PSP"
-        await notify(f"{ref}, {t['shipper']}: below-bottom price acknowledged by "
-                     f"{u.name}, needs your margin sign-off",
-                     groups=["PSP"], ticket_ref=ref)
-    else:
-        nxt = "Pending Review - Head PNS" if needs_pns_review(t) else proposal_or_signoff(t)
-        note = "below bottom rate acknowledged by the Sales Head"
+    nxt = "Pending Review - Head PNS" if needs_pns_review(t) else proposal_or_signoff(t)
+    note = "below bottom rate accepted by the Sales Head"
     await log_status(t["id"], nxt, u.name, note)
     await execute("INSERT INTO approvals (ticket_id, kind, decision, actor, actor_role) "
                   "VALUES (%s,'head_ack','approved',%s,%s)", (t["id"], u.name, u.group))
@@ -2540,10 +2578,21 @@ async def psp_decide(ref: str, body: PspIn, u: User = Depends(current_user)):
 
     ready_to_submit = False
     if body.approve:
-        # A ticket can reach PSP three ways: mandatory after a below-bottom head
-        # acknowledgement, an optional early send from Awaiting price, or an optional
-        # send from mid-review.
-        if t["status"] == "Pending Review - Head PNS":
+        # A ticket can reach PSP three ways: automatically when a price lands below the
+        # floor, an optional early send from Awaiting price, or an optional send from
+        # mid-review.
+        #
+        # Below-bottom now goes to the Sales Head *after* PSP, not before. PSP has ruled
+        # on whether the margin is survivable; what remains is whether Sales will wear
+        # the concession, and that is the Head's to answer with the margin settled.
+        acked = await q("SELECT 1 AS n FROM approvals WHERE ticket_id=%s "
+                        "AND kind='head_ack' LIMIT 1", (t["id"],), one=True)
+        if t.get("below_bottom") and not acked:
+            nxt = "Pending Review - Head Sales"
+            await notify(f"{ref}, {t['shipper']}: PSP approved the margin on a "
+                         f"below-bottom price. Yours to accept as the final gate.",
+                         roles=[f"{head_for(t)} - Head"], ticket_ref=ref)
+        elif t["status"] == "Pending Review - Head PNS":
             # PNS was already reviewing when it went to PSP, so that review still counts.
             nxt = proposal_or_signoff(t)
         elif needs_pns_review(t):

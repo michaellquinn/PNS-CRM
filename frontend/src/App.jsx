@@ -10,6 +10,7 @@ import Mine from "./screens/Mine";
 import Sync from "./screens/Sync";
 import Changelog from "./screens/Changelog";
 import Guide from "./screens/Guide";
+import { Onboarding, ToHandOver } from "./screens/Onboarding";
 import { NewRequest, NewCapa } from "./screens/Forms";
 import {
   AwaitingPrice, ToReview, HeadReview, PspPending, PspFinished, ExecSignoff,
@@ -52,6 +53,15 @@ const NAV = [
     { id: "workload", label: "Workload", icon: "◴", when: (m) => m.permissions.assign,
       keywords: "pns capacity assignment" },
     { id: "sync", label: "Sales CRM sync", icon: "⇄", when: (m) => m.permissions.syncSalesCrm },
+  ]],
+  // Onboarding is deliberately its own section, not a step inside Solutioning:
+  // solutioning ends when the shipper accepts, and what follows asks a different
+  // question of different people. Ops read it; Sales complete it.
+  ["Onboarding", [
+    { id: "handover", label: "To hand over", icon: "⇥",
+      keywords: "shipper id go live missing onboarding handover" },
+    { id: "onboarding", label: "Onboarding", icon: "◉",
+      keywords: "go live ops kick off onboarding schedule" },
   ]],
   ["CAPA", [
     { id: "capa-all", label: "All CAPA", icon: "▤", when: works },
@@ -351,6 +361,8 @@ export default function App() {
     "capa-closed": <Capa view="closed" me={me} notify={notify} onRaise={() => go("capa-raise")} />,
     "capa-raise": <NewCapa notify={notify} onCreated={() => go("capa-all")} />,
     guide: <Guide onGo={go} />,
+    handover: <ToHandOver me={me} notify={notify} onOpen={open} />,
+    onboarding: <Onboarding onOpen={open} />,
     matrix: <Matrix />,
     changelog: <Changelog />,
     users: <Users me={me} notify={notify} />,

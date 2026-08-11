@@ -78,7 +78,6 @@ export default function TicketDetail({ ticketRef: initialRef, me, notify, onBack
   const [pspNote, setPspNote] = useState("");
   const opts = useOptions();
   const team = usePnsTeam();
-  const psp = useDirectory().filter((x) => x.group === "PSP").map((x) => x.name);
 
   const loadList = () => api.tickets({}).then((x) => setAll(x.tickets)).catch(() => {});
   useEffect(() => { loadList(); }, []);
@@ -218,7 +217,6 @@ export default function TicketDetail({ ticketRef: initialRef, me, notify, onBack
             ? <> &middot; PNS <b>{t.owner}</b></>
             : <> &middot; <span className="font-semibold text-amber-600">PNS unassigned</span></>}
           {t.reviewer && <> &middot; reviewer {t.reviewer}</>}
-          {t.psp_assignee && <> &middot; PSP {t.psp_assignee}</>}
         </span>
       </div>
 
@@ -236,7 +234,7 @@ export default function TicketDetail({ ticketRef: initialRef, me, notify, onBack
       )}
 
       {/* ---------------------------------------------------------------- actions */}
-      {(p.assign || p.assignReviewer || p.setSales || p.pspAssign || (closed && p.reopen)) && (
+      {(p.assign || p.assignReviewer || p.setSales || (closed && p.reopen)) && (
         <Card className="mb-4 p-4">
           <div className="mb-3 text-[10.5px] font-bold uppercase tracking-wider text-slate-400">
             Ownership
@@ -258,12 +256,6 @@ export default function TicketDetail({ ticketRef: initialRef, me, notify, onBack
               <Assigner label="Sales PIC" current={t.sales} options={opts?.sales || []} busy={busy}
                 allowClear={false} hint="Commercial Head can hand the ticket to another salesperson."
                 onSet={(v) => run(() => api.setSales(ref, v), `${ref} reassigned to ${v}`)} />
-            )}
-            {p.pspAssign && (
-              <Assigner label="PSP PIC" current={t.psp_assignee} options={psp} busy={busy}
-                hint="Any PSP member can take any ticket — no head/staff split in PSP."
-                onSet={(v) => run(() => api.pspAssign(ref, v),
-                  v ? `${ref} assigned to ${v}` : "PSP PIC cleared")} />
             )}
             {/* The one-off Alex grants in a meeting. Only the PNS Head sees this, and
                 only on a ticket that does not already carry the exception. */}

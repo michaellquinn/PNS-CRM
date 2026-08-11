@@ -3,7 +3,7 @@ import { api, BOTTOM_MARGIN, PENDING, PICKABLE_LOSS_REASONS, SERVICES, FTL,
          mayGoToPsp, rp } from "../api";
 import {
   Btn, Card, Confirm, Empty, Head, Pill, PriceChip, TicketCard, inputCls,
-  useDirectory, usePnsTeam,
+  usePnsTeam,
 } from "../ui";
 
 function useTickets(filters, dep = []) {
@@ -392,13 +392,10 @@ export function HeadReview({ me, onOpen, notify }) {
 export function PspPending({ me, onOpen, notify }) {
   const [rows, err, reload] = useTickets({ status: "Pending Review - PSP" });
   const [note, setNote] = useState({});
-  const [pick, setPick] = useState({});
   const [link, setLink] = useState({});
   const [file, setFile] = useState({});
   const [margin, setMargin] = useState({});
   const [disc, setDisc] = useState({});
-  const people = useDirectory();
-  const psp = people.filter((p) => p.group === "PSP");
   const [list, f, set, clear, patch] = useFilter(rows);
   const act = async (fn) => { try { await fn(); notify("Done"); await reload(); } catch (e) { notify(e.message); } };
 
@@ -422,33 +419,17 @@ export function PspPending({ me, onOpen, notify }) {
 
   return (
     <Shell title="Review - PSP"
-      sub="PSP reviews the margin and approves or rejects. Mandatory for anything below the product bottom margin (after the Head acknowledges it); anyone can also ask for a second opinion from Awaiting price. Any PSP member can take any ticket — there's no head/staff split here."
+      sub="One shared queue, nobody assigned. PSP reviews the margin and approves or rejects; any PSP member may decide any ticket. A below-floor price lands here FIRST — PSP settles whether the margin is survivable, then the Sales Head decides whether Sales will wear the concession."
       rows={rows} err={err} empty="Nothing awaiting price approval."
       bar={<FilterBar f={f} set={set} clear={clear} patch={patch} me={me}
         shown={list.length} total={(rows || []).length} />}
       filtered={list}>
       {(list) => list.map((t) => (
         <TicketCard key={t.ref} t={t} onOpen={onOpen}
-          badges={[t.psp_assignee && <Pill key="pic" tone="bg-amber-50 text-amber-700">PIC: {t.psp_assignee}</Pill>].filter(Boolean)}>
+>
           {(t.price_file || t.price_url) && <p className="mb-2 text-[13px]"><PriceChip file={t.price_file} url={t.price_url} /></p>}
           {t.margin != null && (
             <p className="mb-3 text-[13px]">Margin: <b className="font-mono">{t.margin}%</b></p>
-          )}
-          {me.permissions.pspAssign && (
-            <div className="mb-3 flex flex-wrap items-center gap-2 border-b border-slate-100 pb-3">
-              <select className={`${inputCls} max-w-[190px]`}
-                value={pick[t.ref] ?? t.psp_assignee ?? ""}
-                onChange={(e) => setPick({ ...pick, [t.ref]: e.target.value })}>
-                <option value="">Unassigned</option>
-                {psp.map((p) => <option key={p.email} value={p.name}>{p.name}</option>)}
-              </select>
-              <Btn onClick={() => act(() => api.pspAssign(t.ref, pick[t.ref] ?? t.psp_assignee ?? ""))}>
-                Set PIC
-              </Btn>
-              {psp.some((p) => p.name === me.name) && t.psp_assignee !== me.name && (
-                <Btn onClick={() => act(() => api.pspAssign(t.ref, me.name))}>Assign to me</Btn>
-              )}
-            </div>
           )}
           {me.permissions.pspDecide || me.permissions.pspOverride ? (
             <>
@@ -571,7 +552,7 @@ export function PspFinished({ me, onOpen }) {
 
   return (
     <Shell title="Review - PSP, decided"
-      sub="Every ticket PSP has decided on, with what they decided and where it stands now — including which ones went on to win or lose."
+      sub="Everything PSP has already ruled on — approved or rejected — and where each ticket stands now, including the ones that went on to win or lose. This is PSP's history, not a queue: nothing here is waiting on anybody."
       rows={rows} err={err} empty="PSP hasn't decided on anything yet."
       bar={<FilterBar f={f} set={set} clear={clear} patch={patch} me={me}
         shown={list.length} total={(rows || []).length} />}
@@ -584,7 +565,6 @@ export function PspFinished({ me, onOpen }) {
                 PSP {t.psp_decision}
               </Pill>
             ),
-            t.psp_assignee && <Pill key="pic" tone="bg-amber-50 text-amber-700">PIC: {t.psp_assignee}</Pill>,
           ].filter(Boolean)}>
           {(t.price_file || t.price_url) && <p className="text-[13px]"><PriceChip file={t.price_file} url={t.price_url} /></p>}
           {t.margin != null && (

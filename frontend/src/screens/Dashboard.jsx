@@ -140,6 +140,10 @@ export default function Dashboard({ me, onOpen }) {
   };
   const tileOn = (status) => f.status.length === 1 && f.status[0] === status;
 
+  // Margin is deliberately NOT a dashboard column: the board is for finding and
+  // triaging work, and a margin figure sitting in a list invites screenshots. It stays
+  // on the ticket's Pricing tab, still behind seeMargin. The CSV keeps it for the roles
+  // allowed to see it, because that is an export someone asked for by name.
   const canSeeMargin = me.permissions.seeMargin;
 
   // key is what the row is sorted by; label is the header. Order matches how the team
@@ -154,7 +158,6 @@ export default function Dashboard({ me, onOpen }) {
     ["status", "Status"],
     ["stage", "Sales CRM"],
     ["sla_elapsed", "Days active"],
-    canSeeMargin && ["margin", "Margin", "right"],
     ["owner", "PNS PIC"],
     ["sales", "Sales PIC"],
   ].filter(Boolean);
@@ -422,11 +425,6 @@ export default function Dashboard({ me, onOpen }) {
                   <td className="whitespace-nowrap px-4 py-3.5">
                     <Sla elapsed={t.sla_elapsed} target={t.sla_target} />
                   </td>
-                  {canSeeMargin && (
-                    <td className="whitespace-nowrap px-4 py-3.5 text-right font-mono tabular-nums">
-                      {t.margin == null ? "—" : `${t.margin}%`}
-                    </td>
-                  )}
                   <td className="whitespace-nowrap px-4 py-3.5 text-slate-600">
                     {t.owner || <span className="font-semibold text-amber-600">unassigned</span>}
                   </td>
