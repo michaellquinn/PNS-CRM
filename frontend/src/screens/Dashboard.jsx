@@ -35,7 +35,7 @@ const TILES = [
   ["Pending Review - PSP", "margin sign-off"],
   ["Pending Review - C-level", "Alex + Dhinesh"],
   ["Proposal Submitted", "out with the shipper"],
-  ["Proposal Accepted / Ready to Ship", "won — to Legal, then Ops"],
+  ["Proposal Accepted / Ready to Ship", "won — hand over to Ops"],
   ["Lost", "with a stated reason"],
 ];
 

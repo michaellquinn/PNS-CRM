@@ -33,7 +33,7 @@ const TASKS = [
     who: "Anyone",
     go: "matrix",
     steps: [
-      "Below the tier floor → Pending Review - Head Sales. The Sales Head acknowledges the concession, whoever typed the number.",
+      "Below the tier floor → Pending Review - PSP first, then Pending Review - Head Sales. PSP settles whether the margin is survivable; the Sales Head then decides whether Sales will wear the concession. Where PSP does not take the ticket, it goes straight to the Sales Head and they are the only gate.",
       "Sales priced it and it is at or above Rp 30 Mio (non-managed) → Pending Review - Head PNS.",
       "Managed account, Sameday discount over 20%, FTL at or above Rp 30 Mio, or an escalation → Pending Review - PSP.",
       "Hypercare or Strategic, after every other gate → Pending Review - C-level (Alex and Dhinesh).",
@@ -45,8 +45,8 @@ const TASKS = [
     who: "Sales Head (PNS Head during the pilot)",
     go: "head",
     steps: [
-      "Open Sales Head review. Each card shows the submitted margin and the attached spreadsheet.",
-      "Acknowledge — send to PSP if you accept the concession. If the ticket carries no PSP route, your acknowledgement is the sign-off and the proposal is released.",
+      "Open Review - Head Sales. Each card shows the submitted margin and the attached spreadsheet. If the ticket went through PSP, they have already approved the margin — what is left is the commercial concession.",
+      "Acknowledge to release it. This is the last gate on that path, so the proposal goes out (or to C-level sign-off on a managed account).",
       "Or type a note and Send back, which returns it to whoever priced it with your reason attached.",
     ],
   },
@@ -55,7 +55,7 @@ const TASKS = [
     who: "PSP; the PNS Head may decide in PSP's place",
     go: "psp-pending",
     steps: [
-      "Open PSP approval. Set yourself as PIC if you are taking it — any PSP member can take any ticket.",
+      "Open Review - PSP. It is one shared queue with nobody assigned — any PSP member decides any ticket. Switch to Already decided for PSP's history.",
       "Approve price releases it; Reject needs a note and sends it back to the pricer.",
       "If you are the PNS Head deciding because PSP is unavailable, the note is mandatory and the decision is recorded as an override, never as a PSP decision.",
     ],
@@ -67,7 +67,7 @@ const TASKS = [
     steps: [
       "PSP only takes managed accounts, unless Alex (CSO) granted a one-off exception.",
       "Open the ticket, find PSP exception request in the Ownership panel, and type what Alex granted and where.",
-      "Open to PSP records the exception without moving the ticket. Open & send now does both in one step.",
+      "One button: Send to PSP on this exception. It records what Alex granted and moves the ticket in the same action.",
     ],
   },
   {
@@ -76,7 +76,7 @@ const TASKS = [
     go: "proposals",
     steps: [
       "Open Proposal submitted and find the ticket.",
-      "Proposal accepted moves it to Ready to Ship, where Legal picks up the contract.",
+      "Proposal accepted moves it to Ready to Ship, and the deal appears under Onboarding once Sales adds the shipper ID and go-live date.",
       "For a loss, choose the reason from the dropdown — the reason is what makes the win-rate number mean anything.",
       "Changed your mind, or the shipper came back? Reopen a lost or cancelled deal from the ticket itself; any salesperson can.",
     ],
@@ -86,9 +86,29 @@ const TASKS = [
     who: "PNS Head (PNS side) · Sales Head or Sales Manager (Sales PIC)",
     go: null,
     steps: [
-      "Open the ticket. The Ownership panel holds every assignment: PNS owner, price reviewer, Sales PIC and PSP PIC.",
+      "Open the ticket. The Ownership panel holds PNS owner, PNS price reviewer and Sales PIC. PSP has no PIC — it works one shared queue.",
       "Workload shows how loaded each PNS member is. The auto-assigner caps everyone at 10 tickets at Pending PNS; past that a ticket stays unassigned and the Head is notified.",
       "Every list shows PNS unassigned in amber when nobody owns a ticket.",
+    ],
+  },
+  {
+    q: "What is a PNS price reviewer, and is that PSP?",
+    who: "Anyone",
+    go: "review",
+    steps: [
+      "No — the price reviewer is a PNS colleague, not PSP. When SALES builds a price on a non-managed deal at or above Rp 30 Mio, a second pair of PNS eyes checks it before it reaches the shipper. That is the reviewer.",
+      "PSP is a different question entirely: is this margin acceptable to the business. PSP never reviews the workings, only the number.",
+      "Reviews are now delegated automatically to a standing reviewer rather than queueing for the PNS Head, and any PNS member can claim one themselves from the ticket.",
+    ],
+  },
+  {
+    q: "I want to hand a won deal to Ops",
+    who: "Sales, then PNS",
+    go: "handover",
+    steps: [
+      "Open To hand over under Onboarding. It lists every accepted deal that Ops cannot start yet.",
+      "Fill in the shipper ID and go-live date inline — parent shipper ID and branch ID too if you have them — and save. The ticket moves to Onboarding, sorted by go-live date.",
+      "Then open the ticket and press Send Kick-off to PNS, Sales & Ops. That email carries no pricing at all and points back at the Charter as the source of truth.",
     ],
   },
   {
@@ -117,8 +137,8 @@ const TASKS = [
     go: null,
     steps: [
       "Open the ticket, Project Charter tab. It is generated from the intake and never carries cost or margin.",
-      "Sections 1–3 are the charter itself (solutioning). Section 4 is Kick-off: go-live date and the account-system IDs Ops needs to onboard.",
-      "Copy for email puts it on the clipboard as a formatted table. Send to Legal & Sales Admin publishes it and records who received it — it stays disabled until the intake is cleared.",
+      "Sections 1–3 are the charter itself (solutioning), tagged Charter. Section 4 is tagged Kick-off: the go-live date and the account-system IDs Ops need.",
+      "Copy for email puts it on the clipboard as a formatted table. Send Charter to PNS & Sales publishes it and records who received it — it stays disabled until the intake is cleared. Once the shipper accepts, a second button sends the Kick-off to PNS, Sales and Ops; that one carries no pricing at all.",
     ],
   },
   {

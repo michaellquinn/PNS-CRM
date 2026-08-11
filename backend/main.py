@@ -384,14 +384,18 @@ class User(BaseModel):
     sso: bool = False        # True when identity came from the proxy, not DEV_USER_EMAIL
 
 
-# Commercial is Sales. Legal, Finance, Sales Planning and Visitor are read-mostly
-# audiences: they consume the charter and the pipeline rather than acting on tickets,
-# so they get no mutating permission at all, see can() below.
-ROLE_GROUPS = ["Commercial", "PNS", "PSP", "Legal", "Finance", "Sales Planning",
+# Commercial is Sales. Visitor, Finance and Sales Planning are read-mostly audiences:
+# they consume the charter and the pipeline rather than acting on tickets, so they get
+# no mutating permission at all, see can() below.
+#
+# Legal folded into Visitor on 2026-08-11 (V17): the two were one role under two names,
+# and choosing between them was a question with no consequence. Ops arrived at the same
+# time — they receive the Kick-off, and without a group there was no list to send it to.
+ROLE_GROUPS = ["Commercial", "PNS", "PSP", "Ops", "Finance", "Sales Planning",
                "CSO", "QC", "Visitor", "Admin"]
-# Legal, Finance and Visitor look and never touch. Sales Planning is different: they
+# Visitor, Finance and Ops look and never touch. Sales Planning is different: they
 # correct what Sales submitted, so they get the intake edit and nothing else.
-READ_ONLY_GROUPS = ("Legal", "Finance", "Visitor")
+READ_ONLY_GROUPS = ("Visitor", "Finance", "Ops")
 # "manager" exists for Commercial: a Sales Manager may reassign the Sales PIC, same as
 # the Sales Head, and nothing else beyond staff. Other groups have no manager tier.
 ROLE_LEVELS = ["staff", "manager", "head"]
@@ -728,7 +732,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-08-11.34"
+BUILD = "2026-08-11.35"
 
 
 class Me(BaseModel):
@@ -2007,7 +2011,7 @@ async def change_status(ref: str, body: StatusIn, u: User = Depends(current_user
     elif nxt == "Proposal Accepted / Ready to Ship":
         await execute("UPDATE tickets SET outcome='accepted' WHERE id=%s", (t["id"],))
         await notify(f"{ref}, {t['shipper']} ACCEPTED. Contract needed.",
-                     groups=["Legal", "PNS", "Commercial"], ticket_ref=ref)
+                     groups=["PNS", "Commercial", "Ops"], ticket_ref=ref)
     elif nxt == "Pending Review - PSP":
         await notify(f"{ref}, {t['shipper']}: sent to PSP for a margin check by {u.name}",
                      groups=["PSP"], ticket_ref=ref)
@@ -2268,22 +2272,27 @@ async def allow_psp(ref: str, body: AllowPspIn, u: User = Depends(current_user))
 # and this one is what gets emailed. Keep the two in step: a charter that reads
 # differently depending on whether it was pasted or sent is worse than either alone.
 CHARTER_SECTIONS = [
+    # Invoicing PIC and its contact were dropped on 2026-08-11: billing never used them.
+    # The Salesforce/Jira id fields went with them — they were three names for the one
+    # Sales CRM opportunity id, which the ticket already carries as a column and shows
+    # as CRM ID. Three places to type the same number is three places to mistype it.
     ("1 Â· Shipper profile", [
         ("shipper", "Shipper name"), ("shipperStatus", "Status"), ("brief", "Brief summary"),
         ("shipperPic", "Shipper PIC"), ("shipperContact", "Contact shipper PIC"),
-        ("invPic", "Invoicing PIC"), ("invContact", "Contact invoicing PIC"),
         ("invAddr", "Invoicing address"), ("pickPic", "Pickup PIC"),
         ("pickContact", "Contact pickup PIC"), ("pickup", "Pickup address"),
         ("dest", "Destination"), ("freq", "Shipment frequency"), ("volume", "Shipment volume"),
-        ("pickSlot", "Pickup time"), ("pickWait", "Pickup waiting time"),
-        ("delSlot", "Delivery time"), ("delWait", "Delivery waiting time"),
-        ("sfid", "Salesforce Opportunity ID"), ("jiraId", "Jira ID"),
     ]),
     ("2 Â· Cargo knowledge", [
         ("commodity", "Product"), ("product", "Specific product"), ("dim", "Dimension"),
         ("wt", "Weight (kg)"), ("pallet", "Palletized"),
     ]),
+    # Pickup and delivery windows live here, with the rest of the service Ninja commits
+    # to, rather than up in the shipper's profile: a waiting time is something Ninja
+    # performs and is costed on, not a fact about the shipper.
     ("3 Â· Ninja's service", [
+        ("pickSlot", "Pickup time"), ("pickWait", "Pickup waiting time"),
+        ("delSlot", "Delivery time"), ("delWait", "Delivery waiting time"),
         ("destType", "Delivery destination type"), ("sla", "SLA"), ("mps", "MPS"),
         ("rdo", "RDO"), ("cod", "COD"), ("tkbmO", "TKBM origin"), ("tkbmD", "TKBM destination"),
         ("ins", "Insurance"), ("truck", "Vehicle request"),
@@ -2329,8 +2338,13 @@ def _charter_value(key: str, raw) -> str:
     return s
 
 
-def render_charter(t: dict, inp: dict, extras: list[tuple[str, str]]) -> tuple[str, str]:
-    """Build the charter as (html, plain text). No cost, no margin, ever."""
+def render_charter(t: dict, inp: dict, extras: list[tuple[str, str]],
+                   sections: list[str] | None = None,
+                   title: str = "Project Charter") -> tuple[str, str]:
+    """Build the charter as (html, plain text). No cost, no margin, ever.
+
+    `sections` narrows which CHARTER_SECTIONS are rendered — the Kick-off uses it to
+    carry only what Ops act on. None means all of them, which is the Charter itself."""
     esc = lambda v: (str(v if v is not None else "").replace("&", "&amp;")
                      .replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;"))
     rp = lambda n: "Rp " + f"{int(n or 0):,}".replace(",", ".")
@@ -2342,7 +2356,7 @@ def render_charter(t: dict, inp: dict, extras: list[tuple[str, str]]) -> tuple[s
             ("Sales PIC", t.get("sales_name") or ", "),
             ("PNS owner", t.get("owner_name") or "unassigned")]
 
-    rows, text = [], [f"PROJECT CHARTER, {t['shipper']}",
+    rows, text = [], [f"{title.upper()}, {t['shipper']}",
                       f"{t['ticket_ref']} Â· {t['service_type']} Â· {rp(t['potential_rev'])}", ""]
     rows.append(f'<tr><td colspan="2" style="{_CS["section"]}">Ticket</td></tr>')
     text.append("TICKET")
@@ -2352,6 +2366,8 @@ def render_charter(t: dict, inp: dict, extras: list[tuple[str, str]]) -> tuple[s
         text.append(f"{label:<28}: {value}")
 
     for section, fields in CHARTER_SECTIONS:
+        if sections is not None and section not in sections:
+            continue
         rows.append(f'<tr><td colspan="2" style="{_CS["section"]}">{esc(section)}</td></tr>')
         text += ["", section.upper()]
         for key, label in fields:
@@ -2367,7 +2383,7 @@ def render_charter(t: dict, inp: dict, extras: list[tuple[str, str]]) -> tuple[s
         text.append(f"{label:<28}: {value}")
 
     html = (f'<div><p style="font-family:Arial,Helvetica,sans-serif;font-size:17px;'
-            f'font-weight:bold;margin:0 0 2px">Project Charter &mdash; {esc(t["shipper"])}</p>'
+            f'font-weight:bold;margin:0 0 2px">{esc(title)} &mdash; {esc(t["shipper"])}</p>'
             f'<p style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#64748b;'
             f'margin:0 0 14px">{esc(t["ticket_ref"])} &middot; {esc(t["service_type"])} '
             f'&middot; {esc(rp(t["potential_rev"]))}</p>'
@@ -2381,16 +2397,16 @@ def render_charter(t: dict, inp: dict, extras: list[tuple[str, str]]) -> tuple[s
 
 
 class CharterSend(BaseModel):
-    to: list[str] = []            # extra addresses beyond Legal and the sales PIC
+    to: list[str] = []            # extra addresses beyond PNS, Sales and the sales PIC
     note: str | None = None
 
 
 @app.post("/api/tickets/{ref}/charter/send", response_model=Ok)
 async def send_charter(ref: str, body: CharterSend, u: User = Depends(current_user)):
-    """Publish the Project Charter by email to Legal, Sales Admin and the sales PIC.
+    """Publish the Project Charter by email to PNS, Sales and the sales PIC.
 
     Only once PNS has cleared the intake: the charter is the official record, and one
-    sent with gaps in it is what Legal and Sales Admin will act on regardless."""
+    sent with gaps in it is what the commercial conversation is then held against."""
     require(u, "markReviewed")
     t = await get_ticket(ref)
     if not email_configured():
@@ -2410,15 +2426,19 @@ async def send_charter(ref: str, body: CharterSend, u: User = Depends(current_us
     if t.get("exec_signoff"):
         extras.append(("Executive sign-off", f"recorded by {t.get('exec_signoff_by')}"))
 
-    # Legal and Sales Admin consume the charter; the sales PIC is copied because they
-    # own the shipper conversation that follows it.
-    legal = await q("SELECT email FROM users WHERE role_group IN ('Legal','CSO') AND active=1")
-    to = {r["email"] for r in legal} | set(body.to or [])
+    # PNS and Sales only (Baskoro, 2026-08-11). The Charter is the solutioning record —
+    # what Ninja agreed to do and at what price — and its audience is the two teams who
+    # negotiated it. Ops get the Kick-off instead, which is a different document with a
+    # different job; sending the Charter wide was how price ended up in front of people
+    # who had no use for it.
+    audience = await q("SELECT email FROM users WHERE role_group IN ('PNS','Commercial') "
+                       "AND active=1")
+    to = {r["email"] for r in audience} | set(body.to or [])
     if t.get("sales_email"):
         to.add(t["sales_email"])
     to.discard("")
     if not to:
-        raise HTTPException(400, "nobody to send to. Register Legal users or pass addresses")
+        raise HTTPException(400, "nobody to send to. Register PNS or Sales users first")
 
     html, text = render_charter(t, inp, extras)
     if body.note:
@@ -2431,6 +2451,65 @@ async def send_charter(ref: str, body: CharterSend, u: User = Depends(current_us
     await log_note(t["id"], t["status"], u.name,
                    f"charter emailed to {len(to)} recipient{'' if len(to) == 1 else 's'}")
     await audit(u.email, "charter_sent", "ticket", ref, "recipients", None, ",".join(sorted(to)))
+    return {"ok": True, "ref": ref, "status": t["status"]}
+
+
+# The Kick-off is a different document to a different audience. The Charter says what
+# Ninja sold; the Kick-off says what Ops must now run, and deliberately carries no price
+# at all — not the sheet, not the link, nothing. It cannot go out before the four
+# onboarding facts exist, because those are precisely what Ops cannot start without.
+KICKOFF_SECTIONS = ["2 Â· Cargo knowledge", "3 Â· Ninja's service",
+                    "4 Â· Kick-off — onboarding & go-live"]
+
+
+@app.post("/api/tickets/{ref}/kickoff/send", response_model=Ok)
+async def send_kickoff(ref: str, body: CharterSend, u: User = Depends(current_user)):
+    """Email the Kick-off to PNS, Sales and Ops once the deal is won and identified."""
+    require(u, "markReviewed")
+    t = await get_ticket(ref)
+    if not email_configured():
+        raise HTTPException(503, "email is not configured on this deployment")
+    if t["status"] != "Proposal Accepted / Ready to Ship":
+        raise HTTPException(409, f"{ref} is {t['status']}. The Kick-off goes out once the "
+                                 f"shipper has accepted, not before")
+
+    row = await q("SELECT payload FROM ticket_input WHERE ticket_id=%s", (t["id"],), one=True)
+    inp = (row["payload"] if isinstance((row or {}).get("payload"), dict)
+           else json.loads((row or {}).get("payload") or "{}"))
+    missing = [label for key, label in ONBOARDING_IDS.items()
+               if not str(inp.get(key) or "").strip()]
+    if not str(inp.get("golive") or "").strip():
+        missing.append("Go live date")
+    if missing:
+        raise HTTPException(409, "Ops cannot onboard without: " + ", ".join(missing))
+
+    # Ops, plus the two teams who sold it. No price section and no pricing extras.
+    people = await q("SELECT email FROM users WHERE role_group IN "
+                     "('PNS','Commercial','Ops') AND active=1")
+    to = {r["email"] for r in people} | set(body.to or [])
+    if t.get("sales_email"):
+        to.add(t["sales_email"])
+    to.discard("")
+    if not to:
+        raise HTTPException(400, "nobody to send to. Register Ops users first")
+
+    html, text = render_charter(t, inp, [], sections=KICKOFF_SECTIONS,
+                                title="Kick-off")
+    intro = (f"{t['shipper']} goes live on {inp.get('golive')}. "
+             f"The Project Charter on ticket {ref} is the source of truth for what was "
+             f"sold; this is what Ops need to run it.")
+    html = (f'<p style="font-family:Arial,Helvetica,sans-serif;font-size:13px">'
+            f'{(body.note + "<br><br>") if body.note else ""}{intro}</p>') + html
+    text = ((body.note + "\n\n") if body.note else "") + intro + "\n\n" + text
+
+    await asyncio.to_thread(_send_sync, sorted(to),
+                            f"Kick-off - {t['shipper']} - go live {inp.get('golive')}",
+                            text, html)
+    await log_note(t["id"], t["status"], u.name,
+                   f"kick-off emailed to {len(to)} recipient"
+                   f"{'' if len(to) == 1 else 's'} (PNS, Sales, Ops)")
+    await audit(u.email, "kickoff_sent", "ticket", ref, "recipients", None,
+                ",".join(sorted(to)))
     return {"ok": True, "ref": ref, "status": t["status"]}
 
 

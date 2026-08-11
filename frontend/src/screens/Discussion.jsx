@@ -8,7 +8,8 @@ const GROUP_TONE = {
   Commercial: "bg-sky-50 text-sky-700",
   PSP: "bg-amber-50 text-amber-700",
   CSO: "bg-teal-50 text-teal-700",
-  Legal: "bg-slate-100 text-slate-600",
+  Visitor: "bg-slate-100 text-slate-600",
+  Ops: "bg-teal-50 text-teal-700",
 };
 
 const MENTION = /(@[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})/g;
@@ -118,7 +119,7 @@ export default function Discussion({ ticketRef, me, notify, onCountChange }) {
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-slate-50 px-3 py-2">
         <p className="text-[12px] text-slate-500">
           Anything the ticket does not make clear, work it out here. Every group can read
-          and post — Commercial, PNS, PSP, Legal and CSO — and the thread stays open after
+          and post — Commercial, PNS, PSP, Ops and CSO — and the thread stays open after
           a proposal is accepted, which is when the cross-department questions usually
           start.
         </p>

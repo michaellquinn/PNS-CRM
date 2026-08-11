@@ -390,7 +390,13 @@ export function HeadReview({ me, onOpen, notify }) {
 
 /* ---------------------------------------------------------------- PSP */
 export function PspPending({ me, onOpen, notify }) {
-  const [rows, err, reload] = useTickets({ status: "Pending Review - PSP" });
+  // One screen, two views. "Decided" was a second menu entry, which made PSP's history
+  // look like another queue waiting on somebody. It is the same list of tickets seen
+  // before and after the decision, so it belongs behind a toggle, not a separate page.
+  const [view, setView] = useState("pending");
+  const [rows, err, reload] = useTickets(
+    view === "pending" ? { status: "Pending Review - PSP" } : { psp_reviewed: true },
+    [view]);
   const [note, setNote] = useState({});
   const [link, setLink] = useState({});
   const [file, setFile] = useState({});
@@ -419,8 +425,23 @@ export function PspPending({ me, onOpen, notify }) {
 
   return (
     <Shell title="Review - PSP"
-      sub="One shared queue, nobody assigned. PSP reviews the margin and approves or rejects; any PSP member may decide any ticket. A below-floor price lands here FIRST — PSP settles whether the margin is survivable, then the Sales Head decides whether Sales will wear the concession."
-      rows={rows} err={err} empty="Nothing awaiting price approval."
+      sub={view === "pending"
+        ? "One shared queue, nobody assigned. PSP reviews the margin and approves or rejects; any PSP member may decide any ticket. A below-floor price lands here FIRST — PSP settles whether the margin is survivable, then the Sales Head decides whether Sales will wear the concession."
+        : "Everything PSP has already ruled on, and where each ticket stands now. History, not a queue — nothing here is waiting on anybody."}
+      right={
+        <div className="flex items-center gap-1 rounded-lg border border-slate-300 p-0.5">
+          {[["pending", "Waiting on PSP"], ["decided", "Already decided"]].map(([v, label]) => (
+            <button key={v} type="button" onClick={() => setView(v)} aria-pressed={view === v}
+              className={`rounded-md px-3 py-1.5 text-[12.5px] font-medium ${
+                view === v ? "bg-[#EE1B2C] text-white" : "text-slate-600 hover:bg-slate-100"}`}>
+              {label}
+            </button>
+          ))}
+        </div>
+      }
+      rows={rows} err={err}
+      empty={view === "pending" ? "Nothing awaiting price approval."
+                                : "PSP hasn't decided on anything yet."}
       bar={<FilterBar f={f} set={set} clear={clear} patch={patch} me={me}
         shown={list.length} total={(rows || []).length} />}
       filtered={list}>
@@ -431,7 +452,17 @@ export function PspPending({ me, onOpen, notify }) {
           {t.margin != null && (
             <p className="mb-3 text-[13px]">Margin: <b className="font-mono">{t.margin}%</b></p>
           )}
-          {me.permissions.pspDecide || me.permissions.pspOverride ? (
+          {view === "decided" ? (
+            <div className="flex flex-wrap items-center gap-2">
+              {t.psp_decision && (
+                <Pill tone={t.psp_decision === "approved"
+                  ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}>
+                  PSP {t.psp_decision}
+                </Pill>
+              )}
+              <span className="text-[12.5px] text-slate-500">Now: {t.status}</span>
+            </div>
+          ) : me.permissions.pspDecide || me.permissions.pspOverride ? (
             <>
               {!me.permissions.pspDecide && (
                 <p className="mb-2 rounded-lg bg-amber-50 px-3 py-2 text-[12.5px] text-amber-800">
@@ -539,37 +570,6 @@ export function ExecSignoff({ me, onOpen, notify }) {
               </Btn>
             )}
           </div>
-        </TicketCard>
-      ))}
-    </Shell>
-  );
-}
-
-/* ---------------------------------------------------------------- PSP finished */
-export function PspFinished({ me, onOpen }) {
-  const [rows, err] = useTickets({ psp_reviewed: true });
-  const [list, f, set, clear, patch] = useFilter(rows);
-
-  return (
-    <Shell title="Review - PSP, decided"
-      sub="Everything PSP has already ruled on — approved or rejected — and where each ticket stands now, including the ones that went on to win or lose. This is PSP's history, not a queue: nothing here is waiting on anybody."
-      rows={rows} err={err} empty="PSP hasn't decided on anything yet."
-      bar={<FilterBar f={f} set={set} clear={clear} patch={patch} me={me}
-        shown={list.length} total={(rows || []).length} />}
-      filtered={list}>
-      {(list) => list.map((t) => (
-        <TicketCard key={t.ref} t={t} onOpen={onOpen}
-          badges={[
-            t.psp_decision && (
-              <Pill key="d" tone={t.psp_decision === "approved" ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}>
-                PSP {t.psp_decision}
-              </Pill>
-            ),
-          ].filter(Boolean)}>
-          {(t.price_file || t.price_url) && <p className="text-[13px]"><PriceChip file={t.price_file} url={t.price_url} /></p>}
-          {t.margin != null && (
-            <p className="mt-1 text-[13px]">Margin: <b className="font-mono">{t.margin}%</b></p>
-          )}
         </TicketCard>
       ))}
     </Shell>

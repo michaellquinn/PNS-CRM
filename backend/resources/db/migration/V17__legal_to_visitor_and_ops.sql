@@ -1,0 +1,11 @@
+-- Legal folds into Visitor, and Ops becomes a group of its own (Baskoro, 2026-08-11).
+--
+-- Legal and Visitor were two names for the same thing: read everything, change nothing.
+-- Carrying both meant deciding which one a new read-only person belonged to, a question
+-- with no consequence and therefore no right answer. Visitor is the surviving name
+-- because it says what the role is rather than which department happens to hold it.
+--
+-- Ops is the opposite case: a real audience with a real need that had nowhere to sit.
+-- They receive the Kick-off, which is the document that tells them what to run, and
+-- without a group there was no list to send it to.
+UPDATE users SET role_group = 'Visitor' WHERE role_group = 'Legal';

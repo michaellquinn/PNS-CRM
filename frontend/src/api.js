@@ -74,8 +74,13 @@ export const api = {
   execSignoff: (ref, body) =>
     call(`/tickets/${ref}/exec-signoff`, { method: "POST", body: JSON.stringify(body) }),
   signoffDraft: (ref) => call(`/tickets/${encodeURIComponent(ref)}/signoff-draft`),
+  // Two documents, two audiences: the Charter goes to PNS and Sales, the Kick-off to
+  // PNS, Sales and Ops. The server owns both lists.
   sendCharter: (ref, body) =>
     call(`/tickets/${encodeURIComponent(ref)}/charter/send`,
+      { method: "POST", body: JSON.stringify(body || {}) }),
+  sendKickoff: (ref, body) =>
+    call(`/tickets/${encodeURIComponent(ref)}/kickoff/send`,
       { method: "POST", body: JSON.stringify(body || {}) }),
   workload: () => call("/workload"),
   syncSalesCrm: (body) =>

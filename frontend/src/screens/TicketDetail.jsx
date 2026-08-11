@@ -8,22 +8,27 @@ import {
   useDirectory, useOptions, usePnsTeam, refreshOptions,
 } from "../ui";
 
+// Keep in step with CHARTER_SECTIONS in the backend.
+// Invoicing PIC and its contact were dropped (billing never used them), and the
+// Salesforce/Jira id fields with them — they were three names for the one Sales CRM
+// opportunity id the ticket already carries as CRM ID.
 const SECTIONS = [
   ["1 · Shipper profile", [
     ["shipper", "Shipper name"], ["shipperStatus", "Status"], ["brief", "Brief summary"],
     ["shipperPic", "Shipper PIC"], ["shipperContact", "Contact shipper PIC"],
-    ["invPic", "Invoicing PIC"], ["invContact", "Contact invoicing PIC"],
     ["invAddr", "Invoicing address"], ["pickPic", "Pickup PIC"], ["pickContact", "Contact pickup PIC"],
     ["pickup", "Pickup address"], ["dest", "Destination"], ["freq", "Shipment frequency"],
-    ["volume", "Shipment volume"], ["pickSlot", "Pickup time"], ["pickWait", "Pickup waiting time"],
-    ["delSlot", "Delivery time"], ["delWait", "Delivery waiting time"],
-    ["sfid", "Salesforce Opportunity ID"], ["jiraId", "Jira ID"],
+    ["volume", "Shipment volume"],
   ]],
   ["2 · Cargo knowledge", [
     ["commodity", "Product"], ["product", "Specific product"],
     ["dim", "Dimension"], ["wt", "Weight (kg)"], ["pallet", "Palletized"],
   ]],
+  // Pickup and delivery windows sit here, with the rest of what Ninja commits to: a
+  // waiting time is something Ninja performs and is costed on, not a shipper attribute.
   ["3 · Ninja's service", [
+    ["pickSlot", "Pickup time"], ["pickWait", "Pickup waiting time"],
+    ["delSlot", "Delivery time"], ["delWait", "Delivery waiting time"],
     ["destType", "Delivery destination type"], ["sla", "SLA"], ["mps", "MPS"],
     ["rdo", "RDO"], ["cod", "COD"], ["tkbmO", "TKBM origin"], ["tkbmD", "TKBM destination"],
     ["ins", "Insurance"], ["truck", "Vehicle request"],
@@ -161,16 +166,31 @@ export default function TicketDetail({ ticketRef: initialRef, me, notify, onBack
     } catch (e) { notify(e.message); }
   };
 
+  // The Kick-off tells Ops what to run. It carries no price at all — not the sheet, not
+  // the link — because its audience is wider than the one that negotiated the deal.
+  const sendKickoff = async () => {
+    if (!window.confirm(
+      `Email the Kick-off for ${t.shipper} to PNS, Sales and Ops? It goes out without any `
+      + `pricing, and states the go-live date.`)) return;
+    setSending(true);
+    try {
+      await api.sendKickoff(ref);
+      notify("Kick-off sent to PNS, Sales and Ops");
+      await load();
+    } catch (e) { notify(e.message); }
+    finally { setSending(false); }
+  };
+
   // Publishing the charter is the app doing what PNS used to do by hand in Gmail. The
   // server renders and sends it so the record of who received it lives with the ticket.
   const sendCharter = async () => {
     if (!window.confirm(
-      `Email the Project Charter for ${t.shipper} to Legal, Sales Admin and ${t.sales || "the sales PIC"}?`))
+      `Email the Project Charter for ${t.shipper} to PNS, Sales and ${t.sales || "the sales PIC"}?`))
       return;
     setSending(true);
     try {
       await api.sendCharter(ref);
-      notify("Charter sent");
+      notify("Charter sent to PNS and Sales");
       await load();
     } catch (e) { notify(e.message); }
     finally { setSending(false); }
@@ -247,8 +267,8 @@ export default function TicketDetail({ ticketRef: initialRef, me, notify, onBack
                   v ? `${ref} assigned to ${v}` : "Owner cleared")} />
             )}
             {p.assignReviewer && (
-              <Assigner label="Price reviewer" current={t.reviewer} options={team} busy={busy}
-                hint="Who checks a Sales-built price before it goes out."
+              <Assigner label="PNS price reviewer" current={t.reviewer} options={team} busy={busy}
+                hint="A PNS colleague who double-checks a price SALES built, before it goes to the shipper. Not PSP — PSP judges the margin separately. Any PNS member can take one themselves."
                 onSet={(v) => run(() => api.assign(ref, { reviewer: v }),
                   v ? `${v} will review ${ref}` : "Reviewer cleared")} />
             )}
@@ -272,21 +292,17 @@ export default function TicketDetail({ ticketRef: initialRef, me, notify, onBack
                     <input className={`${inputCls} max-w-[280px]`}
                       placeholder="What Alex granted, and where (required)"
                       value={pspNote} onChange={(e) => setPspNote(e.target.value)} />
-                    {/* One toggle records the exception. The second button is the
-                        separate act of actually sending it — recording that Alex
-                        granted an exception is not the same as using it today. */}
-                    <Btn disabled={busy || !pspNote.trim()}
-                      onClick={() => run(() => api.allowPsp(ref, { allowed: true, note: pspNote }),
-                        `${ref} opened to PSP`)}>
-                      Open to PSP
-                    </Btn>
+                    {/* One button. It used to be two — record the exception, then send
+                        it — which made the reader choose between them without telling
+                        them why they would ever want the first alone. Nobody records an
+                        exception they do not intend to use, so it does both. */}
                     <Btn kind="primary" disabled={busy || !pspNote.trim()}
                       onClick={() => run(async () => {
                         await api.allowPsp(ref, { allowed: true, note: pspNote });
                         await api.status(ref, { status: "Pending Review - PSP",
                           reason: `PSP exception: ${pspNote}` });
-                      }, `${ref} opened and sent to PSP`)}>
-                      Open &amp; send now
+                      }, `${ref} sent to PSP on Alex's exception`)}>
+                      Send to PSP on this exception
                     </Btn>
                   </div>
                 ) : (
@@ -351,7 +367,16 @@ export default function TicketDetail({ ticketRef: initialRef, me, notify, onBack
                   {me.permissions.markReviewed && (
                     <Btn kind="primary" disabled={!d.input_cleared || sending}
                       onClick={sendCharter}>
-                      {sending ? "Sending…" : "Send to Legal & Sales Admin"}
+                      {sending ? "Sending…" : "Send Charter to PNS & Sales"}
+                    </Btn>
+                  )}
+                  {/* The Kick-off is the Ops handover, so it only appears once the deal
+                      is actually won. The server refuses it before that, and refuses it
+                      again if the go-live identifiers are missing. */}
+                  {me.permissions.markReviewed
+                    && t.status === "Proposal Accepted / Ready to Ship" && (
+                    <Btn kind="primary" disabled={sending} onClick={sendKickoff}>
+                      {sending ? "Sending…" : "Send Kick-off to PNS, Sales & Ops"}
                     </Btn>
                   )}
                 </div>

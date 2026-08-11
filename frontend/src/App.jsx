@@ -13,19 +13,19 @@ import Guide from "./screens/Guide";
 import { Onboarding, ToHandOver } from "./screens/Onboarding";
 import { NewRequest, NewCapa } from "./screens/Forms";
 import {
-  AwaitingPrice, ToReview, HeadReview, PspPending, PspFinished, ExecSignoff,
+  AwaitingPrice, ToReview, HeadReview, PspPending, ExecSignoff,
   Proposals, ReadyToShip, RecycleBin, Meeting,
 } from "./screens/Queues";
 
 // One nav entry per screen. `when` reads the permission map the backend sends, so the
 // sidebar and the API agree on who may do what — there is no second rule set here.
 
-// Legal, Finance, Sales Planning and Visitor consume the pipeline rather than working
+// Visitor, Finance, Sales Planning and Ops consume the pipeline rather than working
 // it. Every ticket queue is visible to everyone (Baskoro's call, 2026-08-11: anyone may
 // view active, pending and closed tickets); what stays gated per role is the buttons
 // inside each screen, and the backend refuses the action anyway. `works` now only hides
 // the working screens that make no sense read-only (My requests, Review meeting).
-const READ_ONLY = ["Legal", "Finance", "Sales Planning", "Visitor"];
+const READ_ONLY = ["Visitor", "Finance", "Sales Planning", "Ops"];
 const works = (m) => !READ_ONLY.includes(m.group);
 
 // The PSP screens live inside Solutioning — PSP approval is a step of solutioning, not
@@ -42,13 +42,11 @@ const NAV = [
     { id: "head", label: "Review - Head Sales", icon: "⚑", count: "Pending Review - Head Sales",
       keywords: "sales view head review below bottom floor" },
     { id: "psp-pending", label: "Review - PSP", icon: "✓", count: "Pending Review - PSP",
-      tag: "PSP", keywords: "psp pending margin approval" },
+      tag: "PSP", keywords: "psp pending margin approval decided finished history" },
     { id: "signoff", label: "Review - C-level", icon: "★", count: "Pending Review - C-level",
       keywords: "executive exec sign-off alex dhinesh cso coo" },
     { id: "proposals", label: "Proposal submitted", icon: "◫", count: "Proposal Submitted" },
     { id: "ship", label: "Ready to ship", icon: "➔", count: "Proposal Accepted / Ready to Ship" },
-    { id: "psp-finished", label: "Review - PSP, decided", icon: "◫", tag: "PSP",
-      keywords: "psp finished decided history" },
     { id: "meeting", label: "Review meeting", icon: "☷", when: works, keywords: "weekly agenda" },
     { id: "workload", label: "Workload", icon: "◴", when: (m) => m.permissions.assign,
       keywords: "pns capacity assignment" },
@@ -350,7 +348,6 @@ export default function App() {
     head: <HeadReview me={me} notify={notify} onOpen={open} />,
     signoff: <ExecSignoff me={me} notify={notify} onOpen={open} />,
     "psp-pending": <PspPending me={me} notify={notify} onOpen={open} />,
-    "psp-finished": <PspFinished me={me} onOpen={open} />,
     proposals: <Proposals me={me} notify={notify} onOpen={open} />,
     ship: <ReadyToShip me={me} onOpen={open} />,
     meeting: <Meeting onOpen={open} />,

@@ -8,14 +8,16 @@ const GROUP_TONE = {
   Commercial: "bg-sky-50 text-sky-700",
   PSP: "bg-amber-50 text-amber-700",
   CSO: "bg-teal-50 text-teal-700",
-  Legal: "bg-slate-100 text-slate-600",
+  Visitor: "bg-slate-100 text-slate-600",
+  Ops: "bg-teal-50 text-teal-700",
 };
 
 const WHAT_EACH_GROUP_DOES = {
   Commercial: "Raises tickets, prices what Sales owns, records win/loss. Cannot see cost or margin.",
   PNS: "Prices what PNS owns, reviews Sales pricing, runs CAPA. Sees cost and margin.",
   PSP: "Approves or rejects margins. Reads every ticket, because judging a rate needs the context around it. Sees cost and margin.",
-  Legal: "Sees accepted deals only, for the contract. Can still be tagged into any discussion.",
+  Visitor: "Reads everything, changes nothing. Legal sits here. Can still be tagged into any discussion.",
+  Ops: "Reads everything and receives the Kick-off. Changes nothing in the app.",
   CSO: "Read-only across the pipeline, including cost and margin.",
   Admin: "Everything, plus registering people, setting roles and the recycle bin.",
 };
