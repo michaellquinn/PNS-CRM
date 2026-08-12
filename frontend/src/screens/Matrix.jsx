@@ -2,9 +2,10 @@ import { Card, Head, Pill } from "../ui";
 
 const ROUTING = [
   ["Hypercare / Strategic", "any service", "any revenue", "PNS", "no"],
-  ["Non-Strategic", "FTL monthly / Sameday", "any revenue", "PNS", "no"],
-  ["Non-Strategic", "LTL / B2BR / B2C / FTL on-call", "≥ Rp 30 Mio", "Sales", "yes — PNS reviews before it goes out"],
-  ["Non-Strategic", "LTL / B2BR / B2C / FTL on-call", "< Rp 30 Mio", "Sales", "no"],
+  ["Standard", "FTL monthly / Sameday", "any revenue", "PNS", "no"],
+  ["Standard", "LTL / B2BR / B2C / FTL on-call", "≥ Rp 30 Mio", "Sales", "no — narrowed 2026-08-11 to the three watched groups"],
+  ["Standard", "LTL / B2BR / B2C / FTL on-call", "< Rp 30 Mio", "Sales", "no"],
+  ["Must Win (any account)", "any", "any revenue", "as the account decides", "yes — PNS reviews a Sales price"],
 ];
 
 // The "Max. Discount / Min. Margin" row of each 5A Revenue & Customization table.

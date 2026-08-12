@@ -19,7 +19,8 @@ function Section({ label, children }) {
 /* ---------------------------------------------------------------- new request */
 export function NewRequest({ me, notify, onCreated }) {
   const [f, setF] = useState({
-    service: "LTL", acct_type: "Non-Strategic", region: "GJ", revenue: "48000000",
+    opportunity_id: "",
+    service: "LTL", acct_type: "Standard", region: "GJ", revenue: "48000000",
     project: "One time project", contract: "Short (<= 1 year)",
     sla: "Standard", mps: "Yes", rdo: "Yes", cod: "No", tkbmO: "No", tkbmD: "No",
     ins: "No", pallet: "Non palletized", commodity: "FMCG", destType: "GT",
@@ -46,10 +47,12 @@ export function NewRequest({ me, notify, onCreated }) {
     if (!f.brief?.trim()) return notify("Brief summary is required");
     setBusy(true);
     try {
-      const { shipper, brief, service, acct_type, region, revenue, ...payload } = f;
+      const { shipper, brief, service, acct_type, region, revenue, opportunity_id,
+              ...payload } = f;
       const r = await api.createTicket({
         shipper: shipper.trim(), brief: brief.trim(), service, acct_type, region,
         revenue: rev, sales_email: me.email,
+        opportunity_id: (opportunity_id || "").trim() || null,
         payload: { ...payload, shipper: shipper.trim(), brief: brief.trim() },
       });
       refreshOptions();       // anything newly typed becomes a suggestion next time
@@ -89,6 +92,12 @@ export function NewRequest({ me, notify, onCreated }) {
         </Section>
 
         <Section label="1 · Shipper profile">
+          <Field label="Sales CRM opportunity ID" required
+            hint="Raise the opportunity in Sales CRM first, then paste its id here. Without it the ticket parks in Pending CRM ID and cannot move — the sync finds each deal by this number.">
+            <input className={inputCls} value={f.opportunity_id}
+              onChange={set("opportunity_id")}
+              placeholder="e.g. 0067000000123456" />
+          </Field>
           <Field label="Shipper" required hint="Existing shippers are suggested as you type">
             <Combo value={f.shipper} onChange={setV("shipper")} options={opts?.shippers || []}
               placeholder="PT …" />
@@ -100,7 +109,7 @@ export function NewRequest({ me, notify, onCreated }) {
           </Field>
           <Field label="Account type" required hint="Later changes are Commercial Head only">
             <select className={inputCls} value={f.acct_type} onChange={set("acct_type")}>
-              <option>Hypercare</option><option>Strategic</option><option>Non-Strategic</option>
+              <option>Hypercare</option><option>Strategic</option><option>Standard</option>
             </select>
           </Field>
           <Field label="Project type" required>

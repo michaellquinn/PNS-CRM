@@ -191,7 +191,7 @@ export default function Sync({ notify }) {
                   <td className="px-4 py-2.5">{c.shipper}</td>
                   <td className="px-4 py-2.5">{c.service}</td>
                   <td className="px-4 py-2.5">
-                    {c.acct_type === "Non-Strategic"
+                    {c.acct_type === "Standard"
                       ? <span className="text-slate-500">{c.acct_type}</span>
                       : <Pill tone="bg-fuchsia-50 text-fuchsia-700">{c.acct_type}</Pill>}
                   </td>

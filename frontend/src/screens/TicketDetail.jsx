@@ -227,6 +227,7 @@ export default function TicketDetail({ ticketRef: initialRef, me, notify, onBack
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <span className="font-mono text-[13px] font-bold text-[#EE1B2C]">{t.ref}</span>
         <Pill dot>{t.status}</Pill>
+        {t.must_win && <Pill tone="bg-orange-100 text-orange-800">Must Win</Pill>}
         <Pill>{t.service}</Pill>
         {t.needs_review && <Pill tone="bg-violet-50 text-violet-700">PNS review</Pill>}
         <span className="ml-2 text-[12px] text-slate-500">
@@ -239,6 +240,59 @@ export default function TicketDetail({ ticketRef: initialRef, me, notify, onBack
           {t.reviewer && <> &middot; reviewer {t.reviewer}</>}
         </span>
       </div>
+
+      {/* Which Sales CRM records this ticket is tied to. Both levels are shown on
+          purpose: the tier is inherited from the account group while Must Win and the
+          stage belong to the opportunity, so seeing only one makes the other look
+          arbitrary. The links only render when the URL patterns are configured. */}
+      <Card className="mb-4 p-3.5">
+        <div className="mb-2 text-[10.5px] font-bold uppercase tracking-wider text-slate-400">
+          Sales CRM
+        </div>
+        {t.opportunity_id ? (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <div className="text-[11px] text-slate-400">Opportunity &middot; the deal</div>
+              <div className="mt-0.5 flex flex-wrap items-center gap-2">
+                <span className="font-mono text-[12.5px]">{t.opportunity_id}</span>
+                {t.opp_url && (
+                  <a href={t.opp_url} target="_blank" rel="noopener noreferrer"
+                    className="rounded-md bg-sky-50 px-2 py-0.5 text-[12px] font-medium text-sky-800 hover:underline">
+                    Open in Sales CRM ↗
+                  </a>
+                )}
+              </div>
+              {t.opportunity_name && (
+                <div className="mt-0.5 text-[12px] text-slate-500">{t.opportunity_name}</div>
+              )}
+              <div className="mt-1 text-[11.5px] text-slate-500">
+                Stage {t.stage || "—"} &middot; Must Win {t.must_win ? "yes" : "no"}
+              </div>
+            </div>
+            <div>
+              <div className="text-[11px] text-slate-400">Account &middot; sets the tier</div>
+              <div className="mt-0.5 flex flex-wrap items-center gap-2">
+                <span className="font-mono text-[12.5px]">{t.account_id || "—"}</span>
+                {t.account_url && (
+                  <a href={t.account_url} target="_blank" rel="noopener noreferrer"
+                    className="rounded-md bg-sky-50 px-2 py-0.5 text-[12px] font-medium text-sky-800 hover:underline">
+                    Open account ↗
+                  </a>
+                )}
+              </div>
+              <div className="mt-0.5 text-[12px] text-slate-500">
+                {t.account_name || t.shipper}
+                {t.parent_account_id && <> &middot; parent {t.parent_account_id}</>}
+              </div>
+              <div className="mt-1 text-[11.5px] text-slate-500">
+                Tier {t.acct_type}{t.group ? ` · watched group: ${t.group}` : " · not a watched group"}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <CrmIdBox ref_={ref} busy={busy} may={p.editInput} run={run} />
+        )}
+      </Card>
 
       {/* Why it came back should be the first thing you read, not buried in History. */}
       {t.status.startsWith("Pending") && d.history[0]?.note && (
@@ -462,7 +516,7 @@ export default function TicketDetail({ ticketRef: initialRef, me, notify, onBack
                   {draft && p.editAcctOrRev ? (
                     <select className={`${inputCls} max-w-[240px]`} value={draft.__acct}
                       onChange={(e) => setDraft({ ...draft, __acct: e.target.value })}>
-                      <option>Non-Strategic</option><option>Strategic</option>
+                      <option>Standard</option><option>Strategic</option><option>Hypercare</option>
                     </select>
                   ) : (
                     <>
@@ -585,6 +639,34 @@ export default function TicketDetail({ ticketRef: initialRef, me, notify, onBack
         onCancel={() => setAsk(null)}
         onConfirm={() => { const go = ask.go; setAsk(null); go(); }} />
     </>
+  );
+}
+
+/* A ticket with no Sales CRM id cannot move. This is how it gets one. */
+function CrmIdBox({ ref_, busy, may, run }) {
+  const [v, setV] = useState("");
+  return (
+    <div className="rounded-lg border border-rose-200 bg-rose-50/50 p-3">
+      <p className="mb-2 text-[12.5px] text-rose-800">
+        <b>No Sales CRM opportunity id.</b> Sales CRM is the system of record — the deal
+        is raised there first and the sync finds it by id. This ticket cannot move
+        through the pipeline until the id is here.
+      </p>
+      {may ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <input className={`${inputCls} max-w-[260px] font-mono`} value={v}
+            placeholder="Sales CRM opportunity id"
+            onChange={(e) => setV(e.target.value)} />
+          <Btn kind="primary" disabled={busy || !v.trim()}
+            onClick={() => run(() => api.setCrmId(ref_, v.trim()),
+              `${ref_} linked to ${v.trim()} and opened`)}>
+            Link and open
+          </Btn>
+        </div>
+      ) : (
+        <p className="text-[12px] text-rose-700">Sales adds the id.</p>
+      )}
+    </div>
   );
 }
 

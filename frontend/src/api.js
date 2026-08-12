@@ -68,6 +68,8 @@ export const api = {
   assign: (ref, body) => call(`/tickets/${ref}/assign`, { method: "POST", body: JSON.stringify(body) }),
   editInput: (ref, body) => call(`/tickets/${ref}/input`, { method: "PATCH", body: JSON.stringify(body) }),
   setSales: (ref, name) => call(`/tickets/${ref}/sales`, { method: "POST", body: JSON.stringify({ name }) }),
+  setCrmId: (ref, opportunity_id) =>
+    call(`/tickets/${ref}/crm-id`, { method: "POST", body: JSON.stringify({ opportunity_id }) }),
   reopen: (ref, status) => call(`/tickets/${ref}/reopen`, { method: "POST", body: JSON.stringify({ status }) }),
   headAck: (ref) => call(`/tickets/${ref}/head-ack`, { method: "POST" }),
   psp: (ref, body) => call(`/tickets/${ref}/psp`, { method: "POST", body: JSON.stringify(body) }),
@@ -157,7 +159,7 @@ export const SERVICES = ["LTL", "B2BR", "B2C", "FTL on-call", "FTL monthly", "Sa
 export const FTL = ["FTL on-call", "FTL monthly"];
 
 export const STATUSES = [
-  "Pending Sales", "Pending Review - Head Sales", "Pending PNS", "Pending Review - Head PNS",
+  "Pending CRM ID", "Open", "Pending Sales", "Pending Review - Head Sales", "Pending PNS", "Pending Review - Head PNS",
   "Pending Review - PSP", "Pending Vendor", "Pending Review - C-level", "Proposal Submitted",
   "Proposal Accepted / Ready to Ship", "Lost", "Cancel",
 ];

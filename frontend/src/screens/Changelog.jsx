@@ -3,6 +3,25 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-08-11",
+    title: "Sales CRM becomes the system of record: CRM ID mandatory, Must Win, Open",
+    by: "Baskoro + Claude",
+    changes: [
+      "The agreed process: Sales raise the opportunity in Sales CRM first, then either open the ticket here with its CRM ID or wait for the daily sync. A ticket raised here without a CRM ID parks in the new status Pending CRM ID and cannot move — the sync finds each deal by id, so a ticket it cannot see would drift out of step and be believed anyway. Its own screen collects the id and releases the ticket.",
+      "The daily sync now treats Sales CRM as the priority on every run: stage, deal name, Sales PIC and Must Win are re-copied as they stand there. Service line, potential revenue and account tier are still left alone, because PNS corrects those here on purpose.",
+      "New status Open: intake complete, nothing owed by Sales, and nobody has picked it up. Previously these sat in Pending PNS, which reads as 'someone is working on it' and hid the difference between work in progress and work nobody has started. Its screen offers exactly two moves — start work on it, or send it back to Sales with what is missing.",
+      "Must Win joins the tiering as a third watched group, alongside Hypercare and Strategic. It sits on the OPPORTUNITY, not the account: the same account can have a must-win deal and five ordinary ones, so tagging the account would have promoted all of them. Hypercare and Strategic stay at account level, inherited from the parent group.",
+      "Non-Strategic is renamed Standard — same tier, a name that says what it is rather than what it is not.",
+      "Review - Head PNS is narrowed to the three watched groups. A Standard deal now goes straight to the shipper whatever its revenue; the old 'any Sales price at or above 30 Mio' rule was catching ordinary deals in volume and turning PNS review into a toll booth.",
+      "Every ticket shows which Sales CRM records it is tied to — the opportunity (the deal, where Must Win and the stage live) and the account (which sets the tier, inherited from the parent group) — each with a link straight into Sales CRM.",
+    ],
+    overruled: [
+      "PNS review was triggered by revenue (Sales-priced at or above Rp 30 Mio). It is now triggered by group membership: Hypercare, Strategic or Must Win.",
+      "A ticket could be raised here with no link to Sales CRM at all. Now it can be raised, but not progressed.",
+      "'Non-Strategic' as a tier name.",
+    ],
+  },
+  {
+    date: "2026-08-11",
     title: "Reconciled: Michael's PSP work and Baskoro's .30/.31 are both in .32",
     by: "Baskoro + Michael + Claude",
     changes: [

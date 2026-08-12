@@ -3,11 +3,13 @@ import { api, SERVICES, STATUSES, rp } from "../api";
 import { Chip, Head, Pill, Sla, Tile, usePnsTeam } from "../ui";
 
 const EMPTY = { search: "", status: [], service: [], acct: [], owner: "", sales: "",
-                line: "", stage: "", from: "", to: "" };
+                line: "", stage: "", group: "", from: "", to: "" };
 
 // The account tier decides routing, pricing ceilings, PSP entry and exec sign-off — it
 // is the single most consequential field on a ticket, so it filters like status does.
-const TIERS = ["Hypercare", "Strategic", "Non-Strategic"];
+// Four groups now, and the first three are the ones every rule watches. Must Win is
+// per-opportunity so it is not an acct_type — it filters on its own flag.
+const TIERS = ["Hypercare", "Strategic", "Standard"];
 
 // The eleven statuses read as a wall when they sit in one flat row, and half of them
 // share the word "Pending". Grouped by who is acting, the row answers the question
@@ -15,6 +17,7 @@ const TIERS = ["Hypercare", "Strategic", "Non-Strategic"];
 // what's out with the shipper". Any status missing from these lists (a future addition)
 // falls into a trailing group so it can never silently disappear from the filter.
 const STATUS_GROUPS = [
+  ["Not started", ["Pending CRM ID", "Open"]],
   ["Being worked", ["Pending Sales", "Pending PNS", "Pending Vendor"]],
   ["In approval", ["Pending Review - Head PNS", "Pending Review - Head Sales",
                    "Pending Review - PSP", "Pending Review - C-level"]],
@@ -27,6 +30,8 @@ const STATUS_GROUPS = [
 // "Sales" or "Vendor" saved a few pixels and cost the reader the one thing the tile is
 // for, knowing what the number counts. The sub-line says who owes the next move.
 const TILES = [
+  ["Pending CRM ID", "blocked — no Sales CRM id"],
+  ["Open", "ready, nobody on it yet"],
   ["Pending Sales", "Sales owes the price"],
   ["Pending PNS", "PNS owes the price"],
   ["Pending Vendor", "waiting on vendor cost"],
@@ -40,6 +45,8 @@ const TILES = [
 ];
 
 const TILE_TONE = {
+  "Pending CRM ID": "text-rose-600",
+  Open: "text-emerald-600",
   "Pending Review - Head PNS": "text-violet-600",
   "Pending Review - Head Sales": "text-amber-600",
   "Pending Review - PSP": "text-amber-600",
@@ -85,6 +92,7 @@ export default function Dashboard({ me, onOpen }) {
     api.tickets({
       search: f.search, status: f.status, service: f.service,
       owner: f.owner, sales: f.sales, stage: f.stage, acct_type: f.acct,
+      must_win: f.group === "Must Win" ? true : undefined,
       // One control, two server filters: a Head sees their whole line, a Manager
       // sees their own reports. The option carries which one it is.
       ...(f.line
@@ -119,10 +127,11 @@ export default function Dashboard({ me, onOpen }) {
     && (!scope.sales || t.sales === scope.sales)), [all, scope]);
 
   const counts = useMemo(() => {
-    const c = { __acct: {} };
+    const c = { __acct: {}, __mustwin: 0 };
     for (const t of scoped) {
       c[t.status] = (c[t.status] || 0) + 1;
       c.__acct[t.acct_type] = (c.__acct[t.acct_type] || 0) + 1;
+      if (t.must_win) c.__mustwin += 1;
     }
     return c;
   }, [scoped]);
@@ -182,7 +191,7 @@ export default function Dashboard({ me, onOpen }) {
 
   const active =
     f.search || f.status.length || f.service.length || f.acct.length || f.owner
-    || f.sales || f.line || f.stage || f.from || f.to;
+    || f.sales || f.line || f.stage || f.group || f.from || f.to;
 
   const sel = "rounded-lg border border-slate-300 px-3 py-2 text-[13.5px]";
 
@@ -351,12 +360,19 @@ export default function Dashboard({ me, onOpen }) {
         {/* Tier decides routing, ceilings, PSP entry and exec sign-off, so it filters
             alongside status rather than hiding in a dropdown. */}
         <div className="mt-3.5 flex flex-wrap items-center gap-2.5">
-          <span className="w-14 shrink-0 text-[10.5px] font-bold uppercase tracking-wider text-slate-400">Tier</span>
+          <span className="w-14 shrink-0 text-[10.5px] font-bold uppercase tracking-wider text-slate-400">Group</span>
           {TIERS.map((s) => (
             <Chip key={s} on={f.acct.includes(s)} onClick={() => toggle("acct", s)}>
               {s}{counts.__acct?.[s] ? ` · ${counts.__acct[s]}` : ""}
             </Chip>
           ))}
+          {/* Must Win belongs to the opportunity, not the account, so it cannot sit in
+              the same list as the tiers — an account is exactly one tier, but any of
+              its deals may be must-win. Separate chip, separate filter. */}
+          <Chip on={f.group === "Must Win"}
+            onClick={() => setF({ ...f, group: f.group === "Must Win" ? "" : "Must Win" })}>
+            Must Win{counts.__mustwin ? ` · ${counts.__mustwin}` : ""}
+          </Chip>
         </div>
       </div>
 

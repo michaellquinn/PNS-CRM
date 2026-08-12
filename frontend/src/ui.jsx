@@ -50,6 +50,11 @@ export function useDirectory() {
 }
 
 const TONE = {
+  // Amber-red: not a queue anybody works, a ticket that cannot move until somebody
+  // supplies the one number tying it to Sales CRM.
+  "Pending CRM ID": "bg-rose-50 text-rose-700",
+  // Green because it is good news — ready, complete, waiting for a pair of hands.
+  Open: "bg-emerald-50 text-emerald-700",
   "Pending Sales": "bg-sky-50 text-sky-700",
   "Pending PNS": "bg-violet-50 text-violet-700",
   "Pending Review - Head PNS": "bg-violet-50 text-violet-700",
@@ -254,6 +259,9 @@ export function TicketCard({ t, badges = [], children, onOpen }) {
               {t.ref}
             </span>
             <Pill dot>{t.status}</Pill>
+            {/* One of the three watched groups. Must Win is per-deal, so it can appear
+                on an otherwise Standard account and must be visible at a glance. */}
+            {t.must_win && <Pill tone="bg-orange-100 text-orange-800">Must Win</Pill>}
             {t.open_questions > 0 && (
               <Pill tone="bg-amber-50 text-amber-700">
                 {t.open_questions} unanswered

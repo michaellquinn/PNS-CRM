@@ -84,10 +84,26 @@ SERVICES = ["LTL", "B2BR", "B2C", "FTL on-call", "FTL monthly", "Sameday",
 # so the "waiting vendor cost" detour is offered for those and nothing else.
 VENDOR_SERVICES = ("FTL on-call", "FTL monthly")
 
-# Hypercare and Strategic are the two managed tiers in the ID book; both are
-# solutioned by PNS and priced under manual review. Everything else is Non-Strategic.
-ACCT_TYPES = ["Hypercare", "Strategic", "Non-Strategic"]
+# Four tiers, on two different levels, which is the whole subtlety.
+#
+# Hypercare and Strategic describe an ACCOUNT and are inherited from the parent group in
+# Sales CRM, so they sit on the shipper and apply to every deal that account brings.
+# Must Win describes ONE OPPORTUNITY: the same account can have a must-win deal and five
+# ordinary ones, so it lives on the ticket (tickets.must_win) and never on the shipper.
+# Everything with no tag at all is Standard.
+ACCT_TYPES = ["Hypercare", "Strategic", "Standard"]
 MANAGED_ACCTS = ("Hypercare", "Strategic")
+
+
+def big_group(t: dict) -> str | None:
+    """Which of the three watched groups this ticket belongs to, or None for Standard.
+
+    Account tier first, because it is the stronger claim: a Hypercare account's must-win
+    deal is reported as Hypercare, not as two things at once."""
+    acct = t.get("acct_type")
+    if acct in MANAGED_ACCTS:
+        return acct
+    return "Must Win" if t.get("must_win") else None
 
 # Sales CRM API keys are issued per person and inherit that person's permissions, so a
 # sync run reads whatever its trigger can see. Until Ninja issues a service account, one
@@ -102,10 +118,17 @@ BOTTOM_MARGIN = {"LTL": 5.0, "B2BR": 10.0}
 LOSS_REASONS = ["pricing", "shipper", "solution", "ops", "no_vendor", "billing", "pns",
                 # Set by the Sales CRM sync when the opportunity is Closed-Lost there.
                 "salescrm"]
-AWAIT_STATUSES = ("Pending Sales", "Pending PNS", "Pending Vendor")
-PENDING_STATUSES = ["Pending Sales", "Pending PNS", "Pending Review - Head PNS",
+# "Open" earns a place in the pricing queues: the work is ready to be done, it is just
+# nobody's yet. Keeping it out would have hidden every unstarted ticket from the one
+# screen people go to when they are looking for something to do.
+AWAIT_STATUSES = ("Open", "Pending Sales", "Pending PNS", "Pending Vendor")
+PENDING_STATUSES = ["Open", "Pending Sales", "Pending PNS", "Pending Review - Head PNS",
                     "Pending Review - Head Sales", "Pending Review - PSP", "Pending Vendor",
                     "Pending Review - C-level"]
+# Raised here with no Sales CRM opportunity behind it. Deliberately outside
+# PENDING_STATUSES: it is not waiting on solutioning work, it is waiting on an id, and
+# it must not be reopened into or sent back to.
+NO_CRM_STATUS = "Pending CRM ID"
 # Fields the intake keeps as free text but remembers: the dropdown would otherwise have
 # to predict every commodity Ninja ever carries (a shipper turned up with medicine).
 REMEMBERED_FIELDS = ["commodity", "product", "pallet", "destType", "truck", "freq"]
@@ -335,8 +358,16 @@ def pending_for(resp: str) -> str:
 
 
 def needs_pns_review(t: dict) -> bool:
-    """PNS only reviews what Sales priced, never its own work."""
-    return bool(t.get("needs_review")) and t.get("resp") == "Sales"
+    """Whether a Sales-built price needs a PNS pair of eyes before it goes out.
+
+    Narrowed on 2026-08-11 to the three watched groups — Hypercare, Strategic and Must
+    Win — from "any Sales price at or above 30 Mio". The revenue band was catching
+    ordinary deals in volume and turning PNS review into a toll booth; the groups that
+    actually carry risk are the ones worth stopping. Everything else now proceeds
+    straight to the shipper.
+
+    PNS still never reviews its own work, whatever the tier."""
+    return bool(big_group(t)) and t.get("resp") == "Sales"
 
 
 def head_for(t: dict) -> str:
@@ -732,7 +763,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-08-11.36"
+BUILD = "2026-08-11.37"
 
 
 class Me(BaseModel):
@@ -777,9 +808,21 @@ class Ticket(BaseModel):
     # The number a salesperson actually has in front of them. Blank on a ticket raised
     # by hand in this app, which is how you tell the two apart in a list.
     opportunity_id: str | None = None
+    opportunity_name: str | None = None
     # The onboarding facts, so the Onboarding screens can list them without a request
     # per ticket. Keys match the intake payload.
     input: dict = {}
+    # Which Sales CRM records this ticket is tied to, and how to open them. Both levels
+    # are shown because the tier comes from the account group while the deal (and Must
+    # Win) comes from the opportunity — seeing only one of the two makes the tier look
+    # arbitrary.
+    must_win: bool = False
+    group: str | None = None          # Hypercare | Strategic | Must Win | None
+    account_id: str | None = None
+    account_name: str | None = None
+    parent_account_id: str | None = None
+    opp_url: str | None = None
+    account_url: str | None = None
 
 
 class TicketList(BaseModel):
@@ -918,6 +961,14 @@ def shape(t: dict, u: User) -> Ticket:
         psp_decision=t.get("psp_decision"),
         stage=t.get("stage"),
         opportunity_id=(str(t["opportunity_id"]) if t.get("opportunity_id") else None),
+        opportunity_name=t.get("opportunity_name"),
+        must_win=bool(t.get("must_win")),
+        group=big_group(t),
+        account_id=(str(t["account_id"]) if t.get("account_id") else None),
+        account_name=t.get("account_name"),
+        parent_account_id=(str(t["parent_account_id"]) if t.get("parent_account_id") else None),
+        opp_url=opp_link(t.get("opportunity_id")),
+        account_url=account_link(t.get("account_id")),
         input={k: v for k, v in (
             ("golive", t.get("ob_golive")), ("shipperId", t.get("ob_shipper_id")),
             ("parentShipperId", t.get("ob_parent_id")), ("branchId", t.get("ob_branch_id")),
@@ -936,6 +987,7 @@ async def list_tickets(
     service: str | None = None,
     stage: str | None = None,
     acct_type: str | None = None,
+    must_win: bool = False,
     owner: str | None = None,
     sales: str | None = None,
     sales_manager: str | None = None,   # email — everyone reporting to this manager
@@ -951,7 +1003,8 @@ async def list_tickets(
     #   onboarding=live    won and both filled in — Ops can act on it
     onboarding: str | None = None,
 ):
-    sql = ("SELECT t.*, s.name AS shipper, s.acct_type, p.margin_pct, p.price_file, p.price_url, "
+    sql = ("SELECT t.*, s.name AS shipper, s.acct_type, s.account_id, s.account_name, "
+           "s.parent_account_id, p.margin_pct, p.price_file, p.price_url, "
            "(SELECT COUNT(*) FROM ticket_comments c WHERE c.ticket_id=t.id "
            "AND c.is_question=1 AND c.resolved_at IS NULL) AS open_q, "
            "(SELECT a.decision FROM approvals a WHERE a.ticket_id=t.id AND a.kind='psp' "
@@ -1025,8 +1078,10 @@ async def list_tickets(
                 "AND JSON_EXTRACT(i.payload,'$.shipperId') IS NOT NULL "
                 "AND JSON_EXTRACT(i.payload,'$.golive') IS NOT NULL)")
         sql += f" AND {'' if onboarding == 'live' else 'NOT '}{have}"
+    if must_win:
+        sql += " AND t.must_win=1"
     if acct_type:
-        # The tier (Strategic/Hypercare/Non-Strategic) — imported from the Sales CRM
+        # The tier (Strategic/Hypercare/Standard) — imported from the Sales CRM
         # account group's customer_success_manager field, correctable in-app.
         marks = ",".join(["%s"] * len(acct_type.split(",")))
         sql += f" AND s.acct_type IN ({marks})"; args += acct_type.split(",")
@@ -1080,12 +1135,16 @@ async def stats(u: User = Depends(current_user)):
 
 
 class NewTicket(BaseModel):
+    # Sales CRM is the system of record: the opportunity is raised there first, and this
+    # is the number that ties the two together. Blank is allowed at creation but parks
+    # the ticket in "Pending CRM ID" until somebody supplies it — see create_ticket.
+    opportunity_id: str | None = None
     shipper: str
     service: str
     revenue: int
     brief: str
     sales_email: str | None = None
-    acct_type: str = "Non-Strategic"
+    acct_type: str = "Standard"
     region: str = "GJ"
     payload: dict = {}
 
@@ -1095,6 +1154,46 @@ SALESCRM_BASE = os.getenv("SALESCRM_BASE",
                           "https://api.ninjavan.co/global/salescrm/api/v1").rstrip("/")
 SALESCRM_API_KEY = os.getenv("SALESCRM_API_KEY", "").strip()
 SALESCRM_RECORD_TYPE = os.getenv("SALESCRM_RECORD_TYPE", "Indonesia").strip()
+# Where a human opens an opportunity. The API base is not the web app, so this is its
+# own setting: {id} is replaced with the opportunity id. Set SALESCRM_OPP_URL in the
+# portal to whatever the browser actually shows when Sales open a deal — until then the
+# link is not rendered at all, because a button that lands on a 404 is worse than none.
+SALESCRM_OPP_URL = os.getenv("SALESCRM_OPP_URL", "").strip()
+SALESCRM_ACCOUNT_URL = os.getenv("SALESCRM_ACCOUNT_URL", "").strip()
+
+# Sales CRM returns only populated fields and its column names are not documented, so
+# the Must Win flag is looked for under every name it plausibly carries. The sync
+# reports which key it actually matched, so this list can be cut down to the real one
+# rather than guessed at forever.
+MUSTWIN_FIELDS = ("must_win", "is_must_win", "must_win_flag", "mustwin",
+                  "must_win__c", "deal_priority", "priority")
+MUSTWIN_TRUE = ("1", "true", "yes", "y", "must win", "must-win", "mustwin", "high")
+
+
+def read_must_win(o: dict) -> tuple[bool, str | None]:
+    """(is must win, which field said so). False with None when nothing matched."""
+    for key in MUSTWIN_FIELDS:
+        if key not in o:
+            continue
+        v = o.get(key)
+        if isinstance(v, bool):
+            if v:
+                return True, key
+        elif v is not None and str(v).strip().lower() in MUSTWIN_TRUE:
+            return True, key
+    return False, None
+
+
+def opp_link(opportunity_id: str | None) -> str | None:
+    if not opportunity_id or not SALESCRM_OPP_URL:
+        return None
+    return SALESCRM_OPP_URL.replace("{id}", str(opportunity_id))
+
+
+def account_link(account_id: str | None) -> str | None:
+    if not account_id or not SALESCRM_ACCOUNT_URL:
+        return None
+    return SALESCRM_ACCOUNT_URL.replace("{id}", str(account_id))
 # Wall-clock budget for one sync request. The ingress cuts a request at 30s with a bare
 # 502, so this has to be comfortably under that: past the budget the sweep returns what
 # it has and says so. Measured cost is ~1.1s for a page of 100 opportunities plus ~0.8s
@@ -1236,7 +1335,7 @@ class SalesCrm:
             seen.add(pid)
             a = await self.account(pid)
             depth -= 1
-        return "Non-Strategic"
+        return "Standard"
 
 
 class SyncIn(BaseModel):
@@ -1282,6 +1381,9 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
 
     import httpx
     created, refreshed, skipped, errors = [], [], [], []
+    # Which key Sales CRM actually used for Must Win, so the guess list can be replaced
+    # with the real field name instead of being carried forever.
+    mustwin_fields: set[str] = set()
     scanned = 0
     # Stop and report what we have rather than being cut off mid-sweep. The ingress
     # closes a long request with a bare 502 and no body, which tells whoever pressed the
@@ -1516,6 +1618,10 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
                             "account_id": str(o.get("account_id") or ""),
                             "parent_account_id": str((account or {}).get("parent_account_id") or ""),
                         }
+                        mw, mw_field = read_must_win(o)
+                        plan["must_win"] = mw
+                        if mw_field:
+                            mustwin_fields.add(mw_field)
                         plan["ftl_unknown"] = str(raw_product or "").strip() == FTL_VARIANT_UNKNOWN
                         plan["sales_unknown"] = bool(plan["sales_name"]) and \
                             plan["sales_name"] not in known_people
@@ -1542,7 +1648,8 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
     # Salespeople Sales CRM names but this app has never heard of. Reported rather than
     # registered: creating a login is a permission grant, not a data import.
     unknown_sales = sorted({c["sales_name"] for c in created if c.get("sales_unknown")})
-    return {"dry_run": body.dry_run, "scanned": scanned, "truncated": truncated,
+    return {"mustwin_source": sorted(mustwin_fields),
+            "dry_run": body.dry_run, "scanned": scanned, "truncated": truncated,
             "caught_up": caught_up, "covered_to": covered_from,
             "created": created, "refreshed": refreshed, "skipped": skipped,
             "errors": errors, "unknown_sales": unknown_sales,
@@ -1571,8 +1678,17 @@ async def _refresh_from_salescrm(o: dict) -> dict | None:
                 "FROM tickets WHERE opportunity_id=%s", (oid,), one=True)
     if not t:
         return None
-    await execute("UPDATE tickets SET stage=%s, parent_stage=%s WHERE id=%s",
-                  (o.get("stage"), o.get("parent_stage"), t["id"]))
+    # Sales CRM is the system of record for everything it owns, so a refresh overwrites
+    # rather than fills gaps: stage, the deal name, the Sales PIC, the committed revenue
+    # and Must Win all come back as they stand there now. Service line, potential revenue
+    # and the account tier are still left alone — PNS corrects those here deliberately,
+    # and an overwrite would silently undo the correction every morning.
+    mw, _ = read_must_win(o)
+    await execute("UPDATE tickets SET stage=%s, parent_stage=%s, must_win=%s, "
+                  "opportunity_name=COALESCE(%s, opportunity_name), "
+                  "sales_name=COALESCE(%s, sales_name) WHERE id=%s",
+                  (o.get("stage"), o.get("parent_stage"), int(mw),
+                   o.get("name"), o.get("owner_name"), t["id"]))
 
     payload = {}
     row = await q("SELECT payload FROM ticket_input WHERE ticket_id=%s", (t["id"],), one=True)
@@ -1643,11 +1759,12 @@ async def _import_opportunity(o: dict, account: dict | None, plan: dict,
     tid = await execute(
         "INSERT INTO tickets (ticket_ref, opportunity_id, opportunity_name, stage, "
         "parent_stage, shipper_id, service_type, potential_rev, status, resp, "
-        "needs_review, sales_email, sales_name, region, submitted_on) "
-        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+        "needs_review, must_win, sales_email, sales_name, region, submitted_on) "
+        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
         (ref, plan["opportunity_id"], plan["opportunity_name"], plan["stage"],
          plan["parent_stage"], shipper_id, plan["service"], plan["revenue"], status,
-         r["resp"], int(r["review"]), None, plan["sales_name"], "GJ", date.today()))
+         r["resp"], int(r["review"]), int(plan.get("must_win") or 0), None,
+         plan["sales_name"], "GJ", date.today()))
 
     owner = await auto_assignee(plan["service"], tid, shipper_id) if r["resp"] == "PNS" else None
     if owner:
@@ -1792,16 +1909,33 @@ async def create_ticket(body: NewTicket, u: User = Depends(current_user)):
         acct = body.acct_type
 
     r = route(acct, body.service, body.revenue)
-    status = pending_for(r["resp"])
+    oid = (body.opportunity_id or "").strip() or None
+    if oid:
+        clash = await q("SELECT ticket_ref FROM tickets WHERE opportunity_id=%s", (oid,),
+                        one=True)
+        if clash:
+            raise HTTPException(409, f"Sales CRM opportunity {oid} is already on "
+                                     f"{clash['ticket_ref']}")
+
+    # No Sales CRM id, no pipeline. The sync finds a deal by its opportunity id, so a
+    # ticket without one can never be kept in step with the commercial record — it would
+    # drift silently and be believed anyway. It parks in Pending CRM ID instead, visible
+    # and obviously incomplete, until Sales supplies the number.
+    #
+    # With an id the ticket lands in Open: intake is complete and nothing is owed by
+    # Sales, but nobody has picked it up. That is a different thing from Pending PNS,
+    # which reads as "someone is working on it", and the two were indistinguishable
+    # before.
+    status = "Open" if oid else NO_CRM_STATUS
     last = await q("SELECT MAX(id) AS n FROM tickets", one=True)
     ref = f"SOF-{1300 + int((last or {}).get('n') or 0)}"
 
     tid = await execute(
-        "INSERT INTO tickets (ticket_ref, shipper_id, service_type, potential_rev, status, "
-        "resp, needs_review, sales_email, sales_name, region, submitted_on) "
-        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-        (ref, shipper_id, body.service, body.revenue, status, r["resp"], int(r["review"]),
-         body.sales_email or u.email, u.name, body.region, date.today()))
+        "INSERT INTO tickets (ticket_ref, opportunity_id, shipper_id, service_type, "
+        "potential_rev, status, resp, needs_review, sales_email, sales_name, region, "
+        "submitted_on) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+        (ref, oid, shipper_id, body.service, body.revenue, status, r["resp"],
+         int(r["review"]), body.sales_email or u.email, u.name, body.region, date.today()))
 
     # Only PNS-owned tickets get an owner here. A Sales-priced ticket has no PNS work
     # yet, and pre-assigning one would put it in someone's queue before it is theirs.
@@ -1967,6 +2101,14 @@ async def change_status(ref: str, body: StatusIn, u: User = Depends(current_user
     t = await get_ticket(ref)
     nxt = body.status
     is_lost = nxt == "Lost"
+
+    # A ticket with no Sales CRM id leaves only by acquiring one, or by being abandoned.
+    # Letting it walk into the pipeline is how a deal ends up solutioned here and
+    # invisible in Sales CRM, which is the disagreement this whole rule exists to stop.
+    if t["status"] == NO_CRM_STATUS and nxt not in ("Cancel", "Lost"):
+        raise HTTPException(
+            409, f"{ref} has no Sales CRM opportunity id. Add it on the ticket first — "
+                 f"Sales CRM is the system of record and the sync finds this deal by id.")
 
     if is_lost:
         require(u, "acceptProposal")           # Sales owns the shipper outcome
@@ -2191,6 +2333,43 @@ async def change_sales(ref: str, body: SalesIn, u: User = Depends(current_user))
                  people=[name], ticket_ref=ref)
     await audit(u.email, "reassign", "ticket", ref, "sales", t["sales_name"], name)
     return {"ok": True, "ref": ref, "status": t["status"]}
+
+
+class CrmIdIn(BaseModel):
+    opportunity_id: str
+
+
+@app.post("/api/tickets/{ref}/crm-id", response_model=Ok)
+async def set_crm_id(ref: str, body: CrmIdIn, u: User = Depends(current_user)):
+    """Attach the Sales CRM opportunity id and release the ticket into the pipeline.
+
+    Anyone who can edit intake can do this — it is a missing fact, not a decision, and
+    making Sales wait for a Head to unblock a typo helps nobody."""
+    require(u, "editInput")
+    t = await get_ticket(ref)
+    oid = body.opportunity_id.strip()
+    if not oid:
+        raise HTTPException(400, "the Sales CRM opportunity id is required")
+    clash = await q("SELECT ticket_ref FROM tickets WHERE opportunity_id=%s AND id<>%s",
+                    (oid, t["id"]), one=True)
+    if clash:
+        raise HTTPException(409, f"Sales CRM opportunity {oid} is already on "
+                                 f"{clash['ticket_ref']}")
+    await execute("UPDATE tickets SET opportunity_id=%s WHERE id=%s", (oid, t["id"]))
+
+    # Only a ticket parked for the want of an id moves; correcting the id on a live
+    # ticket must not drag it backwards through the pipeline.
+    nxt = t["status"]
+    if t["status"] == NO_CRM_STATUS:
+        nxt = "Open"
+        await log_status(t["id"], nxt, u.name, f"Sales CRM id {oid} supplied")
+        await notify(f"{ref}, {t['shipper']} now has its Sales CRM id and is Open",
+                     groups=["PNS"], ticket_ref=ref)
+    else:
+        await log_note(t["id"], t["status"], u.name, f"Sales CRM id set to {oid}")
+    await audit(u.email, "crm_id", "ticket", ref, "opportunity_id",
+                t.get("opportunity_id"), oid)
+    return {"ok": True, "ref": ref, "status": nxt}
 
 
 class ReopenIn(BaseModel):
@@ -2899,7 +3078,8 @@ async def list_deleted(u: User = Depends(current_user)):
 @app.get("/api/tickets/{ref}", response_model=TicketDetail)
 async def ticket_detail(ref: str, u: User = Depends(current_user)):
     """Everything one ticket knows about itself, filtered by what the caller may see."""
-    t = await q("SELECT t.*, s.name AS shipper, s.acct_type, p.margin_pct, p.cost, "
+    t = await q("SELECT t.*, s.name AS shipper, s.acct_type, s.account_id, s.account_name, "
+                "s.parent_account_id, p.margin_pct, p.cost, "
                 "p.price_file, p.price_url, TIMESTAMPDIFF(DAY, t.status_since, NOW()) AS sla_days_db, "
                 "(SELECT COUNT(*) FROM ticket_comments c WHERE c.ticket_id=t.id "
                 "AND c.is_question=1 AND c.resolved_at IS NULL) AS open_q, "

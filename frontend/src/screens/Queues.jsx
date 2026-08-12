@@ -278,6 +278,114 @@ export function AwaitingPrice({ me, onOpen, notify }) {
   );
 }
 
+/* ---------------------------------------------------------------- pending CRM id */
+// Tickets raised here with no Sales CRM opportunity behind them. They cannot move until
+// somebody supplies the id, so the screen does exactly one thing: collect it.
+export function PendingCrmId({ me, onOpen, notify }) {
+  const [rows, err, reload] = useTickets({ status: "Pending CRM ID" });
+  const [ids, setIds] = useState({});
+  const [busy, setBusy] = useState(null);
+
+  const link = async (ref) => {
+    const v = (ids[ref] || "").trim();
+    if (!v) return notify("Paste the Sales CRM opportunity id first");
+    setBusy(ref);
+    try {
+      await api.setCrmId(ref, v);
+      notify(`${ref} linked to ${v} — now Open`);
+      await reload();
+    } catch (e) { notify(e.message); }
+    finally { setBusy(null); }
+  };
+
+  return (
+    <Shell title="Pending CRM ID"
+      sub="Raised here without a Sales CRM opportunity id. Sales CRM is the system of record and the sync finds each deal by its id, so these cannot move until the number is supplied — a ticket the sync cannot see would drift out of step and be believed anyway."
+      rows={rows} err={err}
+      empty="Nothing blocked. Every ticket is tied to a Sales CRM opportunity.">
+      {(list) => list.map((t) => (
+        <TicketCard key={t.ref} t={t} onOpen={onOpen}>
+          {me.permissions.editInput ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <input className={`${inputCls} max-w-[280px] font-mono`}
+                placeholder="Sales CRM opportunity id"
+                value={ids[t.ref] || ""}
+                onChange={(e) => setIds({ ...ids, [t.ref]: e.target.value })} />
+              <Btn kind="primary" disabled={busy === t.ref} onClick={() => link(t.ref)}>
+                Link and open
+              </Btn>
+              <span className="text-[11.5px] text-slate-400">
+                Raised by {t.sales || "unknown"}
+              </span>
+            </div>
+          ) : (
+            <p className="text-[12.5px] text-slate-500">
+              Sales adds the Sales CRM id.
+            </p>
+          )}
+        </TicketCard>
+      ))}
+    </Shell>
+  );
+}
+
+/* ---------------------------------------------------------------- open */
+// Everything Sales has finished and nobody has started. This is the shelf, not a queue
+// anyone is working: the point of the screen is that these tickets are ready and
+// unclaimed, so the two actions are "I am taking this" and "this is not complete after
+// all, back to Sales".
+export function Open({ me, onOpen, notify }) {
+  const [rows, err, reload] = useTickets({ status: "Open" });
+  const [why, setWhy] = useState({});
+  const [list, f, set, clear, patch] = useFilter(rows);
+  const act = async (fn) => { try { await fn(); notify("Done"); await reload(); } catch (e) { notify(e.message); } };
+
+  const mayTake = ["PNS", "Commercial", "Admin"].includes(me.group);
+
+  return (
+    <Shell title="Open"
+      sub="Intake is complete and nothing is owed by Sales — these are ready to be picked up, and nobody has yet. Taking one moves it to whoever owes the price. If something is actually missing, ask Sales and it goes back to them."
+      rows={rows} err={err}
+      empty="Nothing sitting unclaimed. Every ready ticket has somebody on it."
+      bar={<FilterBar f={f} set={set} clear={clear} patch={patch} me={me}
+        shown={list.length} total={(rows || []).length} />}
+      filtered={list}>
+      {(list) => list.map((t) => (
+        <TicketCard key={t.ref} t={t} onOpen={onOpen}
+          badges={[
+            <Pill key="by" tone={t.priced_by === "PNS" ? "bg-violet-50 text-violet-700" : "bg-sky-50 text-sky-700"}>
+              {t.priced_by} will price it
+            </Pill>,
+          ]}>
+          {mayTake ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <input className={`${inputCls} max-w-[320px]`}
+                placeholder="What is missing? (sends it back to Sales)"
+                value={why[t.ref] || ""}
+                onChange={(e) => setWhy({ ...why, [t.ref]: e.target.value })} />
+              <Btn disabled={!((why[t.ref] || "").trim())}
+                onClick={() => act(() => api.status(t.ref, {
+                  status: "Pending Sales", reason: why[t.ref] }))}>
+                Need info from Sales
+              </Btn>
+              <Btn kind="primary" className="ml-auto"
+                onClick={() => act(() => api.status(t.ref, {
+                  status: t.priced_by === "PNS" ? "Pending PNS" : "Pending Sales",
+                  reason: `picked up by ${me.name}` }))}>
+                Start work on this
+              </Btn>
+            </div>
+          ) : (
+            <p className="text-[12.5px] text-slate-500">
+              Waiting for {t.priced_by} to pick it up.
+            </p>
+          )}
+        </TicketCard>
+      ))}
+    </Shell>
+  );
+}
+
 /* ---------------------------------------------------------------- PNS review */
 export function ToReview({ me, onOpen, notify }) {
   const [rows, err, reload] = useTickets({ status: "Pending Review - Head PNS" });
@@ -288,7 +396,7 @@ export function ToReview({ me, onOpen, notify }) {
 
   return (
     <Shell title="Review - Head PNS"
-      sub="Non-Strategic at or above 30 Mio: Sales priced it, PNS reviews before it goes out."
+      sub="Hypercare, Strategic and Must Win only: Sales priced it, PNS checks before it reaches the shipper. Standard deals now go straight out, whatever the revenue."
       rows={rows} err={err} empty="Nothing waiting on review."
       bar={<FilterBar f={f} set={set} clear={clear} patch={patch} me={me}
         shown={list.length} total={(rows || []).length} />}

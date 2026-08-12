@@ -13,7 +13,7 @@ import Guide from "./screens/Guide";
 import { Onboarding, ToHandOver } from "./screens/Onboarding";
 import { NewRequest, NewCapa } from "./screens/Forms";
 import {
-  AwaitingPrice, ToReview, HeadReview, PspPending, ExecSignoff,
+  AwaitingPrice, Open, PendingCrmId, ToReview, HeadReview, PspPending, ExecSignoff,
   Proposals, ReadyToShip, RecycleBin, Meeting,
 } from "./screens/Queues";
 
@@ -35,6 +35,10 @@ const NAV = [
     { id: "dashboard", label: "Dashboard", icon: "▤", keywords: "overview home stats" },
     { id: "mine", label: "My requests", icon: "◐", when: works, keywords: "my tickets assignment" },
     { id: "new", label: "New request", icon: "＋", when: (m) => m.permissions.createTicket },
+    { id: "open", label: "Open", icon: "○", count: "Open",
+      keywords: "open ready unclaimed available not started" },
+    { id: "crmid", label: "Pending CRM ID", icon: "⚠", count: "Pending CRM ID",
+      keywords: "crm id missing blocked salesforce opportunity" },
     { id: "awaiting", label: "Awaiting price", icon: "◷", count: "awaiting", keywords: "pricing" },
     { id: "review", label: "Review - Head PNS", icon: "◎", count: "Pending Review - Head PNS",
       keywords: "pns view pns review" },
@@ -343,6 +347,8 @@ export default function App() {
     workload: <Workload />,
     sync: <Sync notify={notify} />,
     new: <NewRequest me={me} notify={notify} onCreated={open} />,
+    open: <Open me={me} notify={notify} onOpen={open} />,
+    crmid: <PendingCrmId me={me} notify={notify} onOpen={open} />,
     awaiting: <AwaitingPrice me={me} notify={notify} onOpen={open} />,
     review: <ToReview me={me} notify={notify} onOpen={open} />,
     head: <HeadReview me={me} notify={notify} onOpen={open} />,
