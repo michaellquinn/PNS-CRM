@@ -68,6 +68,8 @@ export const api = {
   assign: (ref, body) => call(`/tickets/${ref}/assign`, { method: "POST", body: JSON.stringify(body) }),
   editInput: (ref, body) => call(`/tickets/${ref}/input`, { method: "PATCH", body: JSON.stringify(body) }),
   setSales: (ref, name) => call(`/tickets/${ref}/sales`, { method: "POST", body: JSON.stringify({ name }) }),
+  setMustWin: (ref, must_win) =>
+    call(`/tickets/${ref}/must-win`, { method: "POST", body: JSON.stringify({ must_win }) }),
   setCrmId: (ref, opportunity_id) =>
     call(`/tickets/${ref}/crm-id`, { method: "POST", body: JSON.stringify({ opportunity_id }) }),
   reopen: (ref, status) => call(`/tickets/${ref}/reopen`, { method: "POST", body: JSON.stringify({ status }) }),

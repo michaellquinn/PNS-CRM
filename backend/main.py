@@ -357,17 +357,33 @@ def pending_for(resp: str) -> str:
     return "Pending Sales" if resp == "Sales" else "Pending PNS"
 
 
+def review_level(t: dict) -> str | None:
+    """Who reviews a Sales-built price: the PNS Head, an ordinary PNS member, or nobody.
+
+    Two different jobs that were being run through one status (Baskoro, 2026-08-12):
+
+      "head"  Hypercare, Strategic and Must Win. These are the Head of PNS's own remit —
+              oversight of the accounts and deals the business is watching — and they go
+              to "Pending Review - Head PNS", which is named for exactly that person.
+
+      "pns"   Anything else Sales priced at or above Rp 30 Mio. It still gets a second
+              pair of eyes, but that is ordinary PNS work, not the Head's. It goes to
+              "Pending PNS" and is assigned like any other PNS job. Sending these to the
+              Head's queue made the Head a bottleneck on the highest-volume band and put
+              their name on a status they were not actually deciding.
+
+    PNS never reviews its own price, whatever the tier: a review by the author is not a
+    review. Returns None when the price simply goes out."""
+    if t.get("resp") != "Sales":
+        return None
+    if big_group(t):
+        return "head"
+    return "pns" if t.get("needs_review") else None
+
+
 def needs_pns_review(t: dict) -> bool:
-    """Whether a Sales-built price needs a PNS pair of eyes before it goes out.
-
-    Narrowed on 2026-08-11 to the three watched groups — Hypercare, Strategic and Must
-    Win — from "any Sales price at or above 30 Mio". The revenue band was catching
-    ordinary deals in volume and turning PNS review into a toll booth; the groups that
-    actually carry risk are the ones worth stopping. Everything else now proceeds
-    straight to the shipper.
-
-    PNS still never reviews its own work, whatever the tier."""
-    return bool(big_group(t)) and t.get("resp") == "Sales"
+    """Whether a Sales-built price is reviewed by PNS at all, at either level."""
+    return review_level(t) is not None
 
 
 def head_for(t: dict) -> str:
@@ -809,6 +825,9 @@ class Ticket(BaseModel):
     # by hand in this app, which is how you tell the two apart in a list.
     opportunity_id: str | None = None
     opportunity_name: str | None = None
+    # When Sales CRM says the deal was raised, and when this app first saw it. Two
+    # different facts: the gap between them is how long PNS was unaware of a live deal.
+    first_synced_on: str | None = None
     # The onboarding facts, so the Onboarding screens can list them without a request
     # per ticket. Keys match the intake payload.
     input: dict = {}
@@ -962,6 +981,7 @@ def shape(t: dict, u: User) -> Ticket:
         stage=t.get("stage"),
         opportunity_id=(str(t["opportunity_id"]) if t.get("opportunity_id") else None),
         opportunity_name=t.get("opportunity_name"),
+        first_synced_on=(str(t["first_synced_at"])[:10] if t.get("first_synced_at") else None),
         must_win=bool(t.get("must_win")),
         group=big_group(t),
         account_id=(str(t["account_id"]) if t.get("account_id") else None),
@@ -1158,16 +1178,28 @@ SALESCRM_RECORD_TYPE = os.getenv("SALESCRM_RECORD_TYPE", "Indonesia").strip()
 # own setting: {id} is replaced with the opportunity id. Set SALESCRM_OPP_URL in the
 # portal to whatever the browser actually shows when Sales open a deal — until then the
 # link is not rendered at all, because a button that lands on a 404 is worse than none.
-SALESCRM_OPP_URL = os.getenv("SALESCRM_OPP_URL", "").strip()
-SALESCRM_ACCOUNT_URL = os.getenv("SALESCRM_ACCOUNT_URL", "").strip()
+# Verified against the running Sales CRM on 2026-08-12 by opening the records: the web
+# app is a different host from the API and routes as /nv/objects/{Object}/records/{id},
+# where {id} is the same numeric id the API returns as Opportunity.id / Account.id.
+SALESCRM_WEB = os.getenv("SALESCRM_WEB", "https://salescrm.ninjavan.co/nv").rstrip("/")
+SALESCRM_OPP_URL = os.getenv(
+    "SALESCRM_OPP_URL", f"{SALESCRM_WEB}/objects/Opportunity/records/{{id}}").strip()
+SALESCRM_ACCOUNT_URL = os.getenv(
+    "SALESCRM_ACCOUNT_URL", f"{SALESCRM_WEB}/objects/Account/records/{{id}}").strip()
 
-# Sales CRM returns only populated fields and its column names are not documented, so
-# the Must Win flag is looked for under every name it plausibly carries. The sync
-# reports which key it actually matched, so this list can be cut down to the real one
-# rather than guessed at forever.
-MUSTWIN_FIELDS = ("must_win", "is_must_win", "must_win_flag", "mustwin",
-                  "must_win__c", "deal_priority", "priority")
-MUSTWIN_TRUE = ("1", "true", "yes", "y", "must win", "must-win", "mustwin", "high")
+# Must Win is not a field of its own — it is a VALUE of Lead Source Detail. Confirmed on
+# 2026-08-12 by reading opportunity 906031 in Sales CRM: the Opportunity layout has no
+# Must Win field anywhere in its 132 fields, but <input id="lead-source-detail"> carries
+# the string "Must Win". The web app's element ids are the API's field names in kebab
+# case (new-date -> new_date, lead-source-detail -> lead_source_detail), which is how the
+# API key was derived without a describe endpoint.
+#
+# Read as an exact, case-insensitive match on the whole value rather than a substring:
+# Lead Source Detail is free-ish text and "Must Win follow-up call" is a note about a
+# must-win deal, not necessarily one. Extra spellings are tolerated because this is typed
+# by salespeople, not chosen from a picklist.
+MUSTWIN_FIELDS = ("lead_source_detail", "leadSourceDetail", "lead_source_detail__c")
+MUSTWIN_TRUE = ("must win", "must-win", "mustwin")
 
 
 def read_must_win(o: dict) -> tuple[bool, str | None]:
@@ -1175,12 +1207,13 @@ def read_must_win(o: dict) -> tuple[bool, str | None]:
     for key in MUSTWIN_FIELDS:
         if key not in o:
             continue
-        v = o.get(key)
-        if isinstance(v, bool):
-            if v:
-                return True, key
-        elif v is not None and str(v).strip().lower() in MUSTWIN_TRUE:
+        v = str(o.get(key) or "").strip().lower()
+        if v in MUSTWIN_TRUE:
             return True, key
+        if v:
+            # The field is present and says something else, which is a real answer:
+            # this deal is not must-win. Reported so the refresh may clear the flag.
+            return False, key
     return False, None
 
 
@@ -1622,6 +1655,7 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
                         plan["must_win"] = mw
                         if mw_field:
                             mustwin_fields.add(mw_field)
+                        plan["crm_date"] = _crm_date(o)
                         plan["ftl_unknown"] = str(raw_product or "").strip() == FTL_VARIANT_UNKNOWN
                         plan["sales_unknown"] = bool(plan["sales_name"]) and \
                             plan["sales_name"] not in known_people
@@ -1683,12 +1717,25 @@ async def _refresh_from_salescrm(o: dict) -> dict | None:
     # and Must Win all come back as they stand there now. Service line, potential revenue
     # and the account tier are still left alone — PNS corrects those here deliberately,
     # and an overwrite would silently undo the correction every morning.
-    mw, _ = read_must_win(o)
-    await execute("UPDATE tickets SET stage=%s, parent_stage=%s, must_win=%s, "
-                  "opportunity_name=COALESCE(%s, opportunity_name), "
-                  "sales_name=COALESCE(%s, sales_name) WHERE id=%s",
-                  (o.get("stage"), o.get("parent_stage"), int(mw),
-                   o.get("name"), o.get("owner_name"), t["id"]))
+    # Must Win syncs both ways now that its source is known (Lead Source Detail), but
+    # only when the field is actually present on the record — Sales CRM returns only
+    # populated fields, so an absent one means "no answer", not "no". Treating absence
+    # as false would wipe a flag set by hand here on every refresh.
+    mw, mw_field = read_must_win(o)
+    sets = ["stage=%s", "parent_stage=%s",
+            "opportunity_name=COALESCE(%s, opportunity_name)",
+            "sales_name=COALESCE(%s, sales_name)",
+            # Sales CRM owns when the deal was raised. new_date is populated on every
+            # opportunity and equals its creation date, so it is the honest "submitted".
+            "submitted_on=COALESCE(%s, submitted_on)"]
+    args = [o.get("stage"), o.get("parent_stage"), o.get("name"), o.get("owner_name"),
+            _crm_date(o)]
+    if mw_field:
+        sets.append("must_win=%s"); args.append(int(mw))
+    # First time this app has ever seen the deal, written once and never revised.
+    sets.append("first_synced_at=COALESCE(first_synced_at, NOW())")
+    args.append(t["id"])
+    await execute(f"UPDATE tickets SET {', '.join(sets)} WHERE id=%s", tuple(args))
 
     payload = {}
     row = await q("SELECT payload FROM ticket_input WHERE ticket_id=%s", (t["id"],), one=True)
@@ -1764,7 +1811,8 @@ async def _import_opportunity(o: dict, account: dict | None, plan: dict,
         (ref, plan["opportunity_id"], plan["opportunity_name"], plan["stage"],
          plan["parent_stage"], shipper_id, plan["service"], plan["revenue"], status,
          r["resp"], int(r["review"]), int(plan.get("must_win") or 0), None,
-         plan["sales_name"], "GJ", date.today()))
+         plan["sales_name"], "GJ", plan.get("crm_date") or date.today()))
+    await execute("UPDATE tickets SET first_synced_at=NOW() WHERE id=%s", (tid,))
 
     owner = await auto_assignee(plan["service"], tid, shipper_id) if r["resp"] == "PNS" else None
     if owner:
@@ -2060,21 +2108,31 @@ async def submit_price(ref: str, body: PriceIn, u: User = Depends(current_user))
             await notify(f"{ref}, price attached by {u.name} and flagged BELOW BOTTOM RATE"
                          f" ({g['why']}); no PSP route, so this is yours to accept or refuse",
                          roles=[f"{head_for(t)} - Head"], ticket_ref=ref)
-    elif needs_pns_review(t):
-        nxt, note = "Pending Review - Head PNS", ""
-        # Non-managed at or above 30 Mio is the routine band, so it goes straight to the
-        # standing reviewer instead of queueing for the Head. A managed account is left
-        # unassigned deliberately: those are the ones the Head wants to place personally.
-        who = None if t.get("acct_type") in MANAGED_ACCTS else await review_delegate()
-        if who and not t.get("reviewer_name"):
-            await execute("UPDATE tickets SET reviewer_name=%s WHERE id=%s",
-                          (who, t["id"]))
-            note = f"review delegated to {who}"
-            await notify(f"{ref}, {t['shipper']}: priced by Sales, yours to review",
-                         people=[who], ticket_ref=ref,
-                         subject=f"Review {t['shipper']}")
+    elif review_level(t) == "head":
+        # A watched group: Hypercare, Strategic or Must Win. This is the Head of PNS's
+        # own oversight, so it goes to their queue and is left unassigned for them to
+        # place personally rather than being handed to a standing reviewer.
+        nxt, note = "Pending Review - Head PNS", f"{big_group(t)} — Head of PNS reviews"
+        await notify(f"{ref}, {t['shipper']} ({big_group(t)}): priced by Sales, needs "
+                     f"your review", roles=["PNS - Head"], ticket_ref=ref)
+    elif review_level(t) == "pns":
+        # At or above 30 Mio but not a watched group. Still reviewed, but as ordinary PNS
+        # work: it becomes Pending PNS and is assigned like any other job. The Head is
+        # not in this path at all — putting them here made them a bottleneck on the
+        # highest-volume band and put their name on a decision they were not taking.
+        nxt, note = "Pending PNS", "Sales priced at or above 30 Mio — PNS checks it"
+        await execute("UPDATE tickets SET resp='PNS' WHERE id=%s", (t["id"],))
+        who = t.get("owner_name") or await auto_assignee(
+            t["service_type"], t["id"], t.get("shipper_id"))
+        if who:
+            if not t.get("owner_name"):
+                await execute("UPDATE tickets SET owner_name=%s WHERE id=%s", (who, t["id"]))
+            await notify(f"{ref}, {t['shipper']}: Sales priced it at "
+                         f"Rp {int(t['potential_rev']):,} — yours to check",
+                         people=[who], ticket_ref=ref, subject=f"Check {t['shipper']}")
         else:
-            await notify(f"{ref}, priced by Sales, needs PNS review ({t.get('acct_type')})",
+            await notify(f"{ref}, {t['shipper']}: Sales priced it at or above 30 Mio and "
+                         f"everyone eligible is at the cap — needs manual assignment",
                          roles=["PNS - Head"], groups=["PNS"], ticket_ref=ref)
     else:
         nxt, note = proposal_or_signoff(t), ""
@@ -2335,6 +2393,33 @@ async def change_sales(ref: str, body: SalesIn, u: User = Depends(current_user))
     return {"ok": True, "ref": ref, "status": t["status"]}
 
 
+class MustWinIn(BaseModel):
+    must_win: bool
+
+
+@app.post("/api/tickets/{ref}/must-win", response_model=Ok)
+async def set_must_win(ref: str, body: MustWinIn, u: User = Depends(current_user)):
+    """Tag or untag this deal as Must Win.
+
+    Sales CRM carries this as the Lead Source Detail value "Must Win", and the sync reads
+    it, so this is the manual override for a deal Sales has not tagged there yet — or has
+    tagged wrongly. A later sync will overwrite it if Sales CRM has an opinion, which is
+    correct: Sales CRM is the record. Must Win is per-deal and never touches the account
+    or its sibling opportunities."""
+    require(u, "editInput")
+    t = await get_ticket(ref)
+    await execute("UPDATE tickets SET must_win=%s WHERE id=%s", (int(body.must_win), t["id"]))
+    await log_note(t["id"], t["status"], u.name,
+                   "tagged Must Win" if body.must_win else "Must Win tag removed")
+    await audit(u.email, "must_win", "ticket", ref, "must_win",
+                bool(t.get("must_win")), body.must_win)
+    if body.must_win:
+        await notify(f"{ref}, {t['shipper']} tagged MUST WIN by {u.name} — it now needs "
+                     f"PNS review even if Sales priced it",
+                     groups=["PNS"], ticket_ref=ref)
+    return {"ok": True, "ref": ref, "status": t["status"]}
+
+
 class CrmIdIn(BaseModel):
     opportunity_id: str
 
@@ -2405,7 +2490,9 @@ async def head_ack(ref: str, u: User = Depends(current_user)):
     here rather than with PNS or PSP."""
     t = await get_ticket(ref)
     require(u, "headAck", t)   # the Sales Head: Sales owns the commercial concession
-    nxt = "Pending Review - Head PNS" if needs_pns_review(t) else proposal_or_signoff(t)
+    lvl = review_level(t)
+    nxt = ("Pending Review - Head PNS" if lvl == "head"
+           else "Pending PNS" if lvl == "pns" else proposal_or_signoff(t))
     note = "below bottom rate accepted by the Sales Head"
     await log_status(t["id"], nxt, u.name, note)
     await execute("INSERT INTO approvals (ticket_id, kind, decision, actor, actor_role) "
@@ -2855,8 +2942,10 @@ async def psp_decide(ref: str, body: PspIn, u: User = Depends(current_user)):
             nxt = proposal_or_signoff(t)
         elif needs_pns_review(t):
             # Hasn't been reviewed yet and still needs to be. PSP clearing the margin
-            # does not stand in for that: a Sales-priced >= 30 Mio deal must not skip it.
-            nxt = "Pending Review - Head PNS"
+            # does not stand in for that: a Sales-priced deal must not skip its check.
+            # Which queue depends on whose review it is — see review_level().
+            nxt = ("Pending Review - Head PNS" if review_level(t) == "head"
+                   else "Pending PNS")
         else:
             # No review needed either way, but PSP approving is not the same as the
             # proposal being ready. It goes back to whoever priced it for an explicit

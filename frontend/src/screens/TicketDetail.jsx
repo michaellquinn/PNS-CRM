@@ -265,8 +265,21 @@ export default function TicketDetail({ ticketRef: initialRef, me, notify, onBack
               {t.opportunity_name && (
                 <div className="mt-0.5 text-[12px] text-slate-500">{t.opportunity_name}</div>
               )}
-              <div className="mt-1 text-[11.5px] text-slate-500">
-                Stage {t.stage || "—"} &middot; Must Win {t.must_win ? "yes" : "no"}
+              <div className="mt-1 flex flex-wrap items-center gap-2 text-[11.5px] text-slate-500">
+                <span>Stage {t.stage || "—"}</span>
+                {/* Set by hand: Sales CRM has no Must Win field today, so there is
+                    nothing to sync. The sync is careful not to clear this, and will
+                    start honouring it automatically once the field exists there. */}
+                {p.editInput ? (
+                  <label className="flex items-center gap-1.5 rounded-md bg-orange-50 px-2 py-0.5 font-medium text-orange-800">
+                    <input type="checkbox" checked={!!t.must_win} disabled={busy}
+                      onChange={(e) => run(() => api.setMustWin(ref, e.target.checked),
+                        e.target.checked ? `${ref} tagged Must Win` : "Must Win removed")} />
+                    Must Win
+                  </label>
+                ) : (
+                  <span>Must Win {t.must_win ? "yes" : "no"}</span>
+                )}
               </div>
             </div>
             <div>

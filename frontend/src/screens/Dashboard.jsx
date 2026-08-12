@@ -60,6 +60,8 @@ const TILE_TONE = {
 const COL_HINTS = {
   "Days active": "Days the ticket has spent in its current status, against the target for that status",
   "CRM ID": "The Sales CRM opportunity id. Blank means the ticket was raised by hand here.",
+  Submitted: "When Sales CRM says the opportunity was raised. A ticket raised here uses today's date until the sync links it, then Sales CRM's date replaces it.",
+  "First synced": "The first time this app saw the deal. Written once and never revised — the gap from Submitted is how long PNS was unaware of a live opportunity.",
   "Sales CRM": "The stage in Sales CRM. Reference only — it is not this app's status.",
 };
 
@@ -161,6 +163,7 @@ export default function Dashboard({ me, onOpen }) {
     ["ref", "Ticket"],
     ["opportunity_id", "CRM ID"],
     ["submitted_on", "Submitted"],
+    ["first_synced_on", "First synced"],
     ["shipper", "Shipper"],
     ["service", "Service"],
     ["revenue", "Revenue", "right"],
@@ -198,7 +201,7 @@ export default function Dashboard({ me, onOpen }) {
   // Export exactly what is on screen, and only the columns this role may see — margin
   // stays out of the file for anyone without seeMargin, same rule as the table.
   const exportCsv = () => {
-    const head = ["Ticket", "CRM ID", "Submitted", "Shipper", "Account type", "Region",
+    const head = ["Ticket", "CRM ID", "Submitted", "First synced", "Shipper", "Account type", "Region",
                   "Service", "Revenue", "Status", "Sales CRM stage", "Priced by",
                   "PNS review", "Days in status", "SLA target",
                   ...(canSeeMargin ? ["Margin %"] : []), "PNS PIC", "Sales PIC"];
@@ -207,7 +210,7 @@ export default function Dashboard({ me, onOpen }) {
       return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
     };
     const lines = [head.join(",")].concat(sorted.map((t) => [
-      t.ref, t.opportunity_id || "", t.submitted_on, t.shipper, t.acct_type, t.region,
+      t.ref, t.opportunity_id || "", t.submitted_on, t.first_synced_on || "", t.shipper, t.acct_type, t.region,
       t.service, t.revenue, t.status, t.stage || "", t.priced_by,
       t.needs_review ? "yes" : "no", t.sla_elapsed, t.sla_target,
       ...(canSeeMargin ? [t.margin ?? ""] : []), t.owner || "", t.sales || "",
@@ -418,6 +421,9 @@ export default function Dashboard({ me, onOpen }) {
                     {t.opportunity_id || <span className="text-slate-300">raised here</span>}
                   </td>
                   <td className="whitespace-nowrap px-4 py-3.5 font-mono tabular-nums text-slate-600">{t.submitted_on}</td>
+                  <td className="whitespace-nowrap px-4 py-3.5 font-mono tabular-nums text-slate-500">
+                    {t.first_synced_on || <span className="text-slate-300">never</span>}
+                  </td>
                   {/* Shipper names run long — "PT. Mostrans Global Digilog - Project PT
                       Agroveta Husada Dharma - LTL (B2BR)" — and truncating them hid the
                       part that tells two tickets apart. The name wraps in full instead. */}

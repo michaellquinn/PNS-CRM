@@ -12,6 +12,8 @@ const ENTRIES = [
       "Must Win joins the tiering as a third watched group, alongside Hypercare and Strategic. It sits on the OPPORTUNITY, not the account: the same account can have a must-win deal and five ordinary ones, so tagging the account would have promoted all of them. Hypercare and Strategic stay at account level, inherited from the parent group.",
       "Non-Strategic is renamed Standard — same tier, a name that says what it is rather than what it is not.",
       "Review - Head PNS is narrowed to the three watched groups. A Standard deal now goes straight to the shipper whatever its revenue; the old 'any Sales price at or above 30 Mio' rule was catching ordinary deals in volume and turning PNS review into a toll booth.",
+      "Two dates instead of one. Submitted is now Sales CRM's own date (its new_date, the day the opportunity was raised) and is corrected on every refresh; First synced is the day this app first saw the deal, written once and never revised. Before this, an imported ticket claimed it arrived the day somebody ran the sync, so weeks of pipeline age disappeared — one deal checked in Sales CRM was raised on 14 July and would have shown as 12 August.",
+      "Must Win is read from Sales CRM's Lead Source Detail field, where the value is literally 'Must Win' — it is not a field of its own. It can also be set by hand on the ticket for a deal Sales has not tagged there yet; a later sync overwrites that, because Sales CRM is the record.",
       "Every ticket shows which Sales CRM records it is tied to — the opportunity (the deal, where Must Win and the stage live) and the account (which sets the tier, inherited from the parent group) — each with a link straight into Sales CRM.",
     ],
     overruled: [
