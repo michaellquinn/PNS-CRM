@@ -363,27 +363,41 @@ def pending_for(resp: str) -> str:
 
 
 def review_level(t: dict) -> str | None:
-    """Who reviews a Sales-built price: the PNS Head, an ordinary PNS member, or nobody.
+    """Who reviews the priced solution: the PNS Head, an ordinary PNS member, or nobody.
 
-    Two different jobs that were being run through one status (Baskoro, 2026-08-12):
+      "head"  Hypercare, Strategic and Must Win — the three watched groups. The Head of
+              PNS finalises the solution AND its pricing here, and this happens FIRST,
+              before PSP, the Sales Head or C-level see it. That ordering is the point
+              (Baskoro, 2026-08-13): the executives are being asked to sign a finished
+              solution, so it has to be finished before they are asked.
 
-      "head"  Hypercare, Strategic and Must Win. These are the Head of PNS's own remit —
-              oversight of the accounts and deals the business is watching — and they go
-              to "Pending Review - Head PNS", which is named for exactly that person.
+              This fires whoever priced it, including PNS itself. A Head reviewing the
+              team's work is oversight, not self-review — and previously a managed
+              account priced by PNS went price -> PSP -> C-level with the Head never in
+              the path at all, which is exactly the gap this closes.
 
-      "pns"   Anything else Sales priced at or above Rp 30 Mio. It still gets a second
-              pair of eyes, but that is ordinary PNS work, not the Head's. It goes to
-              "Pending PNS" and is assigned like any other PNS job. Sending these to the
-              Head's queue made the Head a bottleneck on the highest-volume band and put
-              their name on a status they were not actually deciding.
+      "pns"   Anything else Sales priced at or above Rp 30 Mio. A second pair of PNS eyes
+              as ordinary work, in "Pending PNS", with the Head nowhere near it.
 
-    PNS never reviews its own price, whatever the tier: a review by the author is not a
-    review. Returns None when the price simply goes out."""
-    if t.get("resp") != "Sales":
-        return None
+      None    everything else — it goes straight out.
+    """
     if big_group(t):
         return "head"
+    if t.get("resp") != "Sales":
+        return None                       # PNS does not re-check its own routine work
     return "pns" if t.get("needs_review") else None
+
+
+def next_after_head_pns(t: dict) -> str:
+    """Where a ticket goes once the Head of PNS has finalised the solution.
+
+    The Head's approval is not the end of the line — it is the start of the approval
+    chain, and which links apply was already decided when the price was attached and
+    recorded on the ticket. Recomputed from those flags rather than passed along, so a
+    ticket that sat in the queue for a week still routes on what is true now."""
+    if t.get("manual_review") or t.get("below_bottom"):
+        return "Pending Review - PSP" if may_go_to_psp(t) else "Pending Review - Head Sales"
+    return proposal_or_signoff(t)
 
 
 def needs_pns_review(t: dict) -> bool:
@@ -2111,7 +2125,21 @@ async def submit_price(ref: str, body: PriceIn, u: User = Depends(current_user))
     # past 20%. A plain margin breach is different and belongs to the Sales Head.
     to_psp = g["kind"] == "manual" or (breach and g["kind"] in ("discount", "standard"))
 
-    if to_psp:
+    # The Head of PNS finalises the solution before anyone else is asked to approve it.
+    # This is checked ahead of the PSP and below-floor branches on purpose: those still
+    # apply, they just apply *after* the solution is finished. next_after_head_pns()
+    # picks the chain back up from the flags recorded here.
+    if review_level(t) == "head":
+        if to_psp:
+            await execute("UPDATE tickets SET manual_review=1 WHERE id=%s", (t["id"],))
+        if breach or body.below_bottom:
+            await execute("UPDATE tickets SET below_bottom=1 WHERE id=%s", (t["id"],))
+        nxt = "Pending Review - Head PNS"
+        note = f"{big_group(t)} — Head of PNS finalises the solution and pricing"
+        await notify(f"{ref}, {t['shipper']} ({big_group(t)}): priced by {u.name}, "
+                     f"needs your sign-off on the solution before it goes further",
+                     roles=["PNS - Head"], ticket_ref=ref)
+    elif to_psp:
         nxt, note = "Pending Review - PSP", g["why"]
         await execute("UPDATE tickets SET manual_review=1 WHERE id=%s", (t["id"],))
         await notify(f"{ref}, price attached by {u.name}; needs PSP approval ({g['why']})",
@@ -2136,13 +2164,6 @@ async def submit_price(ref: str, body: PriceIn, u: User = Depends(current_user))
             await notify(f"{ref}, price attached by {u.name} and flagged BELOW BOTTOM RATE"
                          f" ({g['why']}); no PSP route, so this is yours to accept or refuse",
                          roles=[f"{head_for(t)} - Head"], ticket_ref=ref)
-    elif review_level(t) == "head":
-        # A watched group: Hypercare, Strategic or Must Win. This is the Head of PNS's
-        # own oversight, so it goes to their queue and is left unassigned for them to
-        # place personally rather than being handed to a standing reviewer.
-        nxt, note = "Pending Review - Head PNS", f"{big_group(t)} — Head of PNS reviews"
-        await notify(f"{ref}, {t['shipper']} ({big_group(t)}): priced by Sales, needs "
-                     f"your review", roles=["PNS - Head"], ticket_ref=ref)
     elif review_level(t) == "pns":
         # At or above 30 Mio but not a watched group. Still reviewed, but as ordinary PNS
         # work: it becomes Pending PNS and is assigned like any other job. The Head is
@@ -2431,6 +2452,43 @@ async def change_sales(ref: str, body: SalesIn, u: User = Depends(current_user))
                  people=[name], ticket_ref=ref)
     await audit(u.email, "reassign", "ticket", ref, "sales", t["sales_name"], name)
     return {"ok": True, "ref": ref, "status": t["status"]}
+
+
+@app.post("/api/tickets/{ref}/pns-final", response_model=Ok)
+async def pns_finalise(ref: str, u: User = Depends(current_user)):
+    """The Head of PNS signs off the solution and its pricing, and it moves on.
+
+    Deliberately not a plain status change: what comes next is not one destination. The
+    approval chain that applies was decided when the price was attached, so this asks
+    next_after_head_pns() rather than letting the caller name a status and risk skipping
+    PSP or C-level. Approving used to jump straight to "Proposal Submitted", which on a
+    Hypercare deal would have bypassed the executive sign-off entirely."""
+    require(u, "markReviewed")
+    t = await get_ticket(ref)
+    if t["status"] != "Pending Review - Head PNS":
+        raise HTTPException(409, f"{ref} is {t['status']}, not waiting on PNS review")
+
+    nxt = next_after_head_pns(t)
+    await log_status(t["id"], nxt, u.name, "solution and pricing finalised by PNS")
+    await execute("INSERT INTO approvals (ticket_id, kind, decision, actor, actor_role) "
+                  "VALUES (%s,'pns_final','approved',%s,%s)", (t["id"], u.name, u.group))
+
+    if nxt == "Pending Review - PSP":
+        await notify(f"{ref}, {t['shipper']}: solution finalised by {u.name}, "
+                     f"needs your margin decision", groups=["PSP"], ticket_ref=ref)
+    elif nxt == "Pending Review - Head Sales":
+        await notify(f"{ref}, {t['shipper']}: solution finalised, below the floor — "
+                     f"yours to accept or refuse", roles=[f"{head_for(t)} - Head"],
+                     ticket_ref=ref)
+    elif nxt == "Pending Review - C-level":
+        await notify(f"{ref}, {t['shipper']} ({t['acct_type']}): solution finalised by "
+                     f"{u.name} and ready for Alex and Dhinesh",
+                     groups=["PNS", "Commercial"], ticket_ref=ref)
+    else:
+        await notify(f"{ref}, {t['shipper']}: solution finalised — proposal is ready",
+                     groups=["Commercial"], ticket_ref=ref)
+    await audit(u.email, "pns_final", "ticket", ref, "status", t["status"], nxt)
+    return {"ok": True, "ref": ref, "status": nxt}
 
 
 class MustWinIn(BaseModel):

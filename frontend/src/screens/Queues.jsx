@@ -402,7 +402,7 @@ export function ToReview({ me, onOpen, notify }) {
 
   return (
     <Shell title="Review - Head PNS"
-      sub="Hypercare, Strategic and Must Win only: Sales priced it, PNS checks before it reaches the shipper. Standard deals now go straight out, whatever the revenue."
+      sub="Hypercare, Strategic and Must Win — whoever priced them. The Head of PNS finalises the solution AND its pricing here, and this is the FIRST gate: PSP, the Sales Head and C-level all come after, so nobody is asked to sign an unfinished solution."
       rows={rows} err={err} empty="Nothing waiting on review."
       bar={<FilterBar f={f} set={set} clear={clear} patch={patch} me={me}
         shown={list.length} total={(rows || []).length} />}
@@ -439,9 +439,16 @@ export function ToReview({ me, onOpen, notify }) {
               </Btn>
             )}
             {me.permissions.markReviewed && (
+              // Not "submit the proposal": on a watched group this is the FIRST gate,
+              // not the last. The server works out whether PSP, the Sales Head or
+              // C-level comes next and says which — hard-coding "Proposal Submitted"
+              // here used to skip the executive sign-off on Hypercare deals entirely.
               <Btn kind="primary" className="ml-auto"
-                onClick={() => act(() => api.status(t.ref, { status: "Proposal Submitted", reason: "reviewed and approved" }))}>
-                Approve &amp; submit proposal
+                onClick={() => act(async () => {
+                  const r = await api.pnsFinal(t.ref);
+                  notify(`${t.ref} finalised → ${r.status}`);
+                })}>
+                Finalise solution &amp; pricing
               </Btn>
             )}
           </div>

@@ -49,10 +49,16 @@ CASES = [
     ("Standard >= 30 Mio",                  T("Standard", rev=1),              "pns"),
     # Below the band, nothing is reviewed at all.
     ("Standard < 30 Mio",                   T("Standard"),                     None),
-    # PNS never reviews its own price, at either level.
-    ("PNS priced a Hypercare deal",         T("Hypercare", resp="PNS"),        None),
+    # The three watched groups reach the Head WHOEVER priced them, PNS included. A Head
+    # reviewing the team's work is oversight, not self-review, and the Head finalising
+    # the solution is the whole point of the step (Baskoro, 2026-08-13) — it has to
+    # happen before PSP, the Sales Head or C-level are asked to sign anything.
+    # Before this, a Hypercare deal priced by PNS went price -> PSP -> C-level with the
+    # Head never in the path.
+    ("PNS priced a Hypercare deal",         T("Hypercare", resp="PNS"),        "head"),
+    ("PNS priced a Must Win deal",          T("Standard", mw=1, resp="PNS"),   "head"),
+    # Outside those groups PNS still does not re-check its own routine work.
     ("PNS priced a >= 30 Mio deal",         T("Standard", resp="PNS", rev=1),  None),
-    ("PNS priced a Must Win deal",          T("Standard", mw=1, resp="PNS"),   None),
 ]
 
 fails = []

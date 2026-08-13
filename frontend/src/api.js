@@ -73,6 +73,9 @@ export const api = {
   setCrmId: (ref, opportunity_id) =>
     call(`/tickets/${ref}/crm-id`, { method: "POST", body: JSON.stringify({ opportunity_id }) }),
   reopen: (ref, status) => call(`/tickets/${ref}/reopen`, { method: "POST", body: JSON.stringify({ status }) }),
+  // The Head of PNS finalises the solution; the server decides what comes next, so the
+  // caller cannot accidentally skip PSP or C-level by naming a status.
+  pnsFinal: (ref) => call(`/tickets/${ref}/pns-final`, { method: "POST" }),
   headAck: (ref) => call(`/tickets/${ref}/head-ack`, { method: "POST" }),
   psp: (ref, body) => call(`/tickets/${ref}/psp`, { method: "POST", body: JSON.stringify(body) }),
   execSignoff: (ref, body) =>
