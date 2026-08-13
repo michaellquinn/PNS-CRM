@@ -129,6 +129,11 @@ PENDING_STATUSES = ["Open", "Pending Sales", "Pending PNS", "Pending Review - He
 # PENDING_STATUSES: it is not waiting on solutioning work, it is waiting on an id, and
 # it must not be reopened into or sent back to.
 NO_CRM_STATUS = "Pending CRM ID"
+# Statuses that mean somebody is actually working the deal. Reaching any of them needs
+# the facts the work depends on — today that is potential revenue, see change_status.
+WORK_STATUSES = ("Pending Sales", "Pending PNS", "Pending Vendor",
+                 "Pending Review - Head PNS", "Pending Review - Head Sales",
+                 "Pending Review - PSP", "Pending Review - C-level")
 # Fields the intake keeps as free text but remembers: the dropdown would otherwise have
 # to predict every commodity Ninja ever carries (a shipper turned up with medicine).
 REMEMBERED_FIELDS = ["commodity", "product", "pallet", "destType", "truck", "freq"]
@@ -779,7 +784,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-08-12.38"
+BUILD = "2026-08-12.39"
 
 
 class Me(BaseModel):
@@ -1215,6 +1220,21 @@ def read_must_win(o: dict) -> tuple[bool, str | None]:
             # this deal is not must-win. Reported so the refresh may clear the flag.
             return False, key
     return False, None
+
+
+def _crm_date(o: dict) -> str | None:
+    """When Sales CRM says this opportunity was raised, as YYYY-MM-DD.
+
+    new_date is the field Sales CRM populates on every opportunity and it equals the
+    creation date, which is why the whole sync is built on it; created_date is the
+    fallback for the rare record that lacks one. Returns None rather than guessing, so
+    the caller keeps whatever date it already had instead of inventing today's.
+    """
+    for key in ("new_date", "created_date", "createdDate"):
+        v = str(o.get(key) or "").strip()
+        if len(v) >= 10 and v[4] == "-" and v[7] == "-":
+            return v[:10]
+    return None
 
 
 def opp_link(opportunity_id: str | None) -> str | None:
@@ -2041,6 +2061,14 @@ def clean_url(raw: str | None) -> str | None:
 @app.post("/api/tickets/{ref}/price", response_model=Ok)
 async def submit_price(ref: str, body: PriceIn, u: User = Depends(current_user)):
     t = await get_ticket(ref)
+    # Same reason as the status gate: the 5A ceiling this price is about to be checked
+    # against is chosen by revenue band, so pricing a ticket with no revenue checks it
+    # against the smallest band by accident.
+    if not int(t.get("potential_rev") or 0):
+        raise HTTPException(
+            409, f"{ref} has no potential revenue, so there is no 5A band to check this "
+                 f"price against. Fill it in on the Input tab first.")
+
     blocked = stage_blocks_work(t)
     if blocked:
         raise HTTPException(409, blocked)
@@ -2167,6 +2195,18 @@ async def change_status(ref: str, body: StatusIn, u: User = Depends(current_user
         raise HTTPException(
             409, f"{ref} has no Sales CRM opportunity id. Add it on the ticket first — "
                  f"Sales CRM is the system of record and the sync finds this deal by id.")
+
+    # Potential revenue decides who prices it, which pricing ceiling applies and whether
+    # PNS reviews the result. A ticket that reaches PNS with revenue 0 has had all three
+    # of those decided on a number nobody supplied — it routes as if it were the smallest
+    # possible deal. Sales CRM leaves the field empty often enough that this has to be a
+    # gate rather than a hope; the sync imports them, they sit in Open, and the number is
+    # supplied before anyone prices anything.
+    if nxt in WORK_STATUSES and not int(t.get("potential_rev") or 0):
+        raise HTTPException(
+            409, f"{ref} has no potential revenue. It decides who prices the deal, which "
+                 f"5A ceiling applies and whether PNS reviews it, so it must be filled in "
+                 f"before the ticket starts moving. Set it on the Input tab.")
 
     if is_lost:
         require(u, "acceptProposal")           # Sales owns the shipper outcome

@@ -15,6 +15,11 @@ Each suite exists because something was actually wrong:
                      sign-off gate must not be skippable
   verify_psp_gate    PSP-by-rule and PSP-by-exception are different, and collapsing
                      them diverted Sameday and FTL away from PSP
+  verify_names       _crm_date shipped called-but-never-defined: an edit removed the
+                     region holding its definition and left both call sites. py_compile
+                     is happy with a missing global (it is a run-time NameError), and no
+                     suite touched the sync, so production found it first.
+
   verify_review_level who reviews a Sales-built price moved three times in two days
                      (revenue-only, then group-only, then split by level), and each
                      move silently changed who was on the hook for the busiest band.
@@ -28,7 +33,8 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SUITES = ["verify_rules.py", "verify_assign.py", "verify_charter.py",
-          "verify_psp_gate.py", "verify_permissions.py", "verify_review_level.py"]
+          "verify_psp_gate.py", "verify_permissions.py", "verify_review_level.py",
+          "verify_names.py"]
 
 failed = []
 for name in SUITES:

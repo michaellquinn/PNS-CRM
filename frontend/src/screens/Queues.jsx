@@ -357,7 +357,13 @@ export function Open({ me, onOpen, notify }) {
               {t.priced_by} will price it
             </Pill>,
           ]}>
-          {mayTake ? (
+          {!t.revenue ? (
+            <p className="text-[12.5px] text-rose-700">
+              <b>No potential revenue.</b> It decides who prices this and which ceiling
+              applies, so the ticket cannot start until it is filled in. Open the ticket
+              and set it on the Input tab.
+            </p>
+          ) : mayTake ? (
             <div className="flex flex-wrap items-center gap-2">
               <input className={`${inputCls} max-w-[320px]`}
                 placeholder="What is missing? (sends it back to Sales)"

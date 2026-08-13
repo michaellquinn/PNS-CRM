@@ -307,6 +307,22 @@ export default function TicketDetail({ ticketRef: initialRef, me, notify, onBack
         )}
       </Card>
 
+      {/* Revenue 0 stops the ticket moving, so it is said here rather than discovered
+          as a 409 when somebody presses a button. */}
+      {!t.revenue && !["Lost", "Cancel"].includes(t.status) && (
+        <Card className="mb-4 border-l-4 border-l-rose-400 bg-rose-50/50 p-3.5">
+          <div className="text-[10.5px] font-bold uppercase tracking-wider text-rose-700">
+            No potential revenue
+          </div>
+          <p className="mt-1 text-[13px] text-slate-700">
+            This ticket cannot start moving until potential revenue is filled in. It
+            decides who prices the deal, which 5A ceiling applies and whether PNS
+            reviews the result — at zero, all three are decided as if this were the
+            smallest possible deal. Set it on the <b>Input</b> tab.
+          </p>
+        </Card>
+      )}
+
       {/* Why it came back should be the first thing you read, not buried in History. */}
       {t.status.startsWith("Pending") && d.history[0]?.note && (
         <Card className="mb-4 border-l-4 border-l-amber-400 bg-amber-50/50 p-3.5">
