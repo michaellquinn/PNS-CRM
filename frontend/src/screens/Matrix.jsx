@@ -1,11 +1,16 @@
 import { Card, Head, Pill } from "../ui";
 
+// The last column is who reviews a SALES-built price, which is two different jobs:
+// the Head of PNS oversees the three watched groups; an ordinary PNS member checks the
+// high-value Standard band as normal work.
 const ROUTING = [
-  ["Hypercare / Strategic", "any service", "any revenue", "PNS", "no"],
-  ["Standard", "FTL monthly / Sameday", "any revenue", "PNS", "no"],
-  ["Standard", "LTL / B2BR / B2C / FTL on-call", "≥ Rp 30 Mio", "Sales", "no — narrowed 2026-08-11 to the three watched groups"],
-  ["Standard", "LTL / B2BR / B2C / FTL on-call", "< Rp 30 Mio", "Sales", "no"],
-  ["Must Win (any account)", "any", "any revenue", "as the account decides", "yes — PNS reviews a Sales price"],
+  ["Hypercare / Strategic", "any service", "any revenue", "PNS", "— (PNS prices it)"],
+  ["Must Win (any account)", "any service", "any revenue", "as the account decides",
+   "Head of PNS → Pending Review - Head PNS"],
+  ["Standard", "FTL monthly / Sameday", "any revenue", "PNS", "— (PNS prices it)"],
+  ["Standard", "LTL / B2BR / B2C / FTL on-call", "≥ Rp 30 Mio", "Sales",
+   "a PNS member → Pending PNS"],
+  ["Standard", "LTL / B2BR / B2C / FTL on-call", "< Rp 30 Mio", "Sales", "nobody — it goes straight out"],
 ];
 
 // The "Max. Discount / Min. Margin" row of each 5A Revenue & Customization table.

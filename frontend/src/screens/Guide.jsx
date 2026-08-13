@@ -13,7 +13,7 @@ const TASKS = [
     go: "new",
     steps: [
       "Open New request and fill the intake. Shipper, service, potential revenue and the brief are what routing reads.",
-      "On save the app decides who prices it: managed accounts (Hypercare/Strategic), FTL monthly and Sameday always go to PNS; everything else stays with Sales, with a PNS review above Rp 30 Mio.",
+      "On save the app decides who prices it: managed accounts (Hypercare/Strategic), FTL monthly and Sameday always go to PNS; everything else stays with Sales, and a Sales price at or above Rp 30 Mio is checked by a PNS member afterwards.",
       "The ticket appears in Awaiting price for whoever owes it, and in My requests for you.",
     ],
   },
@@ -34,7 +34,8 @@ const TASKS = [
     go: "matrix",
     steps: [
       "Below the tier floor → Pending Review - PSP first, then Pending Review - Head Sales. PSP settles whether the margin is survivable; the Sales Head then decides whether Sales will wear the concession. Where PSP does not take the ticket, it goes straight to the Sales Head and they are the only gate.",
-      "Sales priced it and it is at or above Rp 30 Mio (non-managed) → Pending Review - Head PNS.",
+      "Sales priced a Hypercare, Strategic or Must Win deal → Pending Review - Head PNS. That queue is the Head of PNS’s own oversight of the three watched groups, and nothing else lands in it.",
+      "Sales priced anything else at or above Rp 30 Mio → Pending PNS, assigned like ordinary PNS work. It is still checked, just not by the Head.",
       "Managed account, Sameday discount over 20%, FTL at or above Rp 30 Mio, or an escalation → Pending Review - PSP.",
       "Hypercare or Strategic, after every other gate → Pending Review - C-level (Alex and Dhinesh).",
       "Routing & limits has the full table of ceilings per service and revenue band.",
@@ -96,7 +97,7 @@ const TASKS = [
     who: "Anyone",
     go: "review",
     steps: [
-      "No — the price reviewer is a PNS colleague, not PSP. When SALES builds a price on a non-managed deal at or above Rp 30 Mio, a second pair of PNS eyes checks it before it reaches the shipper. That is the reviewer.",
+      "No — the price reviewer is a PNS colleague, not PSP. When SALES builds a price, a second pair of PNS eyes checks it before it reaches the shipper. Which eyes depends on the deal: the Head of PNS for Hypercare, Strategic and Must Win; any PNS member for everything else at or above Rp 30 Mio.",
       "PSP is a different question entirely: is this margin acceptable to the business. PSP never reviews the workings, only the number.",
       "Reviews are now delegated automatically to a standing reviewer rather than queueing for the PNS Head, and any PNS member can claim one themselves from the ticket.",
     ],
@@ -235,7 +236,7 @@ export default function Guide({ onGo }) {
         </div>
         <p className="text-[13px] leading-relaxed text-slate-600">
           Intake → the responsible side prices it → the gates that its rule triggered clear
-          in order (<b>Head PNS</b> for Sales-priced big deals, <b>Head Sales</b> for a price
+          in order (<b>Head PNS</b> for the three watched groups, <b>Head Sales</b> for a price
           below the floor, <b>PSP</b> for the margin, <b>C-level</b> for managed accounts,
           always last) → the proposal goes out → Sales records won or lost → the charter is
           published and Ops onboard. Everything else in this app is a way of seeing where a

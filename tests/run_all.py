@@ -15,6 +15,10 @@ Each suite exists because something was actually wrong:
                      sign-off gate must not be skippable
   verify_psp_gate    PSP-by-rule and PSP-by-exception are different, and collapsing
                      them diverted Sameday and FTL away from PSP
+  verify_review_level who reviews a Sales-built price moved three times in two days
+                     (revenue-only, then group-only, then split by level), and each
+                     move silently changed who was on the hook for the busiest band.
+
   verify_permissions three permissions were live in the backend and invisible in the
                      UI because /api/me never sent them
 """
@@ -24,7 +28,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SUITES = ["verify_rules.py", "verify_assign.py", "verify_charter.py",
-          "verify_psp_gate.py", "verify_permissions.py"]
+          "verify_psp_gate.py", "verify_permissions.py", "verify_review_level.py"]
 
 failed = []
 for name in SUITES:
