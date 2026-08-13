@@ -93,10 +93,10 @@ export function NewRequest({ me, notify, onCreated }) {
 
         <Section label="1 · Shipper profile">
           <Field label="Sales CRM opportunity ID" required
-            hint="Raise the opportunity in Sales CRM first, then paste its id here. Without it the ticket parks in Pending CRM ID and cannot move — the sync finds each deal by this number.">
+            hint="Raise the opportunity in Sales CRM first, then paste its id here. It is the 6-digit number in the record URL, starting with 9 — a long 000000… number is the OLD Salesforce id and will not match anything. Without it the ticket parks in Pending CRM ID and cannot move.">
             <input className={inputCls} value={f.opportunity_id}
               onChange={set("opportunity_id")}
-              placeholder="e.g. 0067000000123456" />
+              placeholder="e.g. 906031" />
           </Field>
           <Field label="Shipper" required hint="Existing shippers are suggested as you type">
             <Combo value={f.shipper} onChange={setV("shipper")} options={opts?.shippers || []}

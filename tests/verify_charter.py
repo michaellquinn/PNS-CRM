@@ -7,7 +7,10 @@ import ast, sys, re
 SRC = os.path.join(_REPO, "backend", "main.py")
 tree = ast.parse(open(SRC, encoding='utf-8').read())
 
+# big_group is pulled in because proposal_or_signoff now asks it whether the deal
+# is watched — Must Win reaches C-level too, so the tier alone no longer answers it.
 WANT_FN = {'render_charter', '_charter_value', 'proposal_or_signoff', 'head_for',
+           'big_group',
            'needs_pns_review'}
 WANT_VAR = {'CHARTER_SECTIONS', 'CHARTER_HOURS', '_CS', 'MANAGED_ACCTS'}
 keep = [n for n in tree.body

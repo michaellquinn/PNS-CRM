@@ -411,8 +411,12 @@ def approval_chain(t: dict, below_floor: bool) -> list[str]:
     """Every gate this ticket must pass, in order, from where it is now."""
     if big_group(t):
         chain = list(CHAIN_WATCHED_BELOW if below_floor else CHAIN_WATCHED_CLEAN)
-        # Executive sign-off is the account's, not the deal's: managed accounts only.
-        if t.get("acct_type") in MANAGED_ACCTS and not t.get("exec_signoff"):
+        # All three watched groups end at C-level, Must Win included (Baskoro,
+        # 2026-08-13). I had scoped this to Hypercare and Strategic on the reasoning
+        # that executive sign-off is an account matter and Must Win is a deal flag —
+        # overruled: a deal the business has declared it must win is exactly the kind
+        # the executives want to see, whatever the account tier says.
+        if not t.get("exec_signoff"):
             chain.append("Pending Review - C-level")
         return chain
     # Standard never reaches a floor question at all — see reject_below_floor().
@@ -469,7 +473,7 @@ def proposal_or_signoff(t: dict) -> str:
     Hypercare and Strategic solutions need Alex (CSO) and Dhinesh (COO). That is the
     *last* gate, it runs after PSP and the Sales Head have cleared, never instead of
     them, so every other approval still has to happen first."""
-    if t.get("acct_type") in MANAGED_ACCTS and not t.get("exec_signoff"):
+    if big_group(t) and not t.get("exec_signoff"):
         return "Pending Review - C-level"
     return "Proposal Submitted"
 
@@ -2589,6 +2593,15 @@ async def set_crm_id(ref: str, body: CrmIdIn, u: User = Depends(current_user)):
     oid = body.opportunity_id.strip()
     if not oid:
         raise HTTPException(400, "the Sales CRM opportunity id is required")
+    # The current ids are short numbers (906031). A long one padded with zeros is the
+    # retired Salesforce id, which the API will never match — caught here with the
+    # reason, because "no opportunity with this id" sends people hunting in Sales CRM
+    # for a record that is fine.
+    if len(oid) > 10 and oid.lstrip("0").isdigit():
+        raise HTTPException(
+            400, f"{oid} looks like the old Salesforce id. Sales CRM now uses the short "
+                 f"number from the record URL (for example 906031) — open the "
+                 f"opportunity and copy the id from the address bar.")
     clash = await q("SELECT ticket_ref FROM tickets WHERE opportunity_id=%s AND id<>%s",
                     (oid, t["id"]), one=True)
     if clash:
@@ -3646,6 +3659,173 @@ async def directory(u: User = Depends(current_user)):
                        for r in rows]}
 
 
+# ------------------------------------------------------------------ bulk users
+# Registering the team one form at a time is fine for three people and hopeless for
+# thirty, and the reporting line (manager, head) is exactly the kind of thing that gets
+# filled in as a batch after someone reorganises. Round-trip: download what is there,
+# edit in Excel, upload it back.
+BULK_COLUMNS = ["email", "name", "group", "level", "team", "manager_email",
+                "head_email", "active"]
+
+
+class BulkRow(BaseModel):
+    email: str
+    name: str | None = None
+    group: str | None = None
+    level: str | None = None
+    team: str | None = None
+    manager_email: str | None = None
+    head_email: str | None = None
+    active: str | None = None
+
+
+class BulkIn(BaseModel):
+    rows: list[BulkRow]
+    dry_run: bool = True
+
+
+class BulkResult(BaseModel):
+    created: list[str] = []
+    updated: list[str] = []
+    unchanged: list[str] = []
+    errors: list[dict] = []
+    dry_run: bool = True
+
+
+@app.post("/api/users/bulk", response_model=BulkResult)
+async def bulk_users(body: BulkIn, u: User = Depends(current_user)):
+    """Create or update people from a spreadsheet. Dry run by default.
+
+    Every row is validated through the same clean_user_fields() the single-user form
+    uses, so a bulk edit cannot introduce a role combination the form would refuse. A
+    row that fails is reported with its reason and the rest still apply — one typo in
+    row 14 must not silently discard the other twenty-nine."""
+    require(u, "manageUsers")
+    res = BulkResult(dry_run=body.dry_run)
+    for i, r in enumerate(body.rows, start=2):        # row 1 is the header in the sheet
+        email = (r.email or "").strip().lower()
+        try:
+            if not email or "@" not in email:
+                raise ValueError("not an email address")
+            if email == u.email:
+                raise ValueError("you cannot change your own row in a bulk upload")
+            existing = await q("SELECT email, name, role_group, role_level, team, "
+                               "manager_email, head_email, active FROM users "
+                               "WHERE email=%s", (email,), one=True)
+            group = (r.group or "").strip() or (existing or {}).get("role_group")
+            level = (r.level or "").strip() or (existing or {}).get("role_level") or "staff"
+            name = (r.name or "").strip() or (existing or {}).get("name")
+            if not group:
+                raise ValueError("group is required for a new person")
+            if not name:
+                raise ValueError("name is required for a new person")
+            if group == "Admin":
+                require(u, "grantAdmin")
+            team = clean_user_fields(group, level, (r.team or "").strip()
+                                     or (existing or {}).get("team"))
+            mgr = clean_line(r.manager_email if r.manager_email is not None
+                             else (existing or {}).get("manager_email"))
+            head = clean_line(r.head_email if r.head_email is not None
+                              else (existing or {}).get("head_email"))
+            if mgr == email or head == email:
+                raise ValueError("somebody cannot report to themselves")
+            act = (r.active or "").strip().lower()
+            active = (1 if act in ("1", "true", "yes", "y", "active", "")
+                      else 0) if act != "" else (1 if not existing else existing["active"])
+
+            if not existing:
+                if not body.dry_run:
+                    await execute(
+                        "INSERT INTO users (email, name, role_group, role_level, team, "
+                        "manager_email, head_email, active) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+                        (email, name, group, level, team, mgr, head, active))
+                res.created.append(email)
+                continue
+            same = (name == existing["name"] and group == existing["role_group"]
+                    and level == existing["role_level"] and team == existing["team"]
+                    and mgr == existing["manager_email"] and head == existing["head_email"]
+                    and active == existing["active"])
+            if same:
+                res.unchanged.append(email)
+                continue
+            # Never let a bulk upload remove the last way back in.
+            if existing["role_group"] == "Admin" and existing["active"] and (
+                    group != "Admin" or not active) and await active_admin_count() <= 1:
+                raise ValueError("this is the only active Admin")
+            if not body.dry_run:
+                await execute(
+                    "UPDATE users SET name=%s, role_group=%s, role_level=%s, team=%s, "
+                    "manager_email=%s, head_email=%s, active=%s WHERE email=%s",
+                    (name, group, level, team, mgr, head, active, email))
+            res.updated.append(email)
+        except HTTPException as e:
+            res.errors.append({"row": i, "email": email, "why": e.detail})
+        except Exception as e:
+            res.errors.append({"row": i, "email": email, "why": str(e)[:180]})
+
+    if not body.dry_run:
+        await audit(u.email, "bulk_users", "user", None, "rows", None,
+                    f"{len(res.created)} created, {len(res.updated)} updated")
+    return res
+
+
+class TagSuggestion(BaseModel):
+    email: str
+    name: str
+    group: str
+    why: str          # "assigned PNS", "Sales Head", ... — why they are worth tagging
+    relevant: bool    # true = tied to this ticket, false = the wider directory
+
+
+@app.get("/api/tickets/{ref}/taggable", response_model=list[TagSuggestion])
+async def taggable(ref: str, u: User = Depends(current_user)):
+    """Who is worth tagging on THIS ticket, most relevant first.
+
+    The plain directory is everyone in the company, alphabetical, which is the wrong
+    shape for the question being asked: at the moment of tagging you almost always want
+    one of six people — the PNS owner, their Head, the Sales PIC, their Manager and
+    Head, or the price reviewer. Those are returned first with a reason attached; the
+    rest of the directory follows so nobody is unreachable."""
+    t = await get_ticket(ref)
+    rel: dict[str, str] = {}          # email -> why
+
+    async def add(name_or_email: str | None, why: str, by_email: bool = False):
+        if not name_or_email:
+            return
+        col = "email" if by_email else "name"
+        r = await q(f"SELECT email FROM users WHERE {col}=%s AND active=1",
+                    (name_or_email,), one=True)
+        if r:
+            rel.setdefault(r["email"], why)
+
+    await add(t.get("owner_name"), "assigned PNS")
+    await add(t.get("reviewer_name"), "price reviewer")
+    await add(t.get("sales_name"), "Sales PIC")
+    await add(t.get("sales_email"), "Sales PIC", by_email=True)
+
+    # The reporting line above whoever holds it, and the two heads who own the gates.
+    sales = await q("SELECT manager_email, head_email FROM users WHERE email=%s "
+                    "AND active=1", (t.get("sales_email") or "",), one=True)
+    if sales:
+        await add(sales.get("manager_email"), "Sales Manager", by_email=True)
+        await add(sales.get("head_email"), "Sales Head", by_email=True)
+    for r in await q("SELECT email, role_group FROM users WHERE active=1 AND "
+                     "role_level='head' AND role_group IN ('PNS','Commercial','PSP')"):
+        rel.setdefault(r["email"],
+                       {"PNS": "Head of PNS", "Commercial": "Sales Head",
+                        "PSP": "Head of PSP"}[r["role_group"]])
+
+    everyone = await q("SELECT email, name, role_group FROM users WHERE active=1 "
+                       "ORDER BY role_group, name")
+    out = [TagSuggestion(email=r["email"], name=r["name"], group=r["role_group"],
+                         why=rel[r["email"]], relevant=True)
+           for r in everyone if r["email"] in rel and r["email"] != u.email]
+    out += [TagSuggestion(email=r["email"], name=r["name"], group=r["role_group"],
+                          why=r["role_group"], relevant=False)
+            for r in everyone if r["email"] not in rel and r["email"] != u.email]
+    return out
+
+
 @app.post("/api/users", status_code=201, response_model=Ok)
 async def register_user(body: NewUser, u: User = Depends(current_user)):
     require(u, "manageUsers")
@@ -3830,6 +4010,7 @@ class Comment(BaseModel):
     field_key: str | None = None     # None = the ticket thread; otherwise an intake field
     thread_key: str | None = None    # None = the general thread
     thread_title: str | None = None
+    edited_at: str | None = None     # shown in the thread: a post that moved after replies
     is_question: bool
     mentions: list[str]
     resolved_by: str | None
@@ -3860,6 +4041,7 @@ def shape_comment(r: dict, u: User) -> Comment:
         id=r["id"], author=r["author_name"], author_email=r["author_email"],
         group=r["author_group"], body=r["body"], field_key=r.get("field_key"),
         thread_key=r.get("thread_key"), thread_title=r.get("thread_title"),
+        edited_at=(str(r["edited_at"]) if r.get("edited_at") else None),
         is_question=bool(r["is_question"]),
         mentions=[m for m in (r["mentions"] or "").split(",") if m],
         resolved_by=r["resolved_by"],
@@ -3999,6 +4181,108 @@ async def recap_field_comments(ref: str, body: RecapIn, u: User = Depends(curren
     return {"ok": True, "ref": ref, "status": t["status"], "id": cid}
 
 
+class EditComment(BaseModel):
+    body: str
+
+
+@app.patch("/api/comments/{cid}", response_model=Ok)
+async def edit_comment(cid: int, body: EditComment, u: User = Depends(current_user)):
+    """Reword your own post. Yours only — an edited message still carries your name."""
+    r = await q("SELECT c.id, c.author_email, t.ticket_ref FROM ticket_comments c "
+                "JOIN tickets t ON t.id=c.ticket_id WHERE c.id=%s", (cid,), one=True)
+    if not r:
+        raise HTTPException(404, "no such comment")
+    if r["author_email"] != u.email:
+        raise HTTPException(403, "you can only edit your own posts")
+    text = body.body.strip()
+    if not text:
+        raise HTTPException(400, "write something, or delete the post instead")
+    if len(text) > 4000:
+        raise HTTPException(400, "that is too long for one message (4000 characters max)")
+    await execute("UPDATE ticket_comments SET body=%s, edited_at=NOW() WHERE id=%s",
+                  (text, cid))
+    await audit(u.email, "edit", "comment", str(cid), "body", None, text[:200])
+    return {"ok": True, "ref": r["ticket_ref"], "status": "edited"}
+
+
+@app.delete("/api/comments/{cid}", response_model=Ok)
+async def delete_comment(cid: int, u: User = Depends(current_user)):
+    """Delete your own post.
+
+    If it opened a thread, the whole thread goes with it — replies included, and those
+    replies belong to other people. The count is returned by GET .../comments/{id}/impact
+    so the UI can say exactly how many before anyone confirms; deleting somebody else's
+    words as a side effect must never be a surprise."""
+    r = await q("SELECT c.id, c.author_email, c.thread_key, c.ticket_id, t.ticket_ref "
+                "FROM ticket_comments c JOIN tickets t ON t.id=c.ticket_id "
+                "WHERE c.id=%s", (cid,), one=True)
+    if not r:
+        raise HTTPException(404, "no such comment")
+    if r["author_email"] != u.email:
+        raise HTTPException(403, "you can only delete your own posts")
+
+    opener = None
+    if r["thread_key"]:
+        opener = await q("SELECT id FROM ticket_comments WHERE ticket_id=%s AND "
+                         "thread_key=%s ORDER BY id LIMIT 1",
+                         (r["ticket_id"], r["thread_key"]), one=True)
+    if opener and opener["id"] == cid:
+        n = await execute("DELETE FROM ticket_comments WHERE ticket_id=%s AND thread_key=%s",
+                          (r["ticket_id"], r["thread_key"]))
+        await audit(u.email, "delete", "thread", r["ticket_ref"], "thread_key",
+                    r["thread_key"], None)
+        return {"ok": True, "ref": r["ticket_ref"], "status": "thread deleted"}
+    await execute("DELETE FROM ticket_comments WHERE id=%s", (cid,))
+    await audit(u.email, "delete", "comment", str(cid))
+    return {"ok": True, "ref": r["ticket_ref"], "status": "deleted"}
+
+
+class DeleteImpact(BaseModel):
+    is_thread_opener: bool
+    replies: int
+    thread_title: str | None = None
+
+
+@app.get("/api/comments/{cid}/impact", response_model=DeleteImpact)
+async def delete_impact(cid: int, u: User = Depends(current_user)):
+    """What deleting this post would take with it, so the warning can be specific."""
+    r = await q("SELECT id, thread_key, thread_title, ticket_id FROM ticket_comments "
+                "WHERE id=%s", (cid,), one=True)
+    if not r:
+        raise HTTPException(404, "no such comment")
+    if not r["thread_key"]:
+        return {"is_thread_opener": False, "replies": 0}
+    first = await q("SELECT id FROM ticket_comments WHERE ticket_id=%s AND thread_key=%s "
+                    "ORDER BY id LIMIT 1", (r["ticket_id"], r["thread_key"]), one=True)
+    if not first or first["id"] != cid:
+        return {"is_thread_opener": False, "replies": 0}
+    n = await q("SELECT COUNT(*) AS n FROM ticket_comments WHERE ticket_id=%s AND "
+                "thread_key=%s", (r["ticket_id"], r["thread_key"]), one=True)
+    return {"is_thread_opener": True, "replies": max(0, int(n["n"]) - 1),
+            "thread_title": r["thread_title"]}
+
+
+@app.post("/api/comments/{cid}/reopen", response_model=Ok)
+async def reopen_comment(cid: int, u: User = Depends(current_user)):
+    """Put an answered question back on the open list.
+
+    Open to anyone, not just whoever closed it: the person who finds the answer wanting
+    is usually not the person who was satisfied by it."""
+    r = await q("SELECT c.id, c.is_question, c.resolved_at, t.ticket_ref, t.id AS tid "
+                "FROM ticket_comments c JOIN tickets t ON t.id=c.ticket_id "
+                "WHERE c.id=%s", (cid,), one=True)
+    if not r:
+        raise HTTPException(404, "no such comment")
+    if not r["is_question"]:
+        raise HTTPException(400, "only a question can be reopened")
+    if not r["resolved_at"]:
+        raise HTTPException(409, "that question is already open")
+    await execute("UPDATE ticket_comments SET resolved_at=NULL, resolved_by=NULL "
+                  "WHERE id=%s", (cid,))
+    await audit(u.email, "reopen", "comment", str(cid))
+    return {"ok": True, "ref": r["ticket_ref"], "status": "reopened"}
+
+
 @app.post("/api/comments/{cid}/resolve", response_model=Ok)
 async def resolve_comment(cid: int, u: User = Depends(current_user)):
     """Close a question once it has been answered. The person who asked it decides, or a
@@ -4037,19 +4321,44 @@ class NoteList(BaseModel):
 
 @app.get("/api/notifications", response_model=NoteList)
 async def notifications(u: User = Depends(current_user)):
+    """Three things reach a person, and nothing else (Baskoro, 2026-08-13).
+
+      1. being named — a mention, an assignment, a send-back: to_people
+      2. anything at all on a ticket they are a PIC on
+      3. a group or role broadcast, but ONLY on their own tickets
+
+    Before this, every group broadcast reached every member of that group, so a PNS
+    member read the whole department's traffic and the genuinely personal items were
+    buried in it. A notification list nobody can scan is the same as no notifications.
+    """
     role_label = f"{u.group} - {'Head' if u.level == 'head' else 'Solution'}"
+    # The refs this person is answerable for, so a broadcast can be tested against them.
+    mine = {r["ticket_ref"] for r in await q(
+        "SELECT ticket_ref FROM tickets WHERE deleted_at IS NULL AND ("
+        "owner_name=%s OR reviewer_name=%s OR sales_name=%s OR sales_email=%s)",
+        (u.name, u.name, u.name, u.email))}
+
     rows = await q(
         "SELECT n.*, r.read_at FROM notifications n "
         "LEFT JOIN notification_reads r ON r.notification_id=n.id AND r.user_email=%s "
-        "ORDER BY n.created_at DESC LIMIT 60", (u.email,))
+        "ORDER BY n.created_at DESC LIMIT 200", (u.email,))
     out = []
     for r in rows:
-        groups = (r["to_groups"] or "").split(",")
-        roles = (r["to_roles"] or "").split(",")
         people = (r["to_people"] or "").split(",")
-        if u.group == "Admin" or u.group in groups or role_label in roles or u.name in people:
+        if u.name in people:
+            keep = True                      # named directly — always
+        else:
+            groups = (r["to_groups"] or "").split(",")
+            roles = (r["to_roles"] or "").split(",")
+            addressed = u.group in groups or role_label in roles
+            # A broadcast with no ticket behind it (a sync summary, say) still reaches
+            # the group it names; anything ticket-shaped has to be one of theirs.
+            keep = addressed and (r["ticket_ref"] is None or r["ticket_ref"] in mine)
+        if keep:
             out.append(Note(id=r["id"], body=r["body"], ticket_ref=r["ticket_ref"],
                             at=str(r["created_at"]), unread=r["read_at"] is None))
+        if len(out) >= 60:
+            break
     return {"notes": out, "unread": sum(1 for n in out if n.unread)}
 
 

@@ -100,14 +100,14 @@ CHAINS = [
      ["PSP", "Head PSP", "Head PNS", "Head Sales", "C-level"]),
     ("Strategic below floor", {"acct_type": "Strategic", "must_win": 0, "exec_signoff": 0}, True,
      ["PSP", "Head PSP", "Head PNS", "Head Sales", "C-level"]),
-    # Must Win rides the same chain but is not an executive matter: C-level is the
-    # account's business, and this account is Standard.
+    # Must Win ends at C-level like the other two: a deal the business has declared it
+    # must win is one the executives want to see, whatever the account tier says.
     ("Must Win below floor", {"acct_type": "Standard", "must_win": 1, "exec_signoff": 0}, True,
-     ["PSP", "Head PSP", "Head PNS", "Head Sales"]),
+     ["PSP", "Head PSP", "Head PNS", "Head Sales", "C-level"]),
     ("Hypercare clean", {"acct_type": "Hypercare", "must_win": 0, "exec_signoff": 0}, False,
      ["Head PNS", "Head Sales", "C-level"]),
     ("Must Win clean", {"acct_type": "Standard", "must_win": 1, "exec_signoff": 0}, False,
-     ["Head PNS", "Head Sales"]),
+     ["Head PNS", "Head Sales", "C-level"]),
     ("Standard >= 30 Mio", {"acct_type": "Standard", "must_win": 0, "needs_review": 1}, False,
      ["PNS"]),
     ("Standard < 30 Mio", {"acct_type": "Standard", "must_win": 0, "needs_review": 0}, False,
