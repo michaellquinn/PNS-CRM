@@ -19,8 +19,9 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 _REPO = os.path.dirname(_HERE)
 src = open(os.path.join(_REPO, "backend", "main.py"), encoding="utf-8").read()
 
-WANT_FN = {"big_group", "review_level", "needs_pns_review"}
-WANT_VAR = {"MANAGED_ACCTS"}
+WANT_FN = {"big_group", "review_level", "needs_pns_review", "approval_chain",
+           "next_gate", "proposal_or_signoff"}
+WANT_VAR = {"MANAGED_ACCTS", "CHAIN_WATCHED_BELOW", "CHAIN_WATCHED_CLEAN"}
 keep = []
 for node in ast.parse(src).body:
     if isinstance(node, ast.FunctionDef) and node.name in WANT_FN:
@@ -33,6 +34,7 @@ ns = {}
 exec(compile(ast.fix_missing_locations(ast.Module(body=keep, type_ignores=[])),
              "<review>", "exec"), ns)
 review_level, big_group, needs = ns["review_level"], ns["big_group"], ns["needs_pns_review"]
+approval_chain, next_gate = ns["approval_chain"], ns["next_gate"]
 
 T = lambda acct="Standard", mw=0, resp="Sales", rev=0: {
     "acct_type": acct, "must_win": mw, "resp": resp, "needs_review": rev}
@@ -86,3 +88,53 @@ if fails:
         print("  -", f)
     sys.exit(1)
 print(f"verify_review_level.py  {len(CASES)} review cases + 5 group cases PASSED")
+
+
+# ---------------------------------------------------------------- approval chains
+# The exact order Baskoro set out on 2026-08-13. Written as whole sequences rather than
+# per-step assertions: the bug this guards against is a gate quietly dropping out of the
+# middle, which a step-by-step test would pass right through.
+S = lambda x: x.replace("Pending Review - ", "").replace("Pending ", "")
+CHAINS = [
+    ("Hypercare below floor", {"acct_type": "Hypercare", "must_win": 0, "exec_signoff": 0}, True,
+     ["PSP", "Head PSP", "Head PNS", "Head Sales", "C-level"]),
+    ("Strategic below floor", {"acct_type": "Strategic", "must_win": 0, "exec_signoff": 0}, True,
+     ["PSP", "Head PSP", "Head PNS", "Head Sales", "C-level"]),
+    # Must Win rides the same chain but is not an executive matter: C-level is the
+    # account's business, and this account is Standard.
+    ("Must Win below floor", {"acct_type": "Standard", "must_win": 1, "exec_signoff": 0}, True,
+     ["PSP", "Head PSP", "Head PNS", "Head Sales"]),
+    ("Hypercare clean", {"acct_type": "Hypercare", "must_win": 0, "exec_signoff": 0}, False,
+     ["Head PNS", "Head Sales", "C-level"]),
+    ("Must Win clean", {"acct_type": "Standard", "must_win": 1, "exec_signoff": 0}, False,
+     ["Head PNS", "Head Sales"]),
+    ("Standard >= 30 Mio", {"acct_type": "Standard", "must_win": 0, "needs_review": 1}, False,
+     ["PNS"]),
+    ("Standard < 30 Mio", {"acct_type": "Standard", "must_win": 0, "needs_review": 0}, False,
+     ["Head Sales"]),
+]
+chain_fails = []
+for name, t, below, want in CHAINS:
+    got = [S(x) for x in approval_chain(t, below)]
+    if got != want:
+        chain_fails.append(f"{name}: {' -> '.join(got)}  != expected  {' -> '.join(want)}")
+    # Walking the chain must end at the proposal, never loop or stall.
+    cur, seen = approval_chain(t, below)[0], []
+    for _ in range(10):
+        seen.append(cur)
+        nxt = next_gate({**t, "below_bottom": int(below)}, cur)
+        if nxt == "Proposal Submitted":
+            break
+        if nxt in seen:
+            chain_fails.append(f"{name}: loops at {nxt}")
+            break
+        cur = nxt
+    else:
+        chain_fails.append(f"{name}: never reaches Proposal Submitted")
+
+if chain_fails:
+    print("verify_review_level.py FAILED — approval chain:")
+    for c in chain_fails:
+        print("  -", c)
+    sys.exit(1)
+print(f"verify_review_level.py  {len(CHAINS)} approval chains PASSED")

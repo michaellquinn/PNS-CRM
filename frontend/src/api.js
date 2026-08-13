@@ -165,7 +165,7 @@ export const FTL = ["FTL on-call", "FTL monthly"];
 
 export const STATUSES = [
   "Pending CRM ID", "Open", "Pending Sales", "Pending Review - Head Sales", "Pending PNS", "Pending Review - Head PNS",
-  "Pending Review - PSP", "Pending Vendor", "Pending Review - C-level", "Proposal Submitted",
+  "Pending Review - PSP", "Pending Review - Head PSP", "Pending Vendor", "Pending Review - C-level", "Proposal Submitted",
   "Proposal Accepted / Ready to Ship", "Lost", "Cancel",
 ];
 

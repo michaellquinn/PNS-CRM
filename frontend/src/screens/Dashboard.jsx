@@ -7,9 +7,9 @@ const EMPTY = { search: "", status: [], service: [], acct: [], owner: "", sales:
 
 // The account tier decides routing, pricing ceilings, PSP entry and exec sign-off — it
 // is the single most consequential field on a ticket, so it filters like status does.
-// Four groups now, and the first three are the ones every rule watches. Must Win is
-// per-opportunity so it is not an acct_type — it filters on its own flag.
-const TIERS = ["Hypercare", "Strategic", "Standard"];
+// These two are account-level and render first; Must Win (per-deal) and Standard follow
+// in the chip row, giving the reader Hypercare, Strategic, Must Win, Standard in order.
+const WATCHED_TIERS = ["Hypercare", "Strategic"];
 
 // The eleven statuses read as a wall when they sit in one flat row, and half of them
 // share the word "Pending". Grouped by who is acting, the row answers the question
@@ -19,8 +19,9 @@ const TIERS = ["Hypercare", "Strategic", "Standard"];
 const STATUS_GROUPS = [
   ["Not started", ["Pending CRM ID", "Open"]],
   ["Being worked", ["Pending Sales", "Pending PNS", "Pending Vendor"]],
-  ["In approval", ["Pending Review - Head PNS", "Pending Review - Head Sales",
-                   "Pending Review - PSP", "Pending Review - C-level"]],
+  ["In approval", ["Pending Review - PSP", "Pending Review - Head PSP",
+                   "Pending Review - Head PNS", "Pending Review - Head Sales",
+                   "Pending Review - C-level"]],
   ["With shipper", ["Proposal Submitted"]],
   ["Decided", ["Proposal Accepted / Ready to Ship", "Lost", "Cancel"]],
 ];
@@ -38,6 +39,7 @@ const TILES = [
   ["Pending Review - Head PNS", "PNS checks a Sales price"],
   ["Pending Review - Head Sales", "price below the floor"],
   ["Pending Review - PSP", "margin sign-off"],
+  ["Pending Review - Head PSP", "PSP Head owns it"],
   ["Pending Review - C-level", "Alex + Dhinesh"],
   ["Proposal Submitted", "out with the shipper"],
   ["Proposal Accepted / Ready to Ship", "won — hand over to Ops"],
@@ -50,6 +52,7 @@ const TILE_TONE = {
   "Pending Review - Head PNS": "text-violet-600",
   "Pending Review - Head Sales": "text-amber-600",
   "Pending Review - PSP": "text-amber-600",
+  "Pending Review - Head PSP": "text-amber-700",
   "Pending Review - C-level": "text-fuchsia-600",
   "Proposal Submitted": "text-teal-600",
   "Proposal Accepted / Ready to Ship": "text-emerald-600",
@@ -364,17 +367,22 @@ export default function Dashboard({ me, onOpen }) {
             alongside status rather than hiding in a dropdown. */}
         <div className="mt-3.5 flex flex-wrap items-center gap-2.5">
           <span className="w-14 shrink-0 text-[10.5px] font-bold uppercase tracking-wider text-slate-400">Group</span>
-          {TIERS.map((s) => (
+          {/* Hypercare, Strategic, Must Win, then Standard — the three watched groups
+              first, in the order every rule names them, and the unwatched one last.
+              Must Win sits between them despite being a different KIND of filter (it is
+              a property of the deal, not the account) because the reader is scanning by
+              how much attention a deal needs, not by which table the flag lives in. */}
+          {WATCHED_TIERS.map((s) => (
             <Chip key={s} on={f.acct.includes(s)} onClick={() => toggle("acct", s)}>
               {s}{counts.__acct?.[s] ? ` · ${counts.__acct[s]}` : ""}
             </Chip>
           ))}
-          {/* Must Win belongs to the opportunity, not the account, so it cannot sit in
-              the same list as the tiers — an account is exactly one tier, but any of
-              its deals may be must-win. Separate chip, separate filter. */}
           <Chip on={f.group === "Must Win"}
             onClick={() => setF({ ...f, group: f.group === "Must Win" ? "" : "Must Win" })}>
             Must Win{counts.__mustwin ? ` · ${counts.__mustwin}` : ""}
+          </Chip>
+          <Chip on={f.acct.includes("Standard")} onClick={() => toggle("acct", "Standard")}>
+            Standard{counts.__acct?.Standard ? ` · ${counts.__acct.Standard}` : ""}
           </Chip>
         </div>
       </div>

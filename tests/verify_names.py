@@ -71,3 +71,25 @@ if missing:
         print(f"  - {name!r} used at main.py:{line}")
     sys.exit(1)
 print(f"verify_names.py         {len(used)} module names all resolve")
+
+# ---------------------------------------------------------------- SQL placeholders
+# A second, cheap structural check in the same suite: every literal "IN (%s,%s,...)"
+# in main.py, counted against nothing. The awaiting-price endpoint 500'd in production
+# because "Open" was added to a 4-tuple while the SQL still had three placeholders —
+# the arity is invisible at the call site and neither py_compile nor any rule suite can
+# see it. Hand-written runs of %s inside IN(...) are now simply banned: build them from
+# the sequence with ",".join(["%s"] * len(xs)) so they cannot disagree.
+import re as _re
+
+_sql_lit = _re.compile(r'IN \((%s(?:\s*,\s*%s)+)\)')
+_offenders = []
+for _i, _line in enumerate(open(SRC, encoding="utf-8"), 1):
+    if _sql_lit.search(_line):
+        _offenders.append((_i, _line.strip()[:88]))
+
+if _offenders:
+    print("verify_names.py FAILED — hand-counted SQL placeholders (build them from the list):")
+    for _ln, _txt in _offenders:
+        print(f"  - main.py:{_ln}  {_txt}")
+    sys.exit(1)
+print("verify_names.py         no hand-counted IN(...) placeholder runs")

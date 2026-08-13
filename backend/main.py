@@ -123,7 +123,8 @@ LOSS_REASONS = ["pricing", "shipper", "solution", "ops", "no_vendor", "billing",
 # screen people go to when they are looking for something to do.
 AWAIT_STATUSES = ("Open", "Pending Sales", "Pending PNS", "Pending Vendor")
 PENDING_STATUSES = ["Open", "Pending Sales", "Pending PNS", "Pending Review - Head PNS",
-                    "Pending Review - Head Sales", "Pending Review - PSP", "Pending Vendor",
+                    "Pending Review - Head Sales", "Pending Review - PSP",
+                    "Pending Review - Head PSP", "Pending Vendor",
                     "Pending Review - C-level"]
 # Raised here with no Sales CRM opportunity behind it. Deliberately outside
 # PENDING_STATUSES: it is not waiting on solutioning work, it is waiting on an id, and
@@ -133,7 +134,8 @@ NO_CRM_STATUS = "Pending CRM ID"
 # the facts the work depends on — today that is potential revenue, see change_status.
 WORK_STATUSES = ("Pending Sales", "Pending PNS", "Pending Vendor",
                  "Pending Review - Head PNS", "Pending Review - Head Sales",
-                 "Pending Review - PSP", "Pending Review - C-level")
+                 "Pending Review - PSP", "Pending Review - Head PSP",
+                 "Pending Review - C-level")
 # Fields the intake keeps as free text but remembers: the dropdown would otherwise have
 # to predict every commodity Ninja ever carries (a shipper turned up with medicine).
 REMEMBERED_FIELDS = ["commodity", "product", "pallet", "destType", "truck", "freq"]
@@ -388,16 +390,48 @@ def review_level(t: dict) -> str | None:
     return "pns" if t.get("needs_review") else None
 
 
-def next_after_head_pns(t: dict) -> str:
-    """Where a ticket goes once the Head of PNS has finalised the solution.
+# The approval chain, as Baskoro set it out on 2026-08-13. Written as one ordered list
+# per case rather than scattered across the endpoints, because the previous version was
+# spread over three functions and nobody could answer "what comes next" without reading
+# all of them.
+#
+#   watched + below floor : PSP -> Head PSP -> Head PNS -> Head Sales -> C-level
+#   watched + clean price :                    Head PNS -> Head Sales -> C-level
+#   Standard >= 30 Mio    : PNS (an ordinary member checks it, then it goes out)
+#   Standard <  30 Mio    : Head or Manager of Sales
+#
+# C-level applies only to Hypercare and Strategic — a Must Win deal on a Standard
+# account is watched by PNS and Sales, not by Alex and Dhinesh.
+CHAIN_WATCHED_BELOW = ["Pending Review - PSP", "Pending Review - Head PSP",
+                       "Pending Review - Head PNS", "Pending Review - Head Sales"]
+CHAIN_WATCHED_CLEAN = ["Pending Review - Head PNS", "Pending Review - Head Sales"]
 
-    The Head's approval is not the end of the line — it is the start of the approval
-    chain, and which links apply was already decided when the price was attached and
-    recorded on the ticket. Recomputed from those flags rather than passed along, so a
-    ticket that sat in the queue for a week still routes on what is true now."""
-    if t.get("manual_review") or t.get("below_bottom"):
-        return "Pending Review - PSP" if may_go_to_psp(t) else "Pending Review - Head Sales"
-    return proposal_or_signoff(t)
+
+def approval_chain(t: dict, below_floor: bool) -> list[str]:
+    """Every gate this ticket must pass, in order, from where it is now."""
+    if big_group(t):
+        chain = list(CHAIN_WATCHED_BELOW if below_floor else CHAIN_WATCHED_CLEAN)
+        # Executive sign-off is the account's, not the deal's: managed accounts only.
+        if t.get("acct_type") in MANAGED_ACCTS and not t.get("exec_signoff"):
+            chain.append("Pending Review - C-level")
+        return chain
+    # Standard never reaches a floor question at all — see reject_below_floor().
+    return ["Pending PNS"] if t.get("needs_review") else ["Pending Review - Head Sales"]
+
+
+def next_gate(t: dict, current: str | None = None) -> str:
+    """The gate after `current`, or "Proposal Submitted" when the chain is done."""
+    chain = approval_chain(t, bool(t.get("below_bottom") or t.get("manual_review")))
+    here = current if current is not None else t.get("status")
+    if here in chain:
+        i = chain.index(here)
+        return chain[i + 1] if i + 1 < len(chain) else "Proposal Submitted"
+    return chain[0] if chain else "Proposal Submitted"
+
+
+def next_after_head_pns(t: dict) -> str:
+    """Kept as a named step for readability; the chain decides."""
+    return next_gate(t, "Pending Review - Head PNS")
 
 
 def needs_pns_review(t: dict) -> bool:
@@ -549,6 +583,8 @@ def can(u: User, action: str, t: dict | None = None) -> bool:
         # Sales owns the shipper relationship that reopening reflects. (Was Head only.)
         "reopen":           u.group == "Commercial" or admin,
         "pspDecide":        u.group == "PSP" or admin,
+        # The second signature inside PSP. Staff form the opinion, the Head owns it.
+        "pspHeadDecide":    admin or (u.group == "PSP" and u.level == "head"),
         # Standing delegation so an absent PSP cannot stall the pipeline. Used through
         # the same endpoint, recorded as an override, see psp_decide.
         "pspOverride":      pns_head,
@@ -566,6 +602,9 @@ def can(u: User, action: str, t: dict | None = None) -> bool:
         # Registering people and setting roles: the PNS Admin and the PNS Head, as
         # agreed. Granting the Admin group itself is narrower, see grant_admin.
         "manageUsers":      pns_head,    # pns_head already includes Admin
+        # The sync ignore list. Admin-only and deliberately out of the main nav: it
+        # makes deals silently not appear, which is a thing to do rarely and on purpose.
+        "manageIgnored":    admin,
         "grantAdmin":       admin,
         # Pulling from Sales CRM runs under a personal API key, so whoever triggers it
         # reads with that person's Sales CRM permissions. Until a service account exists
@@ -978,7 +1017,8 @@ async def me(u: User = Depends(current_user)):
                "setAcct", "setSales", "reopen", "pspDecide", "vendorToggle", "sendToPsp",
                "acceptProposal", "sendBackProposal", "seeMargin", "capaRaise",
                "capaClose", "capaSubmit", "headAck", "manageUsers", "grantAdmin",
-               "pspAssign", "pspOverride", "allowPsp", "syncSalesCrm"]
+               "pspAssign", "pspOverride", "allowPsp", "syncSalesCrm",
+               "pspHeadDecide", "manageIgnored"]
     return Me(email=u.email, name=u.name, group=u.group, level=u.level, team=u.team,
               permissions={a: can(u, a) for a in actions},
               sso=u.sso, dev_fallback=not u.sso and bool(DEV_USER))
@@ -1084,7 +1124,10 @@ async def list_tickets(
             sql += " AND t.sales_email=%s"; args.append(u.email)
 
     if awaiting:
-        sql += " AND t.status IN (%s,%s,%s)"; args += list(AWAIT_STATUSES)
+        # Placeholders generated from the tuple, never hand-counted: adding "Open" to
+        # AWAIT_STATUSES against three literal %s is what made this endpoint 500.
+        marks = ",".join(["%s"] * len(AWAIT_STATUSES))
+        sql += f" AND t.status IN ({marks})"; args += list(AWAIT_STATUSES)
         # Queue by who owes the price; a vendor wait is visible to both sides. During
         # the pilot PNS works the Sales side too, so their queue is left unscoped.
         if u.group == "PNS" and not PNS_PILOT:
@@ -2125,6 +2168,19 @@ async def submit_price(ref: str, body: PriceIn, u: User = Depends(current_user))
     # past 20%. A plain margin breach is different and belongs to the Sales Head.
     to_psp = g["kind"] == "manual" or (breach and g["kind"] in ("discount", "standard"))
 
+    # A Standard deal cannot be below the floor — Baskoro, 2026-08-13: "no way a non
+    # deal can be below floor". The floor is the point of the tier; a Standard deal that
+    # cannot be priced within it is a deal Ninja does not take at this price, and the
+    # answer is to reprice or to escalate the ACCOUNT, not to wave the price through a
+    # chain that exists for watched deals. Refused here rather than routed onward, so
+    # the conversation happens before a number reaches the shipper.
+    if (body.below_bottom or breach) and not big_group(t):
+        raise HTTPException(
+            409, f"{ref} is a Standard deal, so it cannot go below the floor "
+                 f"({g['why']}). Reprice it within the ceiling, or ask the Head of PNS "
+                 f"to tag the deal Must Win if it genuinely warrants the exception.")
+
+
     # The Head of PNS finalises the solution before anyone else is asked to approve it.
     # This is checked ahead of the PSP and below-floor branches on purpose: those still
     # apply, they just apply *after* the solution is finished. next_after_head_pns()
@@ -2581,17 +2637,16 @@ async def reopen(ref: str, body: ReopenIn, u: User = Depends(current_user)):
 
 @app.post("/api/tickets/{ref}/head-ack", response_model=Ok)
 async def head_ack(ref: str, u: User = Depends(current_user)):
-    """The Sales Head accepts a below-bottom price. This is now the LAST gate on that
-    path, not the first: PSP has already ruled on the margin where PSP takes the ticket
-    at all, so what the Head is signing is the commercial concession itself, with the
-    margin question already settled. Sales owns that concession, which is why it ends
-    here rather than with PNS or PSP."""
+    """The Sales Head accepts the commercial concession, then the chain continues.
+
+    By the time it reaches here PSP, the Head of PSP and the Head of PNS have all had
+    their say where they apply, so what is being signed is the concession itself with
+    the margin and the solution already settled. On a managed account C-level still
+    follows; next_gate() decides, so this endpoint never has to know."""
     t = await get_ticket(ref)
     require(u, "headAck", t)   # the Sales Head: Sales owns the commercial concession
-    lvl = review_level(t)
-    nxt = ("Pending Review - Head PNS" if lvl == "head"
-           else "Pending PNS" if lvl == "pns" else proposal_or_signoff(t))
-    note = "below bottom rate accepted by the Sales Head"
+    nxt = next_gate(t, "Pending Review - Head Sales")
+    note = "accepted by the Sales Head"
     await log_status(t["id"], nxt, u.name, note)
     await execute("INSERT INTO approvals (ticket_id, kind, decision, actor, actor_role) "
                   "VALUES (%s,'head_ack','approved',%s,%s)", (t["id"], u.name, u.group))
@@ -2993,6 +3048,10 @@ async def psp_decide(ref: str, body: PspIn, u: User = Depends(current_user)):
     # PSP being unavailable should not stall a deal, so the PNS Head may decide in their
     # place. A note is mandatory and the record says it was an override, so how often
     # this happens stays visible instead of quietly becoming the norm.
+    # The Head of PSP step is the Head's alone: PSP staff already signed the row before
+    # it, and letting them sign again would make the second signature decorative.
+    if t["status"] == "Pending Review - Head PSP":
+        require(u, "pspHeadDecide")
     on_behalf = not can(u, "pspDecide")
     if on_behalf:
         require(u, "pspOverride")
@@ -3028,28 +3087,20 @@ async def psp_decide(ref: str, body: PspIn, u: User = Depends(current_user)):
         # Below-bottom now goes to the Sales Head *after* PSP, not before. PSP has ruled
         # on whether the margin is survivable; what remains is whether Sales will wear
         # the concession, and that is the Head's to answer with the margin settled.
-        acked = await q("SELECT 1 AS n FROM approvals WHERE ticket_id=%s "
-                        "AND kind='head_ack' LIMIT 1", (t["id"],), one=True)
-        if t.get("below_bottom") and not acked:
-            nxt = "Pending Review - Head Sales"
-            await notify(f"{ref}, {t['shipper']}: PSP approved the margin on a "
-                         f"below-bottom price. Yours to accept as the final gate.",
+        # PSP has two signatures on the watched below-floor path: staff decide, then
+        # the Head of PSP owns it. next_gate() holds that order so this endpoint does
+        # not have to re-derive it.
+        nxt = next_gate(t, t["status"])
+        if nxt == "Pending Review - Head PSP":
+            await notify(f"{ref}, {t['shipper']}: PSP approved the margin, yours to own",
+                         roles=["PSP - Head"], groups=["PSP"], ticket_ref=ref)
+        elif nxt == "Pending Review - Head PNS":
+            await notify(f"{ref}, {t['shipper']}: margin cleared by PSP — finalise the "
+                         f"solution", roles=["PNS - Head"], ticket_ref=ref)
+        elif nxt == "Pending Review - Head Sales":
+            await notify(f"{ref}, {t['shipper']}: margin cleared, yours to accept",
                          roles=[f"{head_for(t)} - Head"], ticket_ref=ref)
-        elif t["status"] == "Pending Review - Head PNS":
-            # PNS was already reviewing when it went to PSP, so that review still counts.
-            nxt = proposal_or_signoff(t)
-        elif needs_pns_review(t):
-            # Hasn't been reviewed yet and still needs to be. PSP clearing the margin
-            # does not stand in for that: a Sales-priced deal must not skip its check.
-            # Which queue depends on whose review it is — see review_level().
-            nxt = ("Pending Review - Head PNS" if review_level(t) == "head"
-                   else "Pending PNS")
-        else:
-            # No review needed either way, but PSP approving is not the same as the
-            # proposal being ready. It goes back to whoever priced it for an explicit
-            # final submit — PSP may have just corrected the figure above, but the
-            # owner still confirms before it goes out, same as any other price.
-            nxt = pending_for(t["resp"])
+        elif nxt in ("Pending PNS", "Pending Sales"):
             ready_to_submit = True
             await execute("UPDATE tickets SET psp_ready=1 WHERE id=%s", (t["id"],))
     else:
@@ -4090,7 +4141,8 @@ async def check_email(send: bool = False, u: User = Depends(current_user)):
 # etc. because this needs the complete set, terminal statuses included.
 KNOWN_STATUSES = [
     "Pending Sales", "Pending Review - Head Sales", "Pending PNS",
-    "Pending Review - Head PNS", "Pending Review - PSP", "Pending Vendor",
+    "Pending Review - Head PNS", "Pending Review - PSP", "Pending Review - Head PSP",
+    "Pending Vendor",
     "Pending Review - C-level", "Proposal Submitted",
     "Proposal Accepted / Ready to Ship", "Lost", "Cancel",
 ]
