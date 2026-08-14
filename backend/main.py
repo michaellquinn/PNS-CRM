@@ -714,7 +714,17 @@ def can(u: User, action: str, t: dict | None = None) -> bool:
         # It applies to ANY ticket, not only PNS-priced ones: a Sales-priced ticket still
         # has a PNS reviewer, and gating on resp left those unassignable.
         "assign":           u.group == "PNS" or admin,
-        "assignReviewer":   u.group == "PNS" or admin,
+        # assignReviewer is retired (Baskoro, 2026-08-14). The separate "PNS price
+        # reviewer" slot asked a second question — who is checking this? — on top of the
+        # one that matters, who owns this, and nothing a reader could see told them
+        # apart. The PNS PIC is now the single assignment. A second opinion is asked for
+        # in the discussion thread, where it is written down; PSP remains the formal
+        # margin check.
+        #
+        # `tickets.reviewer_name` is deliberately left in the schema. Dropping it needs a
+        # migration, two people deploy into this database from separate clones, and a
+        # column nothing reads costs nothing — see the V15/V20 story in the handoff.
+        # Nothing writes it any more, so the values there are frozen history.
         "markReviewed":     u.group == "PNS" or admin,
         # Sales Planning corrects submissions on Sales' behalf. PNS is here too because
         # during the Sales CRM rollout most intake arrives imported and incomplete, and
@@ -938,14 +948,14 @@ async def owed_by(t: dict, status: str) -> list[str]:
     to named people, falling back to the relevant head when the slot is empty, never to
     silence. An unassigned ticket sent back to PNS used to notify no one at all.
     """
-    owner, reviewer, sales = t.get("owner_name"), t.get("reviewer_name"), t.get("sales_name")
+    owner, sales = t.get("owner_name"), t.get("sales_name")
 
     if status == "Pending PNS":
         return [owner] if owner else await names_in("PNS", head_only=True) or await names_in("PNS")
     if status == "Pending Review - Head PNS":
-        # The assigned reviewer owns a review; otherwise it is the ticket's PNS owner.
-        who = reviewer or owner
-        return [who] if who else await names_in("PNS", head_only=True) or await names_in("PNS")
+        # The ticket's PNS PIC. This used to prefer a separately-assigned reviewer; that
+        # slot was retired on 2026-08-14 and there is one assignment now.
+        return [owner] if owner else await names_in("PNS", head_only=True) or await names_in("PNS")
     if status == "Pending Sales":
         return [sales] if sales else await names_in("Commercial", head_only=True)
     if status == "Pending Vendor":
@@ -1021,7 +1031,6 @@ class Ticket(BaseModel):
     priced_by: str
     needs_review: bool
     owner: str | None
-    reviewer: str | None
     sales: str | None
     region: str | None
     submitted_on: str
@@ -1170,7 +1179,7 @@ async def me(u: User = Depends(current_user)):
     # entry or button silently never renders, and the feature looks like it was never
     # built. Add the name here in the same edit that adds it to can().
     actions = ["createTicket", "deleteTicket", "restoreTicket", "purgeTicket",
-               "assign", "assignReviewer", "markReviewed", "editInput", "editAcctOrRev",
+               "assign", "markReviewed", "editInput", "editAcctOrRev",
                "setAcct", "setSales", "reopen", "pspDecide", "vendorToggle", "sendToPsp",
                "acceptProposal", "sendBackProposal", "seeMargin", "capaRaise",
                "capaClose", "capaSubmit", "headAck", "manageUsers", "grantAdmin",
@@ -1186,7 +1195,7 @@ def shape(t: dict, u: User) -> Ticket:
         ref=t["ticket_ref"], shipper=t["shipper"], acct_type=t["acct_type"],
         service=t["service_type"], revenue=int(t["potential_rev"]), status=t["status"],
         priced_by=t["resp"], needs_review=needs_pns_review(t),
-        owner=t["owner_name"], reviewer=t["reviewer_name"], sales=t["sales_name"],
+        owner=t["owner_name"], sales=t["sales_name"],
         region=t["region"], submitted_on=str(t["submitted_on"]),
         sla_elapsed=sla_days_elapsed(t), sla_target=int(t["sla_days"]),
         price_file=t.get("price_file"), price_url=t.get("price_url"),
@@ -2805,7 +2814,11 @@ async def change_status(ref: str, body: StatusIn, u: User = Depends(current_user
 
 
 class AssignIn(BaseModel):
-    """Either or both. Pass an empty string to clear one."""
+    """Who owns this ticket in PNS. Pass an empty string to clear it.
+
+    `reviewer` is accepted and ignored: the separate reviewer slot was retired on
+    2026-08-14 and an older tab still open in somebody's browser would otherwise get a
+    422 on an ordinary assignment."""
     owner: str | None = None
     reviewer: str | None = None
 
@@ -2813,41 +2826,22 @@ class AssignIn(BaseModel):
 @app.post("/api/tickets/{ref}/assign", response_model=Ok)
 async def assign(ref: str, body: AssignIn, u: User = Depends(current_user)):
     t = await get_ticket(ref)
-    if body.owner is None and body.reviewer is None:
-        raise HTTPException(400, "pass an owner, a reviewer, or both")
+    if body.owner is None:
+        raise HTTPException(400, "pass an owner")
 
-    notes = []
-    if body.owner is not None:
-        require(u, "assign", t)
-        owner = body.owner.strip() or None
-        await execute("UPDATE tickets SET owner_name=%s WHERE id=%s", (owner, t["id"]))
-        await audit(u.email, "assign", "ticket", ref, "owner", t["owner_name"], owner)
-        if owner:
-            notes.append(f"assigned to {owner}")
+    require(u, "assign", t)
+    owner = body.owner.strip() or None
+    await execute("UPDATE tickets SET owner_name=%s WHERE id=%s", (owner, t["id"]))
+    await audit(u.email, "assign", "ticket", ref, "owner", t["owner_name"], owner)
+    if owner:
+        note = f"assigned to {owner}" if owner != u.name else f"{u.name} took this on"
+        if owner != u.name:
             await notify(f"{ref}, {t['shipper']} assigned to you by {u.name}",
                          people=[owner], ticket_ref=ref)
-        else:
-            notes.append("owner cleared")
+    else:
+        note = "owner cleared"
 
-    if body.reviewer is not None:
-        reviewer = body.reviewer.strip() or None
-        # Self-serve, and now open to the whole PNS team rather than the Head alone —
-        # see the assign/assignReviewer note in can(). Kept as its own branch because
-        # claiming and releasing must keep working even if the permission narrows again.
-        claiming = u.group == "PNS" and reviewer == u.name
-        releasing = u.group == "PNS" and reviewer is None and t.get("reviewer_name") == u.name
-        if not (claiming or releasing):
-            require(u, "assignReviewer", t)
-        await execute("UPDATE tickets SET reviewer_name=%s WHERE id=%s", (reviewer, t["id"]))
-        await audit(u.email, "assign", "ticket", ref, "reviewer", t["reviewer_name"], reviewer)
-        if reviewer:
-            notes.append(f"{reviewer} will review the price")
-            await notify(f"{ref}, {t['shipper']}: you were asked to review the price",
-                         people=[reviewer], ticket_ref=ref)
-        else:
-            notes.append("reviewer cleared")
-
-    await log_note(t["id"], t["status"], u.name, "; ".join(notes))
+    await log_note(t["id"], t["status"], u.name, note)
     return {"ok": True, "ref": ref, "status": t["status"]}
 
 
@@ -4285,9 +4279,9 @@ async def taggable(ref: str, u: User = Depends(current_user)):
 
     The plain directory is everyone in the company, alphabetical, which is the wrong
     shape for the question being asked: at the moment of tagging you almost always want
-    one of six people — the PNS owner, their Head, the Sales PIC, their Manager and
-    Head, or the price reviewer. Those are returned first with a reason attached; the
-    rest of the directory follows so nobody is unreachable."""
+    one of five people — the PNS PIC, their Head, the Sales PIC, and that PIC's
+    Manager and Head. Those are returned first with a reason attached; the rest of the
+    directory follows so nobody is unreachable."""
     t = await get_ticket(ref)
     rel: dict[str, str] = {}          # email -> why
 
@@ -4301,7 +4295,6 @@ async def taggable(ref: str, u: User = Depends(current_user)):
             rel.setdefault(r["email"], why)
 
     await add(t.get("owner_name"), "assigned PNS")
-    await add(t.get("reviewer_name"), "price reviewer")
     await add(t.get("sales_name"), "Sales PIC")
     await add(t.get("sales_email"), "Sales PIC", by_email=True)
 
@@ -4837,8 +4830,8 @@ async def notifications(u: User = Depends(current_user)):
     # The refs this person is answerable for, so a broadcast can be tested against them.
     mine = {r["ticket_ref"] for r in await q(
         "SELECT ticket_ref FROM tickets WHERE deleted_at IS NULL AND ("
-        "owner_name=%s OR reviewer_name=%s OR sales_name=%s OR sales_email=%s)",
-        (u.name, u.name, u.name, u.email))}
+        "owner_name=%s OR sales_name=%s OR sales_email=%s)",
+        (u.name, u.name, u.email))}
 
     rows = await q(
         "SELECT n.*, r.read_at FROM notifications n "

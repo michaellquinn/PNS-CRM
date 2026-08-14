@@ -67,7 +67,8 @@ export const api = {
   createTicket: (body) => call("/tickets", { method: "POST", body: JSON.stringify(body) }),
   price: (ref, body) => call(`/tickets/${ref}/price`, { method: "POST", body: JSON.stringify(body) }),
   status: (ref, body) => call(`/tickets/${ref}/status`, { method: "POST", body: JSON.stringify(body) }),
-  // owner and reviewer are independent; "" clears one, undefined leaves it alone
+  // "" clears the owner. The separate reviewer slot was retired on 2026-08-14;
+  // the endpoint still accepts and ignores the field so an old open tab does not 422.
   assign: (ref, body) => call(`/tickets/${ref}/assign`, { method: "POST", body: JSON.stringify(body) }),
   editInput: (ref, body) => call(`/tickets/${ref}/input`, { method: "PATCH", body: JSON.stringify(body) }),
   setSales: (ref, name) => call(`/tickets/${ref}/sales`, { method: "POST", body: JSON.stringify({ name }) }),

@@ -542,8 +542,6 @@ export function Open({ me, onOpen, notify }) {
 /* ---------------------------------------------------------------- PNS review */
 export function ToReview({ me, onOpen, notify }) {
   const [rows, err, reload] = useTickets({ status: "Pending Review - Head PNS" });
-  const [who, setWho] = useState({});
-  const team = usePnsTeam();
   const [list, f, set, clear, patch] = useFilter(rows);
   const act = async (fn) => { try { await fn(); notify("Done"); await reload(); } catch (e) { notify(e.message); } };
 
@@ -559,38 +557,11 @@ export function ToReview({ me, onOpen, notify }) {
           {(t.price_file || t.price_url) && <p className="mb-3 text-[13px]"><PriceChip file={t.price_file} url={t.price_url} /></p>}
           <RateCard service={t.service} />
           <div className="flex flex-wrap items-center gap-2">
-            {t.reviewer ? (
-              <>
-                <Pill tone="bg-violet-50 text-violet-700">Second pair of eyes: {t.reviewer}</Pill>
-                {me.permissions.assignReviewer && (
-                  <Btn onClick={() => act(() => api.assign(t.ref, { reviewer: "" }))}>
-                    Clear
-                  </Btn>
-                )}
-              </>
-            ) : me.permissions.assignReviewer ? (
-              team.length === 0 ? (
-                <span className="text-[12.5px] text-slate-500">
-                  No active PNS members are registered yet — add them under Administration.
-                </span>
-              ) : (
-                <>
-                  {/* This button sent the bare name as the whole request body — the
-                      endpoint takes {owner?, reviewer?}, so it was rejected every time
-                      and nobody could set a reviewer from this queue at all. */}
-                  <select className={`${inputCls} max-w-[180px]`} value={who[t.ref] || team[0]}
-                    onChange={(e) => setWho({ ...who, [t.ref]: e.target.value })}>
-                    {team.map((n) => <option key={n}>{n}</option>)}
-                  </select>
-                  <Btn onClick={() => act(() =>
-                    api.assign(t.ref, { reviewer: who[t.ref] || team[0] }))}>
-                    Ask for a second look
-                  </Btn>
-                </>
-              )
-            ) : (
-              <span className="text-[12.5px] text-slate-500">No second reviewer asked for.</span>
-            )}
+            {/* The separate reviewer slot is retired (Baskoro, 2026-08-14) — one PNS
+                assignment, not two. The bar that replaces it is the same one every
+                other queue carries, so the ticket can be taken or handed over here
+                without opening it. */}
+            <OwnerBar t={t} me={me} notify={notify} onDone={reload} />
             {me.permissions.sendToPsp && mayGoToPsp(t) && (
               <Btn onClick={() => act(() => api.status(t.ref, { status: "Pending Review - PSP", reason: "sent for margin approval" }))}>
                 Send to PSP

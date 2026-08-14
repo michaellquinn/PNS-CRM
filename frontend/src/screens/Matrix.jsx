@@ -25,7 +25,7 @@ const LADDER = [
 
 const OWED = [
   ["Pending PNS", "The assigned PNS owner", "PNS Head, so they can assign someone"],
-  ["Pending Review - Head PNS", "The assigned reviewer", "The PNS owner, then the PNS Head"],
+  ["Pending Review - Head PNS", "The ticket's PNS PIC", "The PNS Head, then any PNS member"],
   ["Pending Sales", "The sales PIC", "Commercial Head"],
   ["Pending Vendor", "The assigned PNS owner", "PNS Head"],
   ["Pending Review - PSP", "Everyone in PSP", "—"],

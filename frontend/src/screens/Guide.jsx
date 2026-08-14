@@ -83,23 +83,25 @@ const TASKS = [
     ],
   },
   {
-    q: "I want to assign or reassign work",
-    who: "PNS Head (PNS side) · Sales Head or Sales Manager (Sales PIC)",
+    q: "I want to take a ticket, hand one over, or put one back",
+    who: "Anyone in PNS (PNS PIC) · a salesperson on their own ticket, or a Sales Manager or Head on any (Sales PIC)",
     go: null,
     steps: [
-      "Open the ticket. The Ownership panel holds PNS owner, PNS price reviewer and Sales PIC. PSP has no PIC — it works one shared queue.",
-      "Workload shows how loaded each PNS member is. The auto-assigner caps everyone at 10 tickets at Pending PNS; past that a ticket stays unassigned and the Head is notified.",
+      "There is one PNS assignment — the PNS PIC — and it is the team's, not the Head's alone. Take this, Hand over and Put back sit on the Open, Awaiting price and watched-group lists as well as on the ticket, so you do not have to open a ticket to claim it.",
+      "PSP has no PIC at all: it works one shared queue, and any PSP member may decide any ticket.",
+      "Sales PIC: if the ticket is yours you can hand it to a colleague yourself. Moving somebody else's is a Sales Manager's or the Head's call, and a name nobody has registered is refused — notifications to them would go nowhere.",
+      "Workload shows how loaded each PNS member is. The auto-assigner caps everyone at 10 tickets at Pending PNS; past that a ticket stays unassigned and the Head is notified, because an unassigned ticket is visible and an over-assigned one is not.",
       "Every list shows PNS unassigned in amber when nobody owns a ticket.",
     ],
   },
   {
-    q: "What is a PNS price reviewer, and is that PSP?",
+    q: "Who checks a price Sales built, and is that PSP?",
     who: "Anyone",
     go: "review",
     steps: [
-      "No — the price reviewer is a PNS colleague, not PSP. When SALES builds a price, a second pair of PNS eyes checks it before it reaches the shipper. Which eyes depends on the deal: the Head of PNS for Hypercare, Strategic and Must Win; any PNS member for everything else at or above Rp 30 Mio.",
+      "It is PNS, not PSP, and which PNS depends on the deal. Hypercare, Strategic and Must Win go to the Head of PNS, who finalises the solution AND its pricing — and that happens FIRST, before PSP, the Sales Head or C-level see it. Everything else Sales priced at or above Rp 30 Mio becomes ordinary Pending PNS work, assigned like any other job.",
       "PSP is a different question entirely: is this margin acceptable to the business. PSP never reviews the workings, only the number.",
-      "Reviews are now delegated automatically to a standing reviewer rather than queueing for the PNS Head, and any PNS member can claim one themselves from the ticket.",
+      "There is no separate 'price reviewer' slot any more (retired 14 Aug 2026). One assignment, the PNS PIC, holds the ticket. If you want a second opinion, ask for it in the ticket's Discussion, where the answer is written down against the deal.",
     ],
   },
   {

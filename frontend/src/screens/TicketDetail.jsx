@@ -237,7 +237,6 @@ export default function TicketDetail({ ticketRef: initialRef, me, notify, onBack
           {t.owner
             ? <> &middot; PNS <b>{t.owner}</b></>
             : <> &middot; <span className="font-semibold text-amber-600">PNS unassigned</span></>}
-          {t.reviewer && <> &middot; reviewer {t.reviewer}</>}
         </span>
       </div>
 
@@ -340,7 +339,7 @@ export default function TicketDetail({ ticketRef: initialRef, me, notify, onBack
       )}
 
       {/* ---------------------------------------------------------------- actions */}
-      {(p.assign || p.assignReviewer || p.setSales || (closed && p.reopen)) && (
+      {(p.assign || p.setSales || (closed && p.reopen)) && (
         <Card className="mb-4 p-4">
           <div className="mb-3 text-[10.5px] font-bold uppercase tracking-wider text-slate-400">
             Ownership
@@ -353,14 +352,6 @@ export default function TicketDetail({ ticketRef: initialRef, me, notify, onBack
                 hint="Anyone in PNS may take a ticket, hand it over or put it back — on any ticket, whoever priced it. Every move is recorded with your name on it."
                 onSet={(v) => run(() => api.assign(ref, { owner: v }),
                   v ? `${ref} assigned to ${v}` : "Owner cleared")} />
-            )}
-            {p.assignReviewer && (
-              <Assigner label="Second pair of eyes (optional)" current={t.reviewer}
-                options={team} busy={busy} mine={me.name} setLabel="Ask them"
-                mineLabel={t.reviewer === me.name ? "Stop reviewing" : "I'll review it"}
-                hint="A PNS colleague who double-checks a price SALES built, before it goes to the shipper. Optional and separate from the PNS PIC. Not PSP — PSP judges the margin, this is a sanity check on the numbers."
-                onSet={(v) => run(() => api.assign(ref, { reviewer: v }),
-                  v ? `${v} will review ${ref}` : "Reviewer cleared")} />
             )}
             {p.setSales && (
               <Assigner label="Sales PIC" current={t.sales} options={opts?.sales || []} busy={busy}
