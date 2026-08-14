@@ -3,9 +3,10 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-08-14",
-    title: "The rest of the backlog: ignore list, two meetings, RDO",
+    title: "Edit input fixed; the rest of the backlog: ignore list, two meetings, RDO",
     by: "Baskoro + Claude",
     changes: [
+      "FIXED: Edit input was dead on every ticket. Pressing it threw a React error and blanked the whole tab, so nobody could correct an intake at all. The cause: the Input tab swaps about forty read-only values for form controls in one pass, and those values were rendered as bare text. Text has no identity for React to match against, so its deletion pass failed and took the tab down with it. Every one of them is now wrapped in an element. Found by instrumenting the live build until it named the exact node — the “Rp 25.000.000” text inside the Potential revenue row.",
       "The Sales CRM sync now actually consults the ignore list. The table and its permission were built on 13 August and nothing ever read the table, so “Test Ninja Biz - 1” arrived on every single import and was dismissed by hand every time. An ignored id is skipped before anything else happens to it — not created, not refreshed, and its account is not even fetched — and the skip still appears in the run’s report with its reason, which is the whole difference between ignoring a deal and losing one.",
       "New Administration / Sync ignore list to manage it. A reason is required, for the same purpose it is on a PSP exception. The screen also says what ignoring does NOT do: it stops future imports, it does not delete a ticket already raised, and any id that still has one is marked.",
       "Review meeting is now run by region. Pick the regions in the room and the salesperson list narrows to whoever actually has a live deal there — picking from all of Commercial when three of them cover your region is how an agenda ends up with somebody else’s deals in it. Both selectors are multi-select, and the salesperson list is derived from the tickets rather than from a region field on a user, so there is no second thing to keep in step with reality.",
