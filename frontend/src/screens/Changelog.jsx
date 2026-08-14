@@ -3,6 +3,24 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-08-14",
+    title: "The rest of the backlog: ignore list, two meetings, RDO",
+    by: "Baskoro + Claude",
+    changes: [
+      "The Sales CRM sync now actually consults the ignore list. The table and its permission were built on 13 August and nothing ever read the table, so “Test Ninja Biz - 1” arrived on every single import and was dismissed by hand every time. An ignored id is skipped before anything else happens to it — not created, not refreshed, and its account is not even fetched — and the skip still appears in the run’s report with its reason, which is the whole difference between ignoring a deal and losing one.",
+      "New Administration / Sync ignore list to manage it. A reason is required, for the same purpose it is on a PSP exception. The screen also says what ignoring does NOT do: it stops future imports, it does not delete a ticket already raised, and any id that still has one is marked.",
+      "Review meeting is now run by region. Pick the regions in the room and the salesperson list narrows to whoever actually has a live deal there — picking from all of Commercial when three of them cover your region is how an agenda ends up with somebody else’s deals in it. Both selectors are multi-select, and the salesperson list is derived from the tickets rather than from a region field on a user, so there is no second thing to keep in step with reality.",
+      "New Weekly meeting screen beside it, for the PNS side: everything active at Pending PNS, grouped by watched group first and by whoever holds it inside that. Unassigned sorts to the top of each group, because an unowned ticket in a watched group is the thing most worth saying out loud in the room. Same region and salesperson filters.",
+      "New Reference / RDO page. Every opportunity Commercial has said carries RDO, filterable by region, with decided deals greyed rather than hidden — what was agreed on a won deal is the precedent somebody will quote back at you. It also sets out where RDO sits in the 5A customization levers. What it does not yet carry is the acceptance criteria and the example photos: those are not in anything the app holds, and inventing them would be worse than the gap, so the page says so.",
+      "The one-pager flow chart is redrawn and correct again. It had shown the approval line as Price → PSP → Head Sales → C-level, which has not been true since 13 August: the Head of PNS goes FIRST, there is a Head of PSP step, and Must Win reaches C-level like the other two watched groups. It now shows all four cases explicitly and carries a note at the top telling anyone who learned the old order to re-read it.",
+      "New verify_sync_guards test suite. Every check in it exists because something was built and then not wired up — the ignore list, the revenue-0 import landing in a status the rules forbid, and the refresh re-reading two fields out of fifteen. That is this repo’s most expensive failure mode: the code looks present and nothing happens.",
+    ],
+    overruled: [
+      "The Review meeting filtered by a single salesperson chosen from everyone in Commercial. It is region-first now, and the salesperson list follows the region.",
+      "The weekly agenda was section B of the Review meeting (“All pending”, by salesperson). PNS gets its own screen grouped by watched group, because the question in a PNS meeting is where the Hypercare deals are, not whose they are.",
+    ],
+  },
+  {
+    date: "2026-08-14",
     title: "PNS rollout: self-assignment, watched-group menu, accounts, status flow",
     by: "Baskoro + Claude",
     changes: [

@@ -13,11 +13,14 @@ import Guide from "./screens/Guide";
 import { Onboarding, ToHandOver } from "./screens/Onboarding";
 import { NewRequest, NewCapa } from "./screens/Forms";
 import Accounts from "./screens/Accounts";
+import Ignored from "./screens/Ignored";
+import Rdo from "./screens/Rdo";
+import { ReviewMeeting, WeeklyMeeting } from "./screens/Meetings";
 import StatusFlow from "./screens/StatusFlow";
 import DataChecks from "./screens/DataChecks";
 import {
   AwaitingPrice, Open, PendingCrmId, ToReview, HeadReview, PspPending, ExecSignoff,
-  Proposals, ReadyToShip, RecycleBin, Meeting, Watched,
+  Proposals, ReadyToShip, RecycleBin, Watched,
 } from "./screens/Queues";
 
 // One nav entry per screen. `when` reads the permission map the backend sends, so the
@@ -54,7 +57,13 @@ const NAV = [
       keywords: "executive exec sign-off alex dhinesh cso coo" },
     { id: "proposals", label: "Proposal submitted", icon: "◫", count: "Proposal Submitted" },
     { id: "ship", label: "Ready to ship", icon: "➔", count: "Proposal Accepted / Ready to Ship" },
-    { id: "meeting", label: "Review meeting", icon: "☷", when: works, keywords: "weekly agenda" },
+    { id: "meeting", label: "Review meeting", icon: "☷", when: works,
+      keywords: "agenda sales region salesperson walk the list" },
+    // The PNS side of the same habit. Separate screen rather than a mode, because it
+    // answers a different question: the Review meeting is run by region for Sales,
+    // this one is run by watched group for PNS.
+    { id: "weekly", label: "Weekly meeting", icon: "☶", when: works,
+      keywords: "pns agenda pending group owner queue standup" },
     // A ticket is per opportunity; an account normally runs several at once. Without
     // this the flat queues make one shipper look like four, which is what "why are
     // there duplicates?" turned out to mean most of the time.
@@ -100,6 +109,8 @@ const NAV = [
     { id: "guide", label: "How do I…", icon: "?",
       keywords: "guide help how to flow steps explain onboarding tutorial" },
     { id: "matrix", label: "Routing & limits", icon: "☰" },
+    { id: "rdo", label: "RDO", icon: "◱",
+      keywords: "rdo customization lever return delivery order which deals" },
     { id: "statusflow", label: "Status flow", icon: "⇉",
       keywords: "status move trigger transition stuck what next why" },
     { id: "checks", label: "Data checks", icon: "⚕",
@@ -110,6 +121,10 @@ const NAV = [
   ["Administration", [
     { id: "users", label: "Users & roles", icon: "👤", when: (m) => m.permissions.manageUsers },
     { id: "bin", label: "Recycle bin", icon: "♲", when: (m) => m.permissions.deleteTicket },
+    // Out of Solutioning on purpose: it makes deals silently not appear.
+    { id: "ignored", label: "Sync ignore list", icon: "⊘",
+      when: (m) => m.permissions.manageIgnored,
+      keywords: "whitelist blacklist skip test junk opportunity never import" },
   ]],
 ];
 
@@ -391,7 +406,10 @@ export default function App() {
     "psp-pending": <PspPending me={me} notify={notify} onOpen={open} />,
     proposals: <Proposals me={me} notify={notify} onOpen={open} />,
     ship: <ReadyToShip me={me} onOpen={open} />,
-    meeting: <Meeting onOpen={open} />,
+    meeting: <ReviewMeeting onOpen={open} />,
+    weekly: <WeeklyMeeting onOpen={open} />,
+    rdo: <Rdo onOpen={open} />,
+    ignored: <Ignored notify={notify} />,
     accounts: <Accounts onOpen={open} />,
     "g-hypercare": <Watched me={me} notify={notify} onOpen={open} group="Hypercare" />,
     "g-strategic": <Watched me={me} notify={notify} onOpen={open} group="Strategic" />,

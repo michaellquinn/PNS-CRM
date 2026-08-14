@@ -1017,7 +1017,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-08-14.40"
+BUILD = "2026-08-14.41"
 
 
 class Me(BaseModel):
@@ -1233,6 +1233,7 @@ def shape(t: dict, u: User) -> Ticket:
         input={k: v for k, v in (
             ("golive", t.get("ob_golive")), ("shipperId", t.get("ob_shipper_id")),
             ("parentShipperId", t.get("ob_parent_id")), ("branchId", t.get("ob_branch_id")),
+            ("rdo", t.get("ob_rdo")),
         ) if v and v != "null"},
     )
     # Margin is restricted at the API, not by hiding a column in the UI.
@@ -1249,6 +1250,12 @@ async def list_tickets(
     stage: str | None = None,
     acct_type: str | None = None,
     must_win: bool = False,
+    # Comma-separated, because the meeting screens pick several at once: a review is run
+    # for a set of regions, not for one.
+    region: str | None = None,
+    # Opportunities Commercial has said carry RDO. It is an intake Yes/No, so this is a
+    # JSON read rather than a column — see the RDO reference page.
+    rdo: bool = False,
     owner: str | None = None,
     sales: str | None = None,
     sales_manager: str | None = None,   # email — everyone reporting to this manager
@@ -1277,7 +1284,12 @@ async def list_tickets(
            "JSON_UNQUOTE(JSON_EXTRACT(i.payload,'$.golive')) AS ob_golive, "
            "JSON_UNQUOTE(JSON_EXTRACT(i.payload,'$.shipperId')) AS ob_shipper_id, "
            "JSON_UNQUOTE(JSON_EXTRACT(i.payload,'$.parentShipperId')) AS ob_parent_id, "
-           "JSON_UNQUOTE(JSON_EXTRACT(i.payload,'$.branchId')) AS ob_branch_id "
+           "JSON_UNQUOTE(JSON_EXTRACT(i.payload,'$.branchId')) AS ob_branch_id, "
+           # RDO is a 5A customization lever, not an onboarding fact, but it rides along
+           # here for the same reason the others do: the RDO reference page is a list,
+           # and fetching each ticket individually to read one intake field would be a
+           # request per row.
+           "JSON_UNQUOTE(JSON_EXTRACT(i.payload,'$.rdo')) AS ob_rdo "
            "FROM tickets t JOIN shippers s ON s.id=t.shipper_id "
            "LEFT JOIN pricing p ON p.ticket_id=t.id "
            "LEFT JOIN ticket_input i ON i.ticket_id=t.id "
@@ -1344,6 +1356,14 @@ async def list_tickets(
         sql += f" AND {'' if onboarding == 'live' else 'NOT '}{have}"
     if must_win:
         sql += " AND t.must_win=1"
+    if region:
+        marks = ",".join(["%s"] * len(region.split(",")))
+        sql += f" AND t.region IN ({marks})"; args += region.split(",")
+    if rdo:
+        # Written by the intake form as the string "Yes". Compared case-insensitively
+        # because it has also been corrected by hand, and "yes" is the same answer.
+        sql += " AND LOWER(JSON_UNQUOTE(JSON_EXTRACT(i.payload,'$.rdo')))=%s"
+        args.append("yes")
     if acct_type:
         # The tier (Strategic/Hypercare/Standard) — imported from the Sales CRM
         # account group's customer_success_manager field, correctable in-app.
@@ -1854,6 +1874,72 @@ class SalesCrm:
         return "Standard"
 
 
+# ------------------------------------------------------------------ sync ignore list
+class IgnoredRow(BaseModel):
+    opportunity_id: str
+    reason: str | None
+    added_by: str
+    added_at: str
+    # Whether a ticket was already imported for it before it was ignored. Ignoring does
+    # NOT delete anything — it only stops future imports — and not saying so is how
+    # somebody concludes the list is broken.
+    ticket_ref: str | None = None
+
+
+class IgnoredList(BaseModel):
+    ignored: list[IgnoredRow]
+
+
+class IgnoreIn(BaseModel):
+    opportunity_id: str
+    reason: str | None = None
+
+
+@app.get("/api/salescrm/ignored", response_model=IgnoredList)
+async def list_ignored(u: User = Depends(current_user)):
+    """Opportunities the sync should never import.
+
+    Deliberately Admin-only and out of the main nav: it makes deals silently not appear,
+    which is a thing to do rarely and on purpose."""
+    require(u, "manageIgnored")
+    rows = await q(
+        "SELECT i.opportunity_id, i.reason, i.added_by, i.added_at, "
+        "(SELECT t.ticket_ref FROM tickets t WHERE t.opportunity_id=i.opportunity_id "
+        " AND t.deleted_at IS NULL LIMIT 1) AS ticket_ref "
+        "FROM salescrm_ignored i ORDER BY i.added_at DESC")
+    return {"ignored": [IgnoredRow(
+        opportunity_id=str(r["opportunity_id"]), reason=r["reason"],
+        added_by=r["added_by"], added_at=str(r["added_at"]),
+        ticket_ref=r["ticket_ref"]) for r in rows]}
+
+
+@app.post("/api/salescrm/ignored", status_code=201, response_model=Ok)
+async def add_ignored(body: IgnoreIn, u: User = Depends(current_user)):
+    require(u, "manageIgnored")
+    oid = body.opportunity_id.strip()
+    if not oid:
+        raise HTTPException(400, "the Sales CRM opportunity id is required")
+    # A reason is mandatory for the same purpose it is on the PSP exception: an entry
+    # with no recorded why is indistinguishable, months later, from a misclick — and
+    # this one makes a deal stop appearing.
+    if not (body.reason or "").strip():
+        raise HTTPException(400, "say why this opportunity should never be imported")
+    await execute(
+        "INSERT INTO salescrm_ignored (opportunity_id, reason, added_by) VALUES (%s,%s,%s) "
+        "ON DUPLICATE KEY UPDATE reason=VALUES(reason), added_by=VALUES(added_by)",
+        (oid, body.reason.strip()[:255], u.name))
+    await audit(u.email, "ignore", "salescrm", oid, "reason", None, body.reason.strip()[:255])
+    return {"ok": True, "ref": oid, "status": "ignored"}
+
+
+@app.delete("/api/salescrm/ignored/{oid}", response_model=Ok)
+async def remove_ignored(oid: str, u: User = Depends(current_user)):
+    require(u, "manageIgnored")
+    n = await execute("DELETE FROM salescrm_ignored WHERE opportunity_id=%s", (oid,))
+    await audit(u.email, "unignore", "salescrm", oid)
+    return {"ok": bool(n), "ref": oid, "status": "will be imported again"}
+
+
 class SyncIn(BaseModel):
     """Three modes, because "sync everything" is not one job.
 
@@ -1917,6 +2003,12 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
         # Names this app already knows. A salesperson Sales CRM names but we have never
         # registered gets flagged rather than silently written onto a ticket as its PIC.
         known_people = {r["name"] for r in await q("SELECT name FROM users WHERE active=1")}
+        # The whitelist. V24 created the table and wired the permission, but nothing ever
+        # read it, so "Test Ninja Biz - 1" arrived on every import and was ignored by hand
+        # every time. An id here is skipped WITH ITS REASON and still appears in the run's
+        # report — which is the whole difference between ignoring a deal and losing one.
+        ignored = {str(r["opportunity_id"]): (r["reason"] or "no reason recorded")
+                   for r in await q("SELECT opportunity_id, reason FROM salescrm_ignored")}
 
         # Per-request timeout well under the sweep's own budget, so one slow Sales CRM
         # call cannot consume the whole run and leave nothing to report.
@@ -2043,6 +2135,9 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
             # already carries, and skipped ones are never looked at again.
             def needs_account(o):
                 return (str(o.get("id")) not in known
+                        # An ignored opportunity is never imported, so fetching its
+                        # account is a round trip spent on a row we will throw away.
+                        and str(o.get("id")) not in ignored
                         and (not SALESCRM_RECORD_TYPE
                              or o.get("record_type_name") == SALESCRM_RECORD_TYPE)
                         and o.get("stage") not in CLOSED_LOST_STAGES
@@ -2082,6 +2177,12 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
                         continue
                     for name in crm_unmapped(o):
                         unmapped[name] = unmapped.get(name, 0) + 1
+                    # Checked before the already-imported branch, so an ignored id is not
+                    # refreshed either — the point is that the sync leaves it alone.
+                    if oid in ignored:
+                        skipped.append({"id": oid, "name": o.get("name"),
+                                        "why": f"on the ignore list: {ignored[oid]}"})
+                        continue
                     if oid in known:
                         # Already imported, so refresh the fields Sales CRM owns rather
                         # than skipping it. Stage, committed revenue and the close date

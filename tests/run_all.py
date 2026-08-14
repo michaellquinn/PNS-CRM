@@ -27,6 +27,11 @@ Each suite exists because something was actually wrong:
   verify_permissions three permissions were live in the backend and invisible in the
                      UI because /api/me never sent them
 
+  verify_sync_guards V24 created the salescrm_ignored table AND wired its permission,
+                     and then nothing ever read the table. Also pins the revenue-0
+                     import landing in Open, and that the import and the refresh walk
+                     the same field map — all three were "built but not wired".
+
   verify_transitions POST /status took whatever string it was handed, so a status the
                      running code cannot act on could be written straight onto a ticket.
                      Also pins that a "*" row does not let a Lost deal be walked
@@ -39,7 +44,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 SUITES = ["verify_rules.py", "verify_assign.py", "verify_charter.py",
           "verify_psp_gate.py", "verify_permissions.py", "verify_review_level.py",
-          "verify_transitions.py", "verify_names.py"]
+          "verify_transitions.py", "verify_sync_guards.py", "verify_names.py"]
 
 failed = []
 for name in SUITES:

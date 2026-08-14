@@ -129,6 +129,12 @@ export const api = {
   checkEmail: (send = false) =>
     call(`/diagnostics/email${send ? "?send=true" : ""}`, { method: "POST" }),
   orphanedStatus: () => call("/diagnostics/orphaned-status"),
+  // The sync ignore list. Admin only — an id here makes a deal stop appearing.
+  ignored: () => call("/salescrm/ignored"),
+  addIgnored: (opportunity_id, reason) =>
+    call("/salescrm/ignored", { method: "POST", body: JSON.stringify({ opportunity_id, reason }) }),
+  removeIgnored: (oid) =>
+    call(`/salescrm/ignored/${encodeURIComponent(oid)}`, { method: "DELETE" }),
   duplicates: () => call("/diagnostics/duplicates"),
   statusFlow: () => call("/reference/status-flow"),
 
