@@ -157,6 +157,12 @@ export default function Sync({ notify }) {
               {res.counts.refreshed} {res.dry_run ? "would refresh" : "refreshed"}
             </Pill>
             <Pill tone="bg-amber-50 text-amber-700">{res.counts.skipped} skipped</Pill>
+            {res.counts.revenue_filled > 0 && (
+              <Pill tone="bg-emerald-50 text-emerald-700">
+                {res.counts.revenue_filled} {res.dry_run ? "would get" : "got"} their
+                {" "}missing revenue
+              </Pill>
+            )}
             {res.counts.errors > 0 &&
               <Pill tone="bg-rose-50 text-rose-700">{res.counts.errors} errors</Pill>}
             {res.dry_run && <Pill tone="bg-sky-50 text-sky-700">dry run, nothing written</Pill>}
@@ -211,11 +217,18 @@ export default function Sync({ notify }) {
                 Already imported &mdash; {res.dry_run ? "would refresh" : "refreshed"} from Sales CRM
               </h2>
               <p className="text-[12px] text-slate-500">
-                Stage, committed revenue and close date are re-copied. A <b>closed</b> stage
+                Every mapped field is re-read, not just a couple: Sales CRM's own facts
+                (stage, committed revenue, close date, lead source) overwrite ours, and
+                everything else — volume, destination, contact, go-live — fills a blank
+                only, because PNS corrects those here deliberately. A <b>closed</b> stage
                 also moves our status: Closed-Lost and Future Opportunity become Lost;
                 the accepted stages become Ready to Ship, and if the onboarding fields are
-                still blank, PNS and Sales are told which ones. Potential revenue, service
-                and account tier are left alone — PNS corrects those here on purpose.
+                still blank, PNS and Sales are told which ones. Service and account tier
+                are still left alone.
+                <br />
+                <b>Potential revenue</b> is filled in when ours is still 0 and Sales CRM
+                now has a figure — that is filling a gap, not overwriting a correction —
+                and the routing is re-derived with it.
               </p>
             </div>
             <Table head={["Opportunity", "Name", "Sales CRM stage", "Our status"]}
@@ -227,6 +240,11 @@ export default function Sync({ notify }) {
                   <td className="px-4 py-2.5 text-slate-600">{r.name || "—"}</td>
                   <td className="px-4 py-2.5">{r.stage}</td>
                   <td className="px-4 py-2.5">
+                    {r.revenue_filled > 0 && (
+                      <Pill tone="bg-emerald-50 text-emerald-700">
+                        revenue {res.dry_run ? "would be set" : "set"} to {rp(r.revenue_filled)}
+                      </Pill>
+                    )}{" "}
                     {r.moved ? (
                       <>
                         <Pill tone={r.moved === "Lost"
@@ -259,6 +277,34 @@ export default function Sync({ notify }) {
                   <td className="px-4 py-2.5 font-mono text-[12px]">{s.id}</td>
                   <td className="px-4 py-2.5 text-slate-600">{s.name || "—"}</td>
                   <td className="px-4 py-2.5 text-slate-500">{s.why}</td>
+                </tr>
+              )} />
+          </Card>
+
+          {/* "Are we syncing everything we could?" was previously answerable only by
+              opening a record in Sales CRM and comparing by eye. This is the same
+              question answered from the data: fields the API actually returned that
+              nothing in this app reads yet. */}
+          <Card className="mb-4">
+            <div className="border-b border-slate-200 px-4 py-3">
+              <h2 className="text-[13.5px] font-semibold">
+                Fields Sales CRM sends that we do not read yet
+              </h2>
+              <p className="text-[12px] text-slate-500">
+                Everything mapped lands in the intake, and the whole raw record is kept on
+                each ticket under <b>Sales CRM record</b> — so nothing is lost either way.
+                This list is what to map next: a field on nearly every opportunity is
+                worth a place on the form, one that appears twice is probably not.
+              </p>
+            </div>
+            <Table head={["Sales CRM field", "Seen on"]} rows={res.unmapped || []}
+              empty="Nothing unread — every field on the records in this run is mapped."
+              render={(f, idx) => (
+                <tr key={`${f.field}-${idx}`} className="border-t border-slate-100">
+                  <td className="px-4 py-2.5 font-mono text-[12px]">{f.field}</td>
+                  <td className="px-4 py-2.5 tabular-nums text-slate-600">
+                    {f.seen} of {res.scanned} records
+                  </td>
                 </tr>
               )} />
           </Card>

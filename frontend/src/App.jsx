@@ -12,9 +12,12 @@ import Changelog from "./screens/Changelog";
 import Guide from "./screens/Guide";
 import { Onboarding, ToHandOver } from "./screens/Onboarding";
 import { NewRequest, NewCapa } from "./screens/Forms";
+import Accounts from "./screens/Accounts";
+import StatusFlow from "./screens/StatusFlow";
+import DataChecks from "./screens/DataChecks";
 import {
   AwaitingPrice, Open, PendingCrmId, ToReview, HeadReview, PspPending, ExecSignoff,
-  Proposals, ReadyToShip, RecycleBin, Meeting,
+  Proposals, ReadyToShip, RecycleBin, Meeting, Watched,
 } from "./screens/Queues";
 
 // One nav entry per screen. `when` reads the permission map the backend sends, so the
@@ -52,9 +55,27 @@ const NAV = [
     { id: "proposals", label: "Proposal submitted", icon: "◫", count: "Proposal Submitted" },
     { id: "ship", label: "Ready to ship", icon: "➔", count: "Proposal Accepted / Ready to Ship" },
     { id: "meeting", label: "Review meeting", icon: "☷", when: works, keywords: "weekly agenda" },
+    // A ticket is per opportunity; an account normally runs several at once. Without
+    // this the flat queues make one shipper look like four, which is what "why are
+    // there duplicates?" turned out to mean most of the time.
+    { id: "accounts", label: "Accounts", icon: "🏢",
+      keywords: "account group shipper parent grouped duplicates opportunities" },
     { id: "workload", label: "Workload", icon: "◴", when: (m) => m.permissions.assign,
       keywords: "pns capacity assignment" },
     { id: "sync", label: "Sales CRM sync", icon: "⇄", when: (m) => m.permissions.syncSalesCrm },
+  ]],
+  // The three watched groups, as their own section rather than three more entries in a
+  // fifteen-line Solutioning list. Every rule in the app keys off this distinction, and
+  // these are the deals somebody is asked about by name in a meeting — hunting for them
+  // across nine status queues was the wrong way round. The same three are also toggles
+  // on every queue's filter bar, for narrowing a list you are already reading.
+  ["Watched", [
+    { id: "g-hypercare", label: "Hypercare", icon: "◆", count: "g:Hypercare",
+      keywords: "watched group account tier managed" },
+    { id: "g-strategic", label: "Strategic", icon: "◆", count: "g:Strategic",
+      keywords: "watched group account tier managed" },
+    { id: "g-mustwin", label: "Must Win", icon: "★", count: "g:Must Win",
+      keywords: "watched group must win lead source detail opportunity deal" },
   ]],
   // Onboarding is deliberately its own section, not a step inside Solutioning:
   // solutioning ends when the shipper accepts, and what follows asks a different
@@ -79,6 +100,11 @@ const NAV = [
     { id: "guide", label: "How do I…", icon: "?",
       keywords: "guide help how to flow steps explain onboarding tutorial" },
     { id: "matrix", label: "Routing & limits", icon: "☰" },
+    { id: "statusflow", label: "Status flow", icon: "⇉",
+      keywords: "status move trigger transition stuck what next why" },
+    { id: "checks", label: "Data checks", icon: "⚕",
+      when: (m) => m.permissions.editInput,
+      keywords: "duplicate duplicates orphan data quality" },
     { id: "changelog", label: "What changed", icon: "🗒" },
   ]],
   ["Administration", [
@@ -314,7 +340,16 @@ export default function App() {
     Promise.all([api.tickets({}), api.tickets({ awaiting: true })])
       .then(([all, awaiting]) => {
         const c = { awaiting: awaiting.tickets.length };
-        all.tickets.forEach((t) => { c[t.status] = (c[t.status] || 0) + 1; });
+        all.tickets.forEach((t) => {
+          c[t.status] = (c[t.status] || 0) + 1;
+          // Watched-group badges count what is still live, not the whole history —
+          // a badge that includes deals lost in March is not a number anyone can use.
+          if (t.group && !["Lost", "Cancel", "Proposal Accepted / Ready to Ship"]
+              .includes(t.status)) {
+            const k = `g:${t.group}`;
+            c[k] = (c[k] || 0) + 1;
+          }
+        });
         setCounts(c);
       })
       .catch(() => {});
@@ -357,6 +392,12 @@ export default function App() {
     proposals: <Proposals me={me} notify={notify} onOpen={open} />,
     ship: <ReadyToShip me={me} onOpen={open} />,
     meeting: <Meeting onOpen={open} />,
+    accounts: <Accounts onOpen={open} />,
+    "g-hypercare": <Watched me={me} notify={notify} onOpen={open} group="Hypercare" />,
+    "g-strategic": <Watched me={me} notify={notify} onOpen={open} group="Strategic" />,
+    "g-mustwin": <Watched me={me} notify={notify} onOpen={open} group="Must Win" />,
+    statusflow: <StatusFlow />,
+    checks: <DataChecks me={me} onOpen={open} />,
     detail: <TicketDetail ticketRef={ticketRef} me={me} notify={notify} onBack={() => go("dashboard")} />,
     "capa-all": <Capa view="all" me={me} notify={notify} onRaise={() => go("capa-raise")} />,
     "capa-new": <Capa view="new" me={me} notify={notify} onRaise={() => go("capa-raise")} />,

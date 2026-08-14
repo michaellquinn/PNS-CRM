@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, BOTTOM_MARGIN, PENDING, PICKABLE_LOSS_REASONS, SERVICES, FTL,
-         mayGoToPsp, rp } from "../api";
+         WATCHED_GROUPS, groupFilter, groupTone, mayGoToPsp, rp } from "../api";
 import {
   Btn, Card, Confirm, Empty, Head, Pill, PriceChip, TicketCard, inputCls,
   usePnsTeam,
@@ -20,7 +20,7 @@ function useTickets(filters, dep = []) {
 // carries the PNS PIC filter: PNS works by ticket assignment, so "just my tickets" has
 // to be one click away wherever a list appears.
 function useFilter(rows, extra = {}) {
-  const base = { q: "", service: "", owner: "", ...extra };
+  const base = { q: "", service: "", owner: "", group: "", ...extra };
   const [f, setF] = useState(base);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const patch = (k, v) => setF((p) => ({ ...p, [k]: v }));
@@ -31,14 +31,52 @@ function useFilter(rows, extra = {}) {
     if (f.service && t.service !== f.service) return false;
     if (f.resp && t.priced_by !== f.resp) return false;
     if (f.owner && (t.owner || "") !== (f.owner === "__none__" ? "" : f.owner)) return false;
+    // t.group is the server's big_group(): the account tier where there is one, else
+    // Must Win, else null. Filtering on it here rather than on acct_type is what makes
+    // one control cover all three — Must Win is not an account tier and never appears
+    // in acct_type at all.
+    if (f.group && (f.group === "__standard__" ? t.group : t.group !== f.group)) return false;
     return true;
   });
   return [out, f, set, clear, patch];
 }
 
-function FilterBar({ f, set, clear, patch, me, shown, total, children }) {
+// The watched groups as a row of toggles, on every queue. Baskoro asked for this as a
+// submenu (2026-08-14) and it is both: the sidebar has an entry per group that opens a
+// dedicated screen, and every queue carries the same three toggles so you can narrow the
+// list you are already looking at without navigating away.
+function GroupChips({ value, onPick, counts }) {
+  const chip = (id, label, tone) => {
+    const on = value === id;
+    const n = counts?.[id];
+    return (
+      <button key={id} type="button" aria-pressed={on}
+        onClick={() => onPick(on ? "" : id)}
+        className={`whitespace-nowrap rounded-full border px-3 py-1.5 text-[12.5px] font-semibold ${
+          on ? "border-transparent " + tone + " ring-2 ring-slate-900/20"
+             : "border-slate-300 bg-white text-slate-600 hover:border-slate-400"}`}>
+        {label}{n != null && <span className="ml-1.5 font-mono tabular-nums opacity-70">{n}</span>}
+      </button>
+    );
+  };
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      {WATCHED_GROUPS.map((g) => chip(g.id, g.label, g.tone))}
+      {chip("__standard__", "Standard", "bg-slate-200 text-slate-700")}
+    </div>
+  );
+}
+
+function FilterBar({ f, set, clear, patch, me, shown, total, rows, groups = true, children }) {
   const team = usePnsTeam();
   const mineOn = me && f.owner === me.name;
+  // Counted off the unfiltered list, so a chip reading 0 tells you the queue holds none
+  // of that group rather than that your other filters hid them.
+  const counts = {};
+  (rows || []).forEach((t) => {
+    const k = t.group || "__standard__";
+    counts[k] = (counts[k] || 0) + 1;
+  });
   return (
     <Card className="mb-4 flex flex-wrap items-center gap-2.5 p-3">
       <input type="search" value={f.q} onChange={set("q")} placeholder="Search shipper or ID…"
@@ -64,7 +102,64 @@ function FilterBar({ f, set, clear, patch, me, shown, total, children }) {
       {children}
       <span className="text-[12px] text-slate-500">{shown} of {total}</span>
       <Btn onClick={clear}>Clear</Btn>
+      {groups && patch && (
+        <div className="flex w-full flex-wrap items-center gap-2.5 border-t border-slate-100 pt-2.5">
+          <span className="text-[10.5px] font-bold uppercase tracking-wider text-slate-400">
+            Watched
+          </span>
+          <GroupChips value={f.group} onPick={(v) => patch("group", v)} counts={counts} />
+        </div>
+      )}
     </Card>
+  );
+}
+
+// PNS assignment, inline on any queue card. Assignment is the team's own now, not the
+// Head's alone (Baskoro, 2026-08-14, for the PNS-first rollout): the point of putting it
+// here rather than only on the ticket detail is that taking a ticket should cost one
+// click from the list you are already reading.
+export function OwnerBar({ t, me, onDone, notify }) {
+  const team = usePnsTeam();
+  const [busy, setBusy] = useState(false);
+  const [pick, setPick] = useState("");
+  if (!me.permissions.assign) {
+    return (
+      <span className="text-[12px] text-slate-500">
+        PNS PIC: {t.owner || <span className="font-semibold text-amber-600">unassigned</span>}
+      </span>
+    );
+  }
+  const run = async (owner, msg) => {
+    setBusy(true);
+    try { await api.assign(t.ref, { owner }); notify(msg); await onDone(); }
+    catch (e) { notify(e.message); }
+    finally { setBusy(false); }
+  };
+  const mine = t.owner === me.name;
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="text-[12px] text-slate-500">
+        PNS PIC: <b className={t.owner ? "" : "text-amber-600"}>{t.owner || "unassigned"}</b>
+      </span>
+      {!mine && (
+        <Btn disabled={busy} onClick={() => run(me.name, `${t.ref} is yours`)}>
+          {t.owner ? "Take over" : "Take this"}
+        </Btn>
+      )}
+      {mine && (
+        <Btn disabled={busy} onClick={() => run("", `${t.ref} put back`)}>
+          Put back
+        </Btn>
+      )}
+      <select className={`${inputCls} max-w-[170px]`} value={pick}
+        onChange={(e) => setPick(e.target.value)}>
+        <option value="">Hand over to…</option>
+        {team.filter((n) => n !== t.owner).map((n) => <option key={n}>{n}</option>)}
+      </select>
+      <Btn disabled={busy || !pick} onClick={() => run(pick, `${t.ref} handed to ${pick}`)}>
+        Hand over
+      </Btn>
+    </div>
   );
 }
 
@@ -142,7 +237,7 @@ export function AwaitingPrice({ me, onOpen, notify }) {
       rows={rows} err={err} empty="Nothing awaiting a price."
       bar={
         <FilterBar f={f} set={set} clear={clear} patch={patch} me={me}
-          shown={list.length} total={(rows || []).length}>
+          shown={list.length} total={(rows || []).length} rows={rows}>
           <select className={`${inputCls} max-w-[150px]`} value={f.resp} onChange={set("resp")}>
             <option value="">Priced by anyone</option>
             <option value="PNS">Priced by PNS</option>
@@ -270,8 +365,51 @@ export function AwaitingPrice({ me, onOpen, notify }) {
               Attach price
             </Btn>
           </div>
+          <div className="mt-3 border-t border-slate-100 pt-3">
+            <OwnerBar t={t} me={me} notify={notify} onDone={reload} />
+          </div>
             </>
           )}
+        </TicketCard>
+      ))}
+    </Shell>
+  );
+}
+
+/* ---------------------------------------------------------------- watched groups */
+// One screen per watched group, reached from the sidebar submenu. Everything still
+// pending, narrowed to Hypercare, Strategic or Must Win, because these are the deals
+// somebody is asked about by name in a meeting and hunting for them across nine status
+// queues is the wrong way round.
+//
+// The three are NOT the same kind of thing and the screen says so: Hypercare and
+// Strategic are the ACCOUNT's tier, inherited from the Sales CRM account group, so they
+// cover every deal that account brings; Must Win is ONE opportunity.
+export function Watched({ me, onOpen, notify, group }) {
+  const meta = WATCHED_GROUPS.find((g) => g.id === group) || WATCHED_GROUPS[0];
+  const [rows, err, reload] = useTickets(
+    { status: [...PENDING, "Proposal Submitted"], ...groupFilter(meta.id) }, [group]);
+  const [list, f, set, clear, patch] = useFilter(rows);
+
+  return (
+    <Shell
+      title={meta.label}
+      sub={meta.level === "account"
+        ? `An account tier, inherited from the Sales CRM account group — it covers every deal this shipper brings. Once priced, ${meta.label} goes to the Head of PNS first, then the Head of Sales, then C-level.`
+        : "A tag on ONE opportunity, not on the account: the same shipper can have a Must Win deal and five ordinary ones. Sales CRM carries it as Lead Source Detail “Must Win”. It reaches C-level like the other two — Baskoro, 2026-08-13."}
+      right={<Pill tone={meta.tone}>{(rows || []).length} live</Pill>}
+      rows={rows} err={err}
+      empty={`Nothing live in ${meta.label} right now.`}
+      bar={<FilterBar f={f} set={set} clear={clear} patch={patch} me={me} groups={false}
+        shown={list.length} total={(rows || []).length} rows={rows} />}
+      filtered={list}>
+      {(list) => list.map((t) => (
+        <TicketCard key={t.ref} t={t} onOpen={onOpen}
+          // TicketCard already shows a Must Win pill of its own, so only the account
+          // tiers need a badge here — otherwise every Must Win row said it twice.
+          badges={t.group && t.group !== "Must Win"
+            ? [<Pill key="g" tone={groupTone(t.group)}>{t.group}</Pill>] : []}>
+          <OwnerBar t={t} me={me} notify={notify} onDone={reload} />
         </TicketCard>
       ))}
     </Shell>
@@ -348,7 +486,7 @@ export function Open({ me, onOpen, notify }) {
       rows={rows} err={err}
       empty="Nothing sitting unclaimed. Every ready ticket has somebody on it."
       bar={<FilterBar f={f} set={set} clear={clear} patch={patch} me={me}
-        shown={list.length} total={(rows || []).length} />}
+        shown={list.length} total={(rows || []).length} rows={rows} />}
       filtered={list}>
       {(list) => list.map((t) => (
         <TicketCard key={t.ref} t={t} onOpen={onOpen}
@@ -364,6 +502,7 @@ export function Open({ me, onOpen, notify }) {
               and set it on the Input tab.
             </p>
           ) : mayTake ? (
+            <>
             <div className="flex flex-wrap items-center gap-2">
               <input className={`${inputCls} max-w-[320px]`}
                 placeholder="What is missing? (sends it back to Sales)"
@@ -381,6 +520,14 @@ export function Open({ me, onOpen, notify }) {
                 Start work on this
               </Btn>
             </div>
+            {/* Picking a ticket up and owning it are two different acts, and Open is
+                where both happen. Starting work moves the status; taking it puts your
+                name on it — this queue used to offer only the first, so an unclaimed
+                ticket stayed unclaimed even after somebody started it. */}
+            <div className="mt-3 border-t border-slate-100 pt-3">
+              <OwnerBar t={t} me={me} notify={notify} onDone={reload} />
+            </div>
+            </>
           ) : (
             <p className="text-[12.5px] text-slate-500">
               Waiting for {t.priced_by} to pick it up.
@@ -405,7 +552,7 @@ export function ToReview({ me, onOpen, notify }) {
       sub="Hypercare, Strategic and Must Win — whoever priced them. The Head of PNS finalises the solution AND its pricing here, and this is the FIRST gate: PSP, the Sales Head and C-level all come after, so nobody is asked to sign an unfinished solution."
       rows={rows} err={err} empty="Nothing waiting on review."
       bar={<FilterBar f={f} set={set} clear={clear} patch={patch} me={me}
-        shown={list.length} total={(rows || []).length} />}
+        shown={list.length} total={(rows || []).length} rows={rows} />}
       filtered={list}>
       {(list) => list.map((t) => (
         <TicketCard key={t.ref} t={t} onOpen={onOpen}>
@@ -413,7 +560,14 @@ export function ToReview({ me, onOpen, notify }) {
           <RateCard service={t.service} />
           <div className="flex flex-wrap items-center gap-2">
             {t.reviewer ? (
-              <Pill tone="bg-violet-50 text-violet-700">Reviewer: {t.reviewer}</Pill>
+              <>
+                <Pill tone="bg-violet-50 text-violet-700">Second pair of eyes: {t.reviewer}</Pill>
+                {me.permissions.assignReviewer && (
+                  <Btn onClick={() => act(() => api.assign(t.ref, { reviewer: "" }))}>
+                    Clear
+                  </Btn>
+                )}
+              </>
             ) : me.permissions.assignReviewer ? (
               team.length === 0 ? (
                 <span className="text-[12.5px] text-slate-500">
@@ -421,17 +575,21 @@ export function ToReview({ me, onOpen, notify }) {
                 </span>
               ) : (
                 <>
+                  {/* This button sent the bare name as the whole request body — the
+                      endpoint takes {owner?, reviewer?}, so it was rejected every time
+                      and nobody could set a reviewer from this queue at all. */}
                   <select className={`${inputCls} max-w-[180px]`} value={who[t.ref] || team[0]}
                     onChange={(e) => setWho({ ...who, [t.ref]: e.target.value })}>
                     {team.map((n) => <option key={n}>{n}</option>)}
                   </select>
-                  <Btn kind="primary" onClick={() => act(() => api.assign(t.ref, who[t.ref] || team[0]))}>
-                    Assign reviewer
+                  <Btn onClick={() => act(() =>
+                    api.assign(t.ref, { reviewer: who[t.ref] || team[0] }))}>
+                    Ask for a second look
                   </Btn>
                 </>
               )
             ) : (
-              <span className="text-[12.5px] text-slate-500">Waiting for the PNS Head to assign a reviewer.</span>
+              <span className="text-[12.5px] text-slate-500">No second reviewer asked for.</span>
             )}
             {me.permissions.sendToPsp && mayGoToPsp(t) && (
               <Btn onClick={() => act(() => api.status(t.ref, { status: "Pending Review - PSP", reason: "sent for margin approval" }))}>
@@ -476,7 +634,7 @@ export function HeadReview({ me, onOpen, notify }) {
       </span>}
       rows={rows} err={err} empty="Nothing needs the Sales Head."
       bar={<FilterBar f={f} set={set} clear={clear} patch={patch} me={me}
-        shown={list.length} total={(rows || []).length} />}
+        shown={list.length} total={(rows || []).length} rows={rows} />}
       filtered={list}>
       {(list) => list.map((t) => (
         <TicketCard key={t.ref} t={t} onOpen={onOpen}
@@ -564,7 +722,7 @@ export function PspPending({ me, onOpen, notify }) {
       empty={view === "pending" ? "Nothing awaiting price approval."
                                 : "PSP hasn't decided on anything yet."}
       bar={<FilterBar f={f} set={set} clear={clear} patch={patch} me={me}
-        shown={list.length} total={(rows || []).length} />}
+        shown={list.length} total={(rows || []).length} rows={rows} />}
       filtered={list}>
       {(list) => list.map((t) => (
         <TicketCard key={t.ref} t={t} onOpen={onOpen}
@@ -664,7 +822,7 @@ export function ExecSignoff({ me, onOpen, notify }) {
       sub="Hypercare and Strategic solutions need Alex (CSO) and Dhinesh (COO). Every other approval has already cleared; this is the last gate before the proposal goes out."
       rows={rows} err={err} empty="Nothing awaiting executive sign-off."
       bar={<FilterBar f={f} set={set} clear={clear} patch={patch} me={me}
-        shown={list.length} total={(rows || []).length} />}
+        shown={list.length} total={(rows || []).length} rows={rows} />}
       filtered={list}>
       {(list) => list.map((t) => (
         <TicketCard key={t.ref} t={t} onOpen={onOpen}>
@@ -713,7 +871,7 @@ export function Proposals({ me, onOpen, notify }) {
       sub="Proposals sitting with the shipper. Accepted and lost deals move out of this list."
       rows={rows} err={err} empty="No proposals submitted yet."
       bar={<FilterBar f={f} set={set} clear={clear} patch={patch} me={me}
-        shown={list.length} total={(rows || []).length} />}
+        shown={list.length} total={(rows || []).length} rows={rows} />}
       filtered={list}>
       {(list) => list.map((t) => (
         <TicketCard key={t.ref} t={t} onOpen={onOpen}>
@@ -767,7 +925,7 @@ export function ReadyToShip({ me, onOpen }) {
       sub="Accepted proposals, handed to Legal for the contract and then to Ops."
       rows={rows} err={err} empty="Nothing ready to ship yet."
       bar={<FilterBar f={f} set={set} clear={clear} patch={patch} me={me}
-        shown={list.length} total={(rows || []).length} />}
+        shown={list.length} total={(rows || []).length} rows={rows} />}
       filtered={list}>
       {(list) => list.map((t) => (
         <TicketCard key={t.ref} t={t} onOpen={onOpen}>

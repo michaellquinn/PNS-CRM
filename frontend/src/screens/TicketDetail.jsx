@@ -307,6 +307,9 @@ export default function TicketDetail({ ticketRef: initialRef, me, notify, onBack
         )}
       </Card>
 
+      <Siblings list={d.siblings} shipper={t.shipper} onOpen={setRef} />
+      <CrmRecord record={i._crm} />
+
       {/* Revenue 0 stops the ticket moving, so it is said here rather than discovered
           as a 409 when somebody presses a button. */}
       {!t.revenue && !["Lost", "Cancel"].includes(t.status) && (
@@ -344,20 +347,27 @@ export default function TicketDetail({ ticketRef: initialRef, me, notify, onBack
           </div>
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             {p.assign && (
-              <Assigner label="PNS owner" current={t.owner} options={team} busy={busy}
-                hint="The PNS Head assigns work on any ticket, whoever priced it."
+              <Assigner label="PNS PIC" current={t.owner} options={team} busy={busy}
+                mine={me.name} setLabel="Hand over"
+                mineLabel={t.owner === me.name ? "Put back" : "Take this"}
+                hint="Anyone in PNS may take a ticket, hand it over or put it back — on any ticket, whoever priced it. Every move is recorded with your name on it."
                 onSet={(v) => run(() => api.assign(ref, { owner: v }),
                   v ? `${ref} assigned to ${v}` : "Owner cleared")} />
             )}
             {p.assignReviewer && (
-              <Assigner label="PNS price reviewer" current={t.reviewer} options={team} busy={busy}
-                hint="A PNS colleague who double-checks a price SALES built, before it goes to the shipper. Not PSP — PSP judges the margin separately. Any PNS member can take one themselves."
+              <Assigner label="Second pair of eyes (optional)" current={t.reviewer}
+                options={team} busy={busy} mine={me.name} setLabel="Ask them"
+                mineLabel={t.reviewer === me.name ? "Stop reviewing" : "I'll review it"}
+                hint="A PNS colleague who double-checks a price SALES built, before it goes to the shipper. Optional and separate from the PNS PIC. Not PSP — PSP judges the margin, this is a sanity check on the numbers."
                 onSet={(v) => run(() => api.assign(ref, { reviewer: v }),
                   v ? `${v} will review ${ref}` : "Reviewer cleared")} />
             )}
             {p.setSales && (
               <Assigner label="Sales PIC" current={t.sales} options={opts?.sales || []} busy={busy}
-                allowClear={false} hint="Commercial Head can hand the ticket to another salesperson."
+                allowClear={false}
+                hint={t.sales === me.name
+                  ? "This one is yours, so you can hand it to a colleague yourself. Once it is theirs, only a Sales Manager or the Head can move it back."
+                  : "A Sales Manager or the Head can move any ticket; a salesperson can hand over their own."}
                 onSet={(v) => run(() => api.setSales(ref, v), `${ref} reassigned to ${v}`)} />
             )}
             {/* The one-off Alex grants in a meeting. Only the PNS Head sees this, and
@@ -699,14 +709,109 @@ function CrmIdBox({ ref_, busy, may, run }) {
   );
 }
 
-/* One row of the ownership panel: pick a value, press the button, done. */
-function Assigner({ label, hint, current, options, onSet, busy, allowClear = true, setLabel = "Set" }) {
+/* The account's other opportunities.
+
+   A ticket is one opportunity and stays that way — that is the level Sales CRM works at
+   and the level a solution is priced at. But whoever opens this ticket is talking to the
+   shipper about all of them, and this is also what makes four tickets for one shipper
+   read as four deals rather than as duplication. */
+function Siblings({ list, shipper, onOpen }) {
+  const [open, setOpen] = useState(false);
+  if (!list || list.length === 0) return null;
+  const live = list.filter((s) => !["Lost", "Cancel"].includes(s.status));
+  return (
+    <Card className="mb-4 p-3.5">
+      <button onClick={() => setOpen(!open)}
+        className="flex w-full flex-wrap items-center gap-2 text-left">
+        <span className="text-[10.5px] font-bold uppercase tracking-wider text-slate-400">
+          Same account
+        </span>
+        <span className="text-[12.5px] text-slate-600">
+          {shipper} has <b>{list.length}</b> other {list.length === 1 ? "ticket" : "tickets"}
+          {live.length > 0 && <> ({live.length} still live)</>}
+        </span>
+        <span className="ml-auto text-slate-400">{open ? "▾" : "▸"}</span>
+      </button>
+      {open && (
+        <div className="mt-2 border-t border-slate-100 pt-1">
+          {list.map((s) => (
+            <div key={s.ref}
+              className="flex flex-wrap items-center gap-3 border-b border-slate-100 py-2 last:border-0">
+              <button onClick={() => onOpen(s.ref)}
+                className="font-mono text-[12.5px] font-bold text-[#EE1B2C] hover:underline">
+                {s.ref}
+              </button>
+              <Pill dot>{s.status}</Pill>
+              {s.must_win && <Pill tone="bg-orange-100 text-orange-800">Must Win</Pill>}
+              <span className="min-w-0 flex-1 truncate text-[12.5px] text-slate-600">
+                {s.opportunity_name || "—"}
+              </span>
+              <span className="text-[12px] text-slate-500">{s.service}</span>
+              <span className="font-mono text-[12px] tabular-nums text-slate-600">{rp(s.revenue)}</span>
+              <span className="w-28 truncate text-[11.5px] text-slate-400">
+                {s.owner || "unassigned"}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+/* Everything Sales CRM sent for this opportunity, verbatim.
+
+   The mapped fields land in the intake where they belong; this is the rest of the record
+   kept alongside it, so a field nobody has mapped yet is still *here* to read instead of
+   needing somebody to notice it exists and a fresh sync to go and fetch it. */
+function CrmRecord({ record }) {
+  const [open, setOpen] = useState(false);
+  const keys = Object.keys(record || {}).sort();
+  if (keys.length === 0) return null;
+  return (
+    <Card className="mb-4 p-3.5">
+      <button onClick={() => setOpen(!open)}
+        className="flex w-full flex-wrap items-center gap-2 text-left">
+        <span className="text-[10.5px] font-bold uppercase tracking-wider text-slate-400">
+          Sales CRM record
+        </span>
+        <span className="text-[12.5px] text-slate-600">
+          {keys.length} fields as Sales CRM last sent them
+        </span>
+        <span className="ml-auto text-slate-400">{open ? "▾" : "▸"}</span>
+      </button>
+      {open && (
+        <div className="mt-2 grid grid-cols-1 gap-x-6 gap-y-1 border-t border-slate-100 pt-2 sm:grid-cols-2">
+          {keys.map((k) => (
+            <div key={k} className="flex gap-2 border-b border-slate-50 py-1 text-[12px]">
+              <span className="w-48 shrink-0 truncate font-mono text-slate-400">{k}</span>
+              <span className="min-w-0 break-words text-slate-700">{record[k]}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+/* One row of the ownership panel: pick a value, press the button, done.
+   `mine` adds the one-click self-assign — taking a ticket is the commonest thing
+   anybody does here and it should not need finding your own name in a dropdown. */
+function Assigner({ label, hint, current, options, onSet, busy, allowClear = true,
+                    setLabel = "Set", mine, mineLabel }) {
   const [v, setV] = useState("");
   const choice = v || current || options[0] || "";
+  const isMine = mine && current === mine;
   return (
     <div className="rounded-lg border border-slate-200 p-3">
       <div className="mb-1 text-[11.5px] font-semibold text-slate-600">{label}</div>
       <div className="flex flex-wrap items-center gap-2">
+        {mine && options.includes(mine) && (
+          <Btn kind={isMine ? "plain" : "primary"} disabled={busy}
+            onClick={() => { setV(""); onSet(isMine ? "" : mine); }}>
+            {mineLabel || (isMine ? "Put back" : "Take this")}
+          </Btn>
+        )}
         {options.length === 0 ? (
           <span className="text-[12.5px] text-slate-500">Nobody available yet.</span>
         ) : (
@@ -715,10 +820,10 @@ function Assigner({ label, hint, current, options, onSet, busy, allowClear = tru
               onChange={(e) => setV(e.target.value)}>
               {options.map((n) => <option key={n}>{n}</option>)}
             </select>
-            <Btn kind="primary" disabled={busy || !choice} onClick={() => onSet(choice)}>
+            <Btn disabled={busy || !choice} onClick={() => onSet(choice)}>
               {setLabel}
             </Btn>
-            {allowClear && current && (
+            {allowClear && current && !isMine && (
               <Btn disabled={busy} onClick={() => { setV(""); onSet(""); }}>Clear</Btn>
             )}
           </>

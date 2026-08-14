@@ -58,6 +58,9 @@ export const api = {
   stats: () => call("/stats"),
 
   tickets: (filters) => call(`/tickets${qs(filters)}`),
+  // The same tickets, grouped by the account they belong to. A ticket is still one
+  // opportunity — this is the other way of reading the same rows, not a second store.
+  accounts: (filters) => call(`/accounts${qs(filters)}`),
   deleted: () => call("/tickets/deleted"),
   ticket: (ref) => call(`/tickets/${encodeURIComponent(ref)}`),
 
@@ -125,6 +128,8 @@ export const api = {
   checkEmail: (send = false) =>
     call(`/diagnostics/email${send ? "?send=true" : ""}`, { method: "POST" }),
   orphanedStatus: () => call("/diagnostics/orphaned-status"),
+  duplicates: () => call("/diagnostics/duplicates"),
+  statusFlow: () => call("/reference/status-flow"),
 
   files: (ref) => call(`/tickets/${encodeURIComponent(ref)}/files`),
   uploadFile: (ref, file, kind = "document", caption = "") => {
@@ -202,3 +207,25 @@ export const BOTTOM_MARGIN = { LTL: 5, B2BR: 10 };
 // check, and the server re-checks it independently either way.
 export const mayGoToPsp = (t) =>
   t.acct_type === "Strategic" || t.acct_type === "Hypercare" || !!t.psp_allowed;
+
+// The three watched groups, in the order the rules treat them. Mirrors big_group() in
+// the backend: Hypercare and Strategic sit on the ACCOUNT and are inherited from the
+// Sales CRM account group; Must Win sits on ONE OPPORTUNITY, so the same account can
+// have a must-win deal and five ordinary ones. Everything untagged is Standard.
+export const WATCHED_GROUPS = [
+  { id: "Hypercare", label: "Hypercare", level: "account",
+    tone: "bg-rose-100 text-rose-800" },
+  { id: "Strategic", label: "Strategic", level: "account",
+    tone: "bg-indigo-100 text-indigo-800" },
+  { id: "Must Win", label: "Must Win", level: "opportunity",
+    tone: "bg-orange-100 text-orange-800" },
+];
+
+export const groupTone = (g) =>
+  WATCHED_GROUPS.find((w) => w.id === g)?.tone || "bg-slate-100 text-slate-600";
+
+// Which /api/tickets filter each group needs. Hypercare and Strategic are account tiers
+// (acct_type); Must Win is a per-ticket flag, so it is a different parameter entirely —
+// asking for acct_type="Must Win" returns nothing at all.
+export const groupFilter = (g) =>
+  g === "Must Win" ? { must_win: true } : g ? { acct_type: g } : {};

@@ -2,6 +2,33 @@ import { Card, Head, Pill } from "../ui";
 
 const ENTRIES = [
   {
+    date: "2026-08-14",
+    title: "PNS rollout: self-assignment, watched-group menu, accounts, status flow",
+    by: "Baskoro + Claude",
+    changes: [
+      "Assignment belongs to the PNS team, not only the Head. Anyone in PNS can take a ticket, hand it over or put it back, on any ticket whoever priced it — and now from the queue list as well as from the ticket, because taking a ticket should cost one click from the list you are already reading. Every move is still written to the history and the audit log with a name on it, which is the oversight that was actually doing the work.",
+      "A salesperson can hand over a ticket that is theirs. Previously only a Sales Manager or the Head could change the Sales PIC, so somebody going on leave needed a manager to type a name. You can only hand it away — once it is somebody else's, moving it back is the Manager's or Head's call. The app also now refuses to hand a ticket to a name nobody has registered, because notifications to an unregistered person go nowhere.",
+      "Must Win is on the New Request form. It sits next to Account type but is deliberately not one of its options: Hypercare and Strategic describe the ACCOUNT and come down from the Sales CRM account group, Must Win describes THIS DEAL. A later sync overwrites it from Lead Source Detail, which is correct — Sales CRM is the record.",
+      "New Watched section in the sidebar with one screen per group — Hypercare, Strategic, Must Win — each badged with how many are live. The same three are toggles on every queue's filter bar, so a list you are already reading can be narrowed without navigating away.",
+      "New Accounts screen. A ticket is still raised per opportunity and always will be, but one account normally runs several at once, and the flat queues made one shipper look like four unrelated ones. The same tickets are now also served grouped by account, with the account's live total, its tier, and every deal under it. Each ticket also shows the account's other opportunities inline.",
+      "New Reference / Status flow screen: every way a ticket can change status, what triggers it, and who does it. It is generated from the same table the server enforces, so it cannot drift from the rule.",
+      "POST /status now validates where it is being asked to go. It used to accept any string, so a typo or an older build's vocabulary could write a status the running code cannot act on straight onto a ticket — which is the orphaned-status mess V20/V21 had to clean up by hand. Most statuses are a consequence rather than a choice (attaching a price, finalising, a signature), and those cannot be reached by naming them at all.",
+      "New Reference / Data checks screen for the duplicates question. Three different things get called duplicates and they have three different fixes, so the screen names which one it found: a ticket raised here before the opportunity existed and then imported again under its real id (the common one — a UNIQUE column accepts any number of NULLs); two Sales CRM opportunities that are one deal; and one account arriving under two shipper names. Sibling opportunities are counted and deliberately not listed, because they are not a fault.",
+      "Imported opportunities with no potential revenue now land in Open, not Pending PNS or Pending Sales. Revenue decides who prices the deal, which 5A ceiling applies and whether PNS reviews it, and the app already refuses to enter a working status without it — the import was walking past its own gate and leaving tickets in a status the rules say they may not be in. That is why tickets appeared with a CRM ID and no revenue.",
+      "The sync reads every mapped field on every run, through one table the import and the refresh both walk. Sales CRM's own facts (stage, committed revenue, close date, lead source) overwrite ours; volume, destination, contact and go-live fill a blank only, because PNS corrects those here deliberately. Potential revenue is filled in when ours is still 0 and Sales CRM now has one, and the routing is re-derived with it.",
+      "The whole raw Sales CRM record is kept on each ticket and shown under 'Sales CRM record', and the sync now reports which fields Sales CRM sends that this app does not read yet. 'Are we syncing everything we could?' was previously answerable only by opening a record in Sales CRM and comparing by eye.",
+      "Fixed: the Assign reviewer button on Review - Head PNS sent the bare name as the whole request body, so it was rejected every time and nobody could set a reviewer from that queue at all. It is now 'Ask for a second look', and any PNS member can take one themselves.",
+      "Fixed: the orphaned-status diagnostic never learned about Open and Pending CRM ID, so it reported every ticket in the two newest statuses as unrecognised. It is now derived from the status list instead of being maintained by hand.",
+    ],
+    overruled: [
+      "Assignment was the PNS Head's alone. It is now any PNS member's, for the PNS-first rollout — the Head keeps oversight through the audit trail rather than through a gate.",
+      "The Sales PIC could only be changed by a Sales Manager or the Head.",
+      "PNS_REVIEW_DELEGATE and review_delegate() are removed. A standing reviewer for the Standard 30 Mio+ band was agreed on 2026-08-11 and the code for it was written but never called by anything — submit_price answers the same question with auto_assignee(), which is the same intent and does not go stale when one person is on leave.",
+      "'PNS price reviewer' is renamed 'Second pair of eyes (optional)'. It is a sanity check on a price Sales built, separate from the PNS PIC and from PSP, and the old name read like a required step in the approval chain, which it is not.",
+      "The refresh re-copied two payload fields (committed revenue, close date) out of the fifteen the import reads. Anything Sales filled in after a deal was imported stayed blank here forever.",
+    ],
+  },
+  {
     date: "2026-08-11",
     title: "Sales CRM becomes the system of record: CRM ID mandatory, Must Win, Open",
     by: "Baskoro + Claude",

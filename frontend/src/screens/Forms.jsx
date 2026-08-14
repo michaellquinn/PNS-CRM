@@ -41,6 +41,10 @@ export function NewRequest({ me, notify, onCreated }) {
       : ["FTL monthly", "Sameday"].includes(f.service)
         ? { by: "PNS", review: false }
         : { by: "Sales", review: false };
+  // Which watched group this request lands in, mirroring big_group(): the account tier
+  // is the stronger claim, so a Hypercare account's must-win deal reads as Hypercare.
+  const watched = ["Hypercare", "Strategic"].includes(f.acct_type) ? f.acct_type
+    : f.must_win ? "Must Win" : null;
 
   const submit = async () => {
     if (!f.shipper?.trim()) return notify("Shipper is required");
@@ -48,10 +52,10 @@ export function NewRequest({ me, notify, onCreated }) {
     setBusy(true);
     try {
       const { shipper, brief, service, acct_type, region, revenue, opportunity_id,
-              ...payload } = f;
+              must_win, ...payload } = f;
       const r = await api.createTicket({
         shipper: shipper.trim(), brief: brief.trim(), service, acct_type, region,
-        revenue: rev, sales_email: me.email,
+        revenue: rev, sales_email: me.email, must_win: !!must_win,
         opportunity_id: (opportunity_id || "").trim() || null,
         payload: { ...payload, shipper: shipper.trim(), brief: brief.trim() },
       });
@@ -111,6 +115,21 @@ export function NewRequest({ me, notify, onCreated }) {
             <select className={inputCls} value={f.acct_type} onChange={set("acct_type")}>
               <option>Hypercare</option><option>Strategic</option><option>Standard</option>
             </select>
+          </Field>
+          {/* The third watched group, and the only one that is not an account tier —
+              hence a checkbox next to the dropdown rather than a fourth option inside
+              it. Hypercare and Strategic describe the ACCOUNT and come down from the
+              Sales CRM account group; Must Win describes THIS DEAL, so the same account
+              can have a must-win request and five ordinary ones. */}
+          <Field label="Must Win"
+            hint="Sales CRM carries this as Lead Source Detail “Must Win”, and the sync will overwrite whatever is set here — tick it for a deal that was called in a meeting before anybody edited the opportunity.">
+            <label className={`flex cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2 text-[13px] ${
+              f.must_win ? "border-orange-300 bg-orange-50 font-semibold text-orange-900"
+                         : "border-slate-300 bg-white text-slate-600"}`}>
+              <input type="checkbox" checked={!!f.must_win}
+                onChange={(e) => setF({ ...f, must_win: e.target.checked })} />
+              This deal is Must Win
+            </label>
           </Field>
           <Field label="Project type" required>
             <select className={inputCls} value={f.project} onChange={set("project")}>
@@ -252,7 +271,13 @@ export function NewRequest({ me, notify, onCreated }) {
 
         <div className="mt-5 flex items-center justify-between border-t border-slate-200 pt-4">
           <span className="text-[12px] text-slate-500">
-            Routed to <b>{routed.by}</b>{routed.review && ", then PNS review"}
+            Routed to <b>{routed.by}</b>
+            {/* A watched group changes what happens AFTER the price, not who attaches
+                it, so it is stated separately from the routing rather than folded into
+                it. Must Win reaches C-level too — Baskoro, 2026-08-13. */}
+            {watched
+              ? <> · once priced, <b>{watched}</b> goes to the Head of PNS first, then Head of Sales and C-level</>
+              : routed.review ? ", then PNS review" : null}
           </span>
           <Btn kind="primary" disabled={busy} onClick={submit}>Submit request</Btn>
         </div>
