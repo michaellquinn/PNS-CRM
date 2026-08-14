@@ -1,0 +1,124 @@
+# Deploy to Substrait when the deploying branch moves.
+#
+# Why this exists: two people deploy this app into ONE shared database, from separate
+# clones, and `.substrait/config.json` is gitignored — so nothing has ever forced a push
+# before a deploy. That is not a hypothetical: the .31 deploy overwrote Michael's live
+# build because it went out from a clone that had never pulled his commits, and the
+# V15/V20 migration conflict is the same failure in the database instead of the app.
+#
+# Deploying from GitHub instead of from a laptop ends that whole class of problem: what
+# is live is, by construction, what is on the branch, because the only thing that can
+# deploy is a push that everyone can see.
+#
+# ONE-TIME SETUP, and it is the repo owner's to do — see the note at the bottom.
+#
+#   Settings -> Secrets and variables -> Actions -> New repository secret
+#     Name:   SUBSTRAIT_TOKEN
+#     Value:  the "token" field from .substrait/config.json (never commit this)
+#
+# Until that secret exists the workflow still runs the checks and simply skips the
+# upload, saying so — it fails loudly rather than looking like it deployed.
+
+name: Deploy to Substrait
+
+on:
+  push:
+    branches: [main, salescrm-integration]
+  # Deploy a branch by hand without pushing to it, for a rollback or a one-off.
+  workflow_dispatch:
+
+# Never let two deploys upload at once. cancel-in-progress is deliberately FALSE: a
+# half-finished deploy that gets cancelled leaves the platform mid-build, and waiting a
+# minute is cheaper than finding out which of two runs won.
+concurrency:
+  group: substrait-deploy
+  cancel-in-progress: false
+
+env:
+  # Not a secret — it is in CLAUDE.md and in deploy.ps1. Only the token is.
+  PORTAL_URL: https://api.substrait.build
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # The suites parse and execute the real main.py. No database, no server, no
+      # dependencies — which is exactly why they can gate a deploy.
+      - name: Rules and wiring checks
+        run: python tests/run_all.py
+
+      - name: Backend compiles
+        run: python -m py_compile backend/main.py
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # A real build has caught what brace-counting did not, more than once.
+      - name: Frontend builds
+        run: |
+          npm --prefix frontend ci
+          npm --prefix frontend run build
+
+      # The BUILD string is the only version marker the running app exposes, and it is
+      # bumped by hand. Deploying without bumping it makes "is my change live?"
+      # unanswerable, which is the question the marker exists for.
+      - name: BUILD was bumped
+        if: github.event_name == 'push'
+        run: |
+          before=$(git show "${{ github.event.before }}:backend/main.py" 2>/dev/null \
+                   | grep -m1 '^BUILD = ' || true)
+          after=$(grep -m1 '^BUILD = ' backend/main.py)
+          if [ -n "$before" ] && [ "$before" = "$after" ]; then
+            echo "::warning::$after is unchanged from the previous commit. Deploying anyway, but the live version marker will not move."
+          else
+            echo "$after"
+          fi
+
+      - name: Package source
+        run: |
+          # Source only: the platform discards build output and enforces a 16 MB cap.
+          # zip on Linux writes forward-slash entry names, so none of the PS 5.1
+          # backslash trouble that deploy.ps1 exists to work around applies here.
+          zip -r -q upload.zip . \
+            -x '.git/*' 'node_modules/*' '*/node_modules/*' '.venv/*' 'venv/*' \
+               '__pycache__/*' '*/__pycache__/*' '*.pyc' \
+               'dist/*' 'frontend/dist/*' '.substrait/*' '.DS_Store' 'deploy.ps1'
+          ls -l upload.zip
+
+      - name: Upload to Substrait
+        env:
+          TOKEN: ${{ secrets.SUBSTRAIT_TOKEN }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "::error::SUBSTRAIT_TOKEN is not set on this repository, so nothing was deployed. Add it under Settings / Secrets and variables / Actions. Every check above passed."
+            exit 1
+          fi
+          body=$(curl -sS -X POST \
+            -H "Authorization: Bearer $TOKEN" \
+            -F "file=@upload.zip;type=application/zip;filename=upload.zip" \
+            -F "backend_stack=fastapi" \
+            "$PORTAL_URL/api/deploy")
+          echo "$body"
+          # The endpoint answers 200 with a JSON error body on a rejected upload, so the
+          # presence of run_id is the only honest success test.
+          echo "$body" | grep -q '"run_id"' || {
+            echo "::error::Upload rejected by the platform — see the response above."
+            exit 1
+          }
+          echo "Deployed. https://solutions-crm.apps.substrait.build"
+
+# A note on who can finish this:
+#
+# The repo is michaellquinn/PNS-CRM, so the SUBSTRAIT_TOKEN secret has to be added by
+# Michael or by someone with admin on it. The token is the same one already sitting in
+# each person's gitignored .substrait/config.json — it is NOT in this file, this repo, or
+# any commit, and it must not be pasted into a chat, an issue or a PR description.
