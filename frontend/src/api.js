@@ -137,6 +137,7 @@ export const api = {
     call(`/salescrm/ignored/${encodeURIComponent(oid)}`, { method: "DELETE" }),
   duplicates: () => call("/diagnostics/duplicates"),
   statusFlow: () => call("/reference/status-flow"),
+  fieldGuide: () => call("/reference/fields"),
 
   files: (ref) => call(`/tickets/${encodeURIComponent(ref)}/files`),
   uploadFile: (ref, file, kind = "document", caption = "") => {

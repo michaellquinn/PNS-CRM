@@ -249,6 +249,17 @@ export function NewRequest({ me, notify, onCreated }) {
           <Field label="RDO" required>
             <select className={inputCls} value={f.rdo} onChange={set("rdo")}><option>Yes</option><option>No</option></select>
           </Field>
+          {/* Only when the answer is Yes. PNS cannot price an RDO it has not been told
+              the shape of, and "RDO: Yes" on its own is not the shape. Attach the
+              example photos on the ticket afterwards, under RDO example from Sales. */}
+          {f.rdo === "Yes" && (
+            <Field label="RDO details from Sales" span
+              hint="What the shipper actually wants returned, to whom, and how signed. Attach the example photos to the ticket once it exists — Attachments, RDO example from Sales.">
+              <textarea className={`${inputCls} min-h-[60px]`} value={f.rdoNotes || ""}
+                onChange={set("rdoNotes")}
+                placeholder="e.g. signed delivery order returned to the origin warehouse within 3 days, stamped and dated" />
+            </Field>
+          )}
           <Field label="COD" required>
             <select className={inputCls} value={f.cod} onChange={set("cod")}><option>No</option><option>Yes</option></select>
           </Field>

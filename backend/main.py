@@ -1233,7 +1233,8 @@ def shape(t: dict, u: User) -> Ticket:
         input={k: v for k, v in (
             ("golive", t.get("ob_golive")), ("shipperId", t.get("ob_shipper_id")),
             ("parentShipperId", t.get("ob_parent_id")), ("branchId", t.get("ob_branch_id")),
-            ("rdo", t.get("ob_rdo")),
+            ("rdo", t.get("ob_rdo")), ("rdoNotes", t.get("ob_rdo_notes")),
+            ("rdoFiles", (str(t["ob_rdo_files"]) if t.get("ob_rdo_files") else None)),
         ) if v and v != "null"},
     )
     # Margin is restricted at the API, not by hiding a column in the UI.
@@ -1289,7 +1290,10 @@ async def list_tickets(
            # here for the same reason the others do: the RDO reference page is a list,
            # and fetching each ticket individually to read one intake field would be a
            # request per row.
-           "JSON_UNQUOTE(JSON_EXTRACT(i.payload,'$.rdo')) AS ob_rdo "
+           "JSON_UNQUOTE(JSON_EXTRACT(i.payload,'$.rdo')) AS ob_rdo, "
+           "JSON_UNQUOTE(JSON_EXTRACT(i.payload,'$.rdoNotes')) AS ob_rdo_notes, "
+           "(SELECT COUNT(*) FROM ticket_files tf WHERE tf.ticket_id=t.id "
+           " AND tf.kind='rdo_evidence') AS ob_rdo_files "
            "FROM tickets t JOIN shippers s ON s.id=t.shipper_id "
            "LEFT JOIN pricing p ON p.ticket_id=t.id "
            "LEFT JOIN ticket_input i ON i.ticket_id=t.id "
@@ -3340,6 +3344,169 @@ CHARTER_SECTIONS = [
 ]
 CHARTER_HOURS = ("pickWait", "delWait")
 
+# ------------------------------------------------------------------ the field guide
+#
+# "Which fields must be filled for a ticket to move, and which come from Sales CRM?"
+# — Baskoro, 2026-08-14. Both were answerable only by reading main.py, so both were
+# effectively unanswerable.
+#
+# The honest answer has two halves that are easy to confuse, and this table keeps them
+# apart on purpose:
+#
+#   ENFORCED   the server refuses. There are only five of these, and they are the whole
+#              reason a ticket ever gets stuck.
+#   ASKED      the intake form marks it required and nothing checks it afterwards. Most
+#              fields are here. Saying "required" for both would make the five that
+#              actually block invisible among the thirty that do not.
+#
+# {key: (who fills it, when it is needed, what it blocks if empty)}
+# An empty "blocks" means exactly that: nothing stops, the ticket is just less useful.
+FIELD_RULES = {
+    # 1 · Shipper profile
+    "shipper":        ("Sales", "asked", ""),
+    "shipperStatus":  ("Sales", "asked", ""),
+    "brief":          ("Sales", "asked", "It is the first thing PNS reads. Nothing is "
+                                         "refused without it, but the questions come back."),
+    "shipperPic":     ("Sales", "asked", ""),
+    "shipperContact": ("Sales", "asked", ""),
+    "invAddr":        ("Sales", "won", ""),
+    "pickPic":        ("Sales", "won", ""),
+    "pickContact":    ("Sales", "won", ""),
+    "pickup":         ("Sales", "asked", ""),
+    "dest":           ("Sales", "asked", ""),
+    "freq":           ("Sales", "asked", ""),
+    "volume":         ("Sales", "asked", ""),
+    # 2 · Cargo knowledge
+    "commodity":      ("Sales", "asked", ""),
+    "product":        ("Sales", "asked", ""),
+    "dim":            ("Sales", "asked", ""),
+    "wt":             ("Sales", "asked", ""),
+    "pallet":         ("Sales", "asked", ""),
+    # 3 · Ninja's service
+    "pickSlot":       ("Sales", "asked", ""),
+    "pickWait":       ("Sales", "optional", "Blank means the driver does not wait, which "
+                                            "is a costed fact rather than a gap."),
+    "delSlot":        ("Sales", "asked", ""),
+    "delWait":        ("Sales", "optional", "Blank means the driver does not wait."),
+    "destType":       ("Sales", "asked", ""),
+    "sla":            ("Sales", "asked", ""),
+    "mps":            ("Sales", "asked", ""),
+    "rdo":            ("Sales", "asked", ""),
+    "rdoNotes":       ("Sales", "optional", "Only when RDO is Yes. PNS cannot price an "
+                                            "RDO it has not been told the shape of."),
+    "cod":            ("Sales", "asked", ""),
+    "tkbmO":          ("Sales", "asked", ""),
+    "tkbmD":          ("Sales", "asked", ""),
+    "ins":            ("Sales", "asked", ""),
+    "truck":          ("Sales", "optional", ""),
+    "handling":       ("Sales", "optional", ""),
+    "notes":          ("Sales", "optional", ""),
+    # 4 · Kick-off
+    "golive":         ("Sales", "won", "ENFORCED the other way round: setting a go-live "
+                                       "date is REFUSED until the three account "
+                                       "identifiers below are filled in, because it is a "
+                                       "commitment to Ops and Ops cannot act on a date "
+                                       "with nothing to onboard against."),
+    "parentShipperId": ("Sales", "won", "The Kick-off will not send without it."),
+    "shipperId":      ("Sales", "won", "The Kick-off will not send without it."),
+    "branchId":       ("Sales", "won", "The Kick-off will not send without it."),
+}
+
+# Facts that live on the ticket itself rather than in the intake payload. These are where
+# the enforced gates actually are.
+TICKET_FIELDS = [
+    # key, label, who, when, blocks
+    ("opportunity_id", "Sales CRM opportunity ID", "Sales", "enforced",
+     "Without it the ticket parks in Pending CRM ID and CANNOT MOVE AT ALL. The sync "
+     "finds every deal by this id, so a ticket it cannot see drifts out of step with the "
+     "commercial record and gets believed anyway."),
+    ("potential_rev", "Potential revenue", "Sales, correctable by PNS", "enforced",
+     "Without it the ticket cannot enter any working status and cannot be priced. It "
+     "decides who prices the deal, which 5A ceiling applies and whether PNS reviews the "
+     "result — at zero all three are decided as if it were the smallest possible deal."),
+    ("service_type", "Service type", "Sales, correctable by PNS", "enforced",
+     "Decides the pricing ceiling and, with the tier, who prices it. Sales CRM says only "
+     "\"Trucking\" for FTL, so an imported FTL ticket needs the line confirmed."),
+    ("acct_type", "Account type", "Sales CRM account group", "asked",
+     "Hypercare and Strategic put the deal in a watched group and route it to PNS."),
+    ("must_win", "Must Win", "Sales CRM Lead Source Detail, settable here", "optional",
+     "Puts this one deal in a watched group."),
+    ("region", "Region", "Sales", "asked", "Used by the meeting screens to run by region."),
+    ("sales_name", "Sales PIC", "Sales", "asked",
+     "An unregistered name means notifications go nowhere, so handing over to one is "
+     "refused."),
+]
+
+# The five places the server actually says no. Kept as its own short list because it is
+# the answer to "why is this stuck", and a reader should not have to find it inside a
+# forty-row table.
+HARD_GATES = [
+    ("No Sales CRM opportunity id",
+     "The ticket sits in Pending CRM ID. It can only acquire an id, or be cancelled.",
+     "Add it on the ticket, or from the Pending CRM ID screen."),
+    ("Potential revenue is 0",
+     "It cannot enter Pending PNS, Pending Sales, any review status, or be priced.",
+     "Set it on the Input tab. PNS can do this too during the pilot."),
+    ("A go-live date with no account identifiers",
+     "Saving the go-live date is refused.",
+     "Fill parent shipper ID, shipper ID and corporate branch ID first."),
+    ("Kick-off with a blank go-live or shipper ID",
+     "The Kick-off email will not send.",
+     "Complete section 4 on the Input tab."),
+    ("A Standard deal priced below its floor",
+     "Attaching the price is refused outright — a Standard deal can never be below floor.",
+     "Reprice within the ceiling, or ask the Head of PNS to tag the deal Must Win."),
+]
+
+
+def field_guide() -> list[dict]:
+    """Every intake field, what it is for, and where it comes from.
+
+    Sync provenance is READ OUT OF the same CRM_OPP_PAYLOAD / CRM_ACCOUNT_PAYLOAD tables
+    the sync itself walks, so this page cannot claim a field is synced when it is not —
+    which is the failure mode a hand-written version of this table would have on day one.
+    """
+    src: dict[str, tuple[str, list[str]]] = {}
+    for key, names, _label, owned in CRM_OPP_PAYLOAD:
+        src[key] = ("overwritten" if owned else "gap-fill", names)
+    for key, names, _label, owned in CRM_ACCOUNT_PAYLOAD:
+        src[key] = ("overwritten" if owned else "gap-fill", names)
+
+    out = []
+    for section, fields in CHARTER_SECTIONS:
+        for key, label in fields:
+            who, when, blocks = FIELD_RULES.get(key, ("Sales", "asked", ""))
+            how, names = src.get(key, ("never", []))
+            out.append({"key": key, "label": label, "section": section, "who": who,
+                        "when": when, "blocks": blocks, "sync": how,
+                        "crm_fields": names, "on_ticket": False})
+    # rdoNotes is deliberately not on the Project Charter — it is working detail for PNS,
+    # not something the shipper reads back — so it is added here rather than to
+    # CHARTER_SECTIONS.
+    who, when, blocks = FIELD_RULES["rdoNotes"]
+    out.append({"key": "rdoNotes", "label": "RDO details from Sales",
+                "section": "3 Â· Ninja's service", "who": who, "when": when,
+                "blocks": blocks, "sync": "never", "crm_fields": [], "on_ticket": False})
+
+    # Everything the sync carries that is NOT on the Project Charter. These were invisible
+    # on the first cut of this page — they are on no charter section, so walking
+    # CHARTER_SECTIONS missed them entirely, and they are precisely the ones somebody
+    # would waste an afternoon correcting by hand: Sales CRM owns them and overwrites
+    # them every morning.
+    seen = {f["key"] for f in out}
+    labels = {k: lb for k, _n, lb, _o in CRM_OPP_PAYLOAD}
+    labels |= {k: lb for k, _n, lb, _o in CRM_ACCOUNT_PAYLOAD}
+    for key, (how, names) in sorted(src.items()):
+        if key in seen:
+            continue
+        out.append({"key": key, "label": labels.get(key, key),
+                    "section": "Carried from Sales CRM, not on the charter",
+                    "who": "Sales CRM", "when": "optional",
+                    "blocks": ("Reference only. Reported alongside potential revenue, "
+                               "and re-read every sync."),
+                    "sync": how, "crm_fields": names, "on_ticket": False})
+    return out
+
 # key -> human label, so a field comment can name the field it is about without the
 # frontend having to send the label along with it.
 CHARTER_FIELD_LABELS = {k: label for _, fields in CHARTER_SECTIONS for k, label in fields}
@@ -4580,8 +4747,10 @@ async def upload_file(
     attaches solution diagrams and survey shots, and Legal attaches contract drafts, 
     restricting this to one team would just push the rest back into email."""
     t = await get_ticket(ref)
-    if kind not in ("goods_photo", "document"):
-        raise HTTPException(400, "kind must be goods_photo or document")
+    # rdo_evidence is its own kind rather than another document: the RDO reference page
+    # collects these across every ticket, and it can only do that if they are labelled.
+    if kind not in ("goods_photo", "document", "rdo_evidence"):
+        raise HTTPException(400, "kind must be goods_photo, document or rdo_evidence")
 
     data, ctype = await read_upload(file)
 
@@ -4591,7 +4760,8 @@ async def upload_file(
         (t["id"], kind, (file.filename or "attachment")[:255], ctype, len(data),
          (caption or None), data, u.email, u.name))
 
-    label = "photo of the goods" if kind == "goods_photo" else "document"
+    label = {"goods_photo": "photo of the goods",
+             "rdo_evidence": "RDO example from Sales"}.get(kind, "document")
     people = {n for n in (t["owner_name"], t["sales_name"]) if n}
     people.discard(u.name)
     if people:
@@ -5132,6 +5302,69 @@ class StatusFlow(BaseModel):
     # Only these can be chosen by naming a status; everything else is a consequence of
     # doing something. The screen says so, so nobody looks for a missing button.
     manual: dict[str, list[str]]
+
+
+class GuideField(BaseModel):
+    key: str
+    label: str
+    section: str
+    who: str
+    when: str            # enforced | asked | won | optional
+    blocks: str
+    sync: str            # overwritten | gap-fill | never
+    crm_fields: list[str]
+    on_ticket: bool
+
+
+class Gate(BaseModel):
+    what: str
+    stops: str
+    fix: str
+
+
+class FieldGuide(BaseModel):
+    fields: list[GuideField]
+    ticket_fields: list[GuideField]
+    gates: list[Gate]
+    # Ticket columns Sales CRM owns outright, so a correction here is overwritten on the
+    # next run. Stated because that surprises people exactly once, expensively.
+    crm_owned_columns: list[str]
+
+
+@app.get("/api/reference/fields", response_model=FieldGuide)
+async def fields_reference(u: User = Depends(current_user)):
+    """What every field is for, who fills it, what it blocks, and whether it syncs.
+
+    Readable by everyone: "why is this stuck" and "will my correction survive the sync"
+    are the two questions this answers, and neither is privileged."""
+    tickets = []
+    for key, label, who, when, blocks in TICKET_FIELDS:
+        # The same provenance the sync applies to ticket columns, stated in its terms.
+        sync = {
+            "opportunity_id": "never",
+            "potential_rev": "gap-fill",
+            "service_type": "never",
+            "acct_type": "never",
+            "must_win": "overwritten",
+            "region": "never",
+            "sales_name": "overwritten",
+        }.get(key, "never")
+        crm = {
+            "potential_rev": ["total_potential_revenue_mth"],
+            "must_win": list(MUSTWIN_FIELDS),
+            "sales_name": ["owner_name"],
+        }.get(key, [])
+        tickets.append(GuideField(key=key, label=label, section="On the ticket",
+                                  who=who, when=when, blocks=blocks, sync=sync,
+                                  crm_fields=crm, on_ticket=True))
+    return {
+        "fields": [GuideField(**f) for f in field_guide()],
+        "ticket_fields": tickets,
+        "gates": [Gate(what=a, stops=b, fix=c) for a, b, c in HARD_GATES],
+        "crm_owned_columns": ["Sales CRM stage", "Deal name", "Sales PIC",
+                              "Submitted date", "Must Win", "Committed revenue",
+                              "Close date", "Lead source"],
+    }
 
 
 @app.get("/api/reference/status-flow", response_model=StatusFlow)

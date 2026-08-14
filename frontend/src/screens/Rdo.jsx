@@ -9,8 +9,11 @@ import { Btn, Card, Empty, Head, Pill } from "../ui";
 //      set at once instead of finding them one ticket at a time.
 //   2. What RDO means inside the rules — which tiers may have it, and what it changes.
 //
-// The "what counts as valid" half is deliberately marked as incomplete rather than
-// invented. See the note in the second card.
+// What counts as a VALID RDO is per deal, not one company-wide rule: every shipper wants
+// something slightly different returned. So it comes from Sales on the request itself —
+// the rdoNotes field, plus example photos attached as kind "rdo_evidence" — and this
+// page shows both, and names the deals where PNS has been told there is RDO and not told
+// what it is.
 
 const REGIONS = ["GJ", "WJ", "CJ", "EJ"];
 
@@ -91,7 +94,7 @@ export default function Rdo({ onOpen }) {
                 <thead>
                   <tr className="bg-slate-50 text-left text-xs font-semibold text-slate-600">
                     {["Ticket", "Shipper", "Service", "Tier", "Revenue", "Region",
-                      "Status", "PNS PIC"].map((h) => (
+                      "Status", "From Sales"].map((h) => (
                       <th key={h} className="whitespace-nowrap px-4 py-3">{h}</th>
                     ))}
                   </tr>
@@ -118,7 +121,19 @@ export default function Rdo({ onOpen }) {
                         <td className="whitespace-nowrap px-4 py-3 tabular-nums">{rp(t.revenue)}</td>
                         <td className="px-4 py-3 text-slate-500">{t.region}</td>
                         <td className="px-4 py-3"><Pill dot>{t.status}</Pill></td>
-                        <td className="px-4 py-3 text-slate-500">{t.owner || "unassigned"}</td>
+                        {/* The point of the column: RDO = Yes on its own is not enough
+                            to price against. This says whether Sales has actually said
+                            what the RDO is, and attached an example. */}
+                        <td className="px-4 py-3">
+                          {t.input?.rdoNotes
+                            ? <Pill tone="bg-emerald-50 text-emerald-700">details given</Pill>
+                            : <Pill tone="bg-amber-50 text-amber-700">no details yet</Pill>}
+                          {t.input?.rdoFiles
+                            ? <span className="ml-1.5 text-[11.5px] text-slate-500">
+                                {t.input.rdoFiles} example{t.input.rdoFiles === "1" ? "" : "s"}
+                              </span>
+                            : <span className="ml-1.5 text-[11.5px] text-slate-400">no examples</span>}
+                        </td>
                       </tr>
                     );
                   })}
@@ -126,6 +141,42 @@ export default function Rdo({ onOpen }) {
               </table>
             </div>
           )}
+        </Card>
+      )}
+
+      {/* What Sales actually wrote, in full. The table above says whether it exists;
+          this is the thing PNS has to price against, so it gets room to be read. */}
+      {(rows || []).some((t) => t.input?.rdoNotes) && (
+        <Card className="mb-4">
+          <div className="border-b border-slate-200 px-4 py-3">
+            <h2 className="text-[13.5px] font-semibold">What Sales said the RDO is</h2>
+            <p className="text-[12px] text-slate-500">
+              Straight from the request. Example photographs are attached to each ticket
+              under <b>Attachments → RDO example from Sales</b>.
+            </p>
+          </div>
+          <div className="px-4 py-2">
+            {(rows || []).filter((t) => t.input?.rdoNotes).map((t) => (
+              <div key={t.ref} className="border-b border-slate-100 py-3 last:border-0">
+                <div className="mb-1 flex flex-wrap items-center gap-2">
+                  <button onClick={() => onOpen(t.ref)}
+                    className="font-mono text-[12.5px] font-bold text-[#EE1B2C] hover:underline">
+                    {t.ref}
+                  </button>
+                  <b className="text-[13px]">{t.shipper}</b>
+                  <span className="text-[12px] text-slate-500">{t.service}</span>
+                  {t.input?.rdoFiles && (
+                    <Pill tone="bg-slate-100 text-slate-600">
+                      {t.input.rdoFiles} example{t.input.rdoFiles === "1" ? "" : "s"} attached
+                    </Pill>
+                  )}
+                </div>
+                <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-slate-700">
+                  {t.input.rdoNotes}
+                </p>
+              </div>
+            ))}
+          </div>
         </Card>
       )}
 
@@ -160,25 +211,23 @@ export default function Rdo({ onOpen }) {
         </div>
       </Card>
 
-      {/* Said out loud rather than filled with a plausible guess. An RDO reference page
-          that invents its own acceptance criteria is worse than no page: people would
-          quote it at a shipper. */}
-      <Card className="border-l-4 border-l-amber-400 bg-amber-50/50 p-4">
-        <div className="text-[10.5px] font-bold uppercase tracking-wider text-amber-700">
-          Still missing — what counts as a valid RDO, and the example photos
+      <Card className="border-l-4 border-l-slate-300 p-4">
+        <div className="text-[10.5px] font-bold uppercase tracking-wider text-slate-500">
+          Where the acceptance criteria come from
         </div>
         <p className="mt-1.5 text-[13px] leading-relaxed text-slate-700">
-          This page can already tell you <b>which</b> deals carry RDO and how the tier
-          rules treat it. What it cannot yet tell you is what a valid RDO actually looks
-          like — the acceptance criteria and the example photographs that were asked for.
-          Those are not in anything this app holds, and inventing them would be worse than
-          leaving the gap: somebody would quote it at a shipper.
+          Per deal, from Sales — not from a single company-wide rule. Every shipper wants
+          something slightly different returned, so what counts as a valid RDO is stated
+          on the request itself: the <b>RDO details from Sales</b> field, plus example
+          photographs attached to the ticket as <b>RDO example from Sales</b>. Both show
+          up here as soon as they exist.
         </p>
         <p className="mt-2 text-[13px] leading-relaxed text-slate-700">
-          Send the criteria and two or three example photos — one clearly valid, one
-          clearly not — and they go here, beside the list.
+          A deal marked <b>no details yet</b> above is one PNS has been told has RDO and
+          not told what the RDO is. That is the list to chase.
         </p>
       </Card>
+
     </>
   );
 }

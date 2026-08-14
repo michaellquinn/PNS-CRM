@@ -15,6 +15,7 @@ import { NewRequest, NewCapa } from "./screens/Forms";
 import Accounts from "./screens/Accounts";
 import Ignored from "./screens/Ignored";
 import Rdo from "./screens/Rdo";
+import Fields from "./screens/Fields";
 import { ReviewMeeting, WeeklyMeeting } from "./screens/Meetings";
 import StatusFlow from "./screens/StatusFlow";
 import DataChecks from "./screens/DataChecks";
@@ -109,6 +110,8 @@ const NAV = [
     { id: "guide", label: "How do I…", icon: "?",
       keywords: "guide help how to flow steps explain onboarding tutorial" },
     { id: "matrix", label: "Routing & limits", icon: "☰" },
+    { id: "fields", label: "Fields", icon: "▦",
+      keywords: "required mandatory must fill sync sales crm overwrite which fields blocks" },
     { id: "rdo", label: "RDO", icon: "◱",
       keywords: "rdo customization lever return delivery order which deals" },
     { id: "statusflow", label: "Status flow", icon: "⇉",
@@ -409,6 +412,7 @@ export default function App() {
     meeting: <ReviewMeeting onOpen={open} />,
     weekly: <WeeklyMeeting onOpen={open} />,
     rdo: <Rdo onOpen={open} />,
+    fields: <Fields />,
     ignored: <Ignored notify={notify} />,
     accounts: <Accounts onOpen={open} />,
     "g-hypercare": <Watched me={me} notify={notify} onOpen={open} group="Hypercare" />,

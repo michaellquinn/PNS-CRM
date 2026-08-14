@@ -137,6 +137,29 @@ const TASKS = [
     ],
   },
   {
+    q: "Which fields must I fill in, and will Sales CRM overwrite my correction?",
+    who: "Anyone",
+    go: "fields",
+    steps: [
+      "Two different things get called “required” and telling them apart saves most of the confusion. The intake form marks about thirty fields required and nothing checks them afterwards — they are asked, not enforced. Only FIVE things actually stop a ticket, and Reference / Fields lists them first for that reason.",
+      "The five: no Sales CRM opportunity id (parks in Pending CRM ID, cannot move at all); potential revenue 0 (cannot enter any working status or be priced); a go-live date with no account identifiers behind it; a Kick-off with a blank go-live or shipper ID; and a Standard deal priced below its floor.",
+      "On syncing: Sales CRM OWNS the stage, deal name, Sales PIC, submitted date, Must Win, committed revenue, close date and lead source. Those are re-copied every morning, so a correction made here lasts until the next run — fix them in Sales CRM instead.",
+      "Everything else it sends — volume, destination, pickup, contact, go-live — only fills a blank and never overwrites, so a correction you make here survives. Service line, potential revenue and account tier are never overwritten at all, because PNS corrects those deliberately.",
+      "Fields is generated from the same tables the sync itself walks, so it cannot claim a field syncs when it does not.",
+    ],
+  },
+  {
+    q: "Sales said the deal has RDO — now what?",
+    who: "Sales writes it, PNS prices it",
+    go: "rdo",
+    steps: [
+      "“RDO: Yes” on its own is not something PNS can price against. What counts as a valid RDO is per deal, not one company-wide rule — every shipper wants something slightly different returned.",
+      "So Sales writes it on the request: the RDO details from Sales field appears on the New Request form as soon as RDO is set to Yes. What the shipper wants returned, to whom, and how signed.",
+      "The example photographs go on the ticket afterwards — Attachments, kind “RDO example from Sales”. They are labelled separately from goods photos so the RDO page can collect them across every deal.",
+      "Reference / RDO lists every opportunity carrying RDO, filterable by region, and marks the ones tagged Yes with no details yet. That is the list to chase Sales on.",
+    ],
+  },
+  {
     q: "The intake is wrong or half-empty — can I fix it?",
     who: "PNS, Commercial, Sales Planning or Admin",
     go: null,

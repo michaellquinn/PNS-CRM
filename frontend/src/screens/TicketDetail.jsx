@@ -30,7 +30,8 @@ const SECTIONS = [
     ["pickSlot", "Pickup time"], ["pickWait", "Pickup waiting time"],
     ["delSlot", "Delivery time"], ["delWait", "Delivery waiting time"],
     ["destType", "Delivery destination type"], ["sla", "SLA"], ["mps", "MPS"],
-    ["rdo", "RDO"], ["cod", "COD"], ["tkbmO", "TKBM origin"], ["tkbmD", "TKBM destination"],
+    ["rdo", "RDO"], ["rdoNotes", "RDO details from Sales"],
+    ["cod", "COD"], ["tkbmO", "TKBM origin"], ["tkbmD", "TKBM destination"],
     ["ins", "Insurance"], ["truck", "Vehicle request"],
     ["handling", "Custom handling request"], ["notes", "Notes"],
   ]],
@@ -45,7 +46,7 @@ const SECTIONS = [
 ];
 
 const EDITABLE = SECTIONS.flatMap(([, fields]) => fields);
-const LONG = ["brief", "handling", "notes", "invAddr", "pickup", "dest"];
+const LONG = ["brief", "handling", "notes", "rdoNotes", "invAddr", "pickup", "dest"];
 const YESNO = ["mps", "rdo", "cod", "tkbmO", "tkbmD", "ins"];
 const HOURS = ["pickWait", "delWait"];
 

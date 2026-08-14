@@ -11,7 +11,11 @@ const iconFor = (name) => ICON[String(name).split(".").pop().toLowerCase()] || "
 
 // Used by both tickets and CAPAs. The parent supplies the three API calls and the two
 // kind labels, so the gallery, the size handling and the delete rules live in one place.
-const TICKET_KINDS = [["goods_photo", "Photo of the goods"], ["document", "Supporting document"]];
+const TICKET_KINDS = [["goods_photo", "Photo of the goods"],
+                      // Labelled separately so Reference / RDO can collect these
+                      // across every ticket rather than guessing from filenames.
+                      ["rdo_evidence", "RDO example from Sales"],
+                      ["document", "Supporting document"]];
 
 export default function Attachments({
   ticketRef, me, notify, onCountChange,
