@@ -714,6 +714,11 @@ def can(u: User, action: str, t: dict | None = None) -> bool:
         # It applies to ANY ticket, not only PNS-priced ones: a Sales-priced ticket still
         # has a PNS reviewer, and gating on resp left those unassignable.
         "assign":           u.group == "PNS" or admin,
+        # Seeing how loaded the team is, so "who should take this?" is answerable now
+        # that anyone in PNS can take it. Deliberately NOT the same permission as
+        # assign: this screen also carries per-person win counts and days-to-clear,
+        # which is a performance comparison and stays the Head's — see workload().
+        "seeWorkload":      u.group == "PNS" or admin,
         # assignReviewer is retired (Baskoro, 2026-08-14). The separate "PNS price
         # reviewer" slot asked a second question — who is checking this? — on top of the
         # one that matters, who owns this, and nothing a reader could see told them
@@ -729,11 +734,19 @@ def can(u: User, action: str, t: dict | None = None) -> bool:
         # Sales Planning corrects submissions on Sales' behalf. PNS is here too because
         # during the Sales CRM rollout most intake arrives imported and incomplete, and
         # waiting for Sales to fill it in would stall the solutioning it exists to feed.
-        # Account type and revenue stay behind editAcctOrRev, so none of them can
-        # re-route a ticket by editing it.
         "editInput":        u.group in ("Commercial", "Sales Planning", "PNS") or admin,
-        "editAcctOrRev":    com_head,
-        "setAcct":          com_head,
+        # Potential revenue and account type are the two intake fields that RE-ROUTE the
+        # ticket, so they were the Sales Head's alone. During the PNS-first pilot that is
+        # backwards (Baskoro, 2026-08-14): Sales is not on the platform yet, a quarter of
+        # imported opportunities arrive with revenue 0, and revenue 0 is the single thing
+        # that stops a ticket moving at all. Leaving the fix with the one role that is not
+        # using the app meant PNS could see exactly what was wrong and not correct it.
+        #
+        # So PNS gets both while PNS_PILOT is on, and loses them the day Sales starts
+        # working its own queues — by then Sales is there to fix its own intake. Every
+        # edit re-runs route() on the corrected facts and is written to the ticket
+        # history with a name and the before/after, so a re-route is never silent.
+        "editAcctOrRev":    com_head or (PNS_PILOT and u.group == "PNS"),
         # Handing a deal to another salesperson is the Sales Manager's and Head's call in
         # general — and the current PIC's own call on their own ticket (Baskoro,
         # 2026-08-14). Somebody going on leave, or who picked the deal up and found it
@@ -1179,8 +1192,11 @@ async def me(u: User = Depends(current_user)):
     # entry or button silently never renders, and the feature looks like it was never
     # built. Add the name here in the same edit that adds it to can().
     actions = ["createTicket", "deleteTicket", "restoreTicket", "purgeTicket",
-               "assign", "markReviewed", "editInput", "editAcctOrRev",
-               "setAcct", "setSales", "reopen", "pspDecide", "vendorToggle", "sendToPsp",
+               "assign", "seeWorkload", "markReviewed", "editInput", "editAcctOrRev",
+               # setAcct was declared here and in can() and checked by absolutely
+               # nothing — the account tier is edited through editAcctOrRev like the
+               # revenue beside it. Removed rather than left looking live.
+               "setSales", "reopen", "pspDecide", "vendorToggle", "sendToPsp",
                "acceptProposal", "sendBackProposal", "seeMargin", "capaRaise",
                "capaClose", "capaSubmit", "headAck", "manageUsers", "grantAdmin",
                "pspAssign", "pspOverride", "allowPsp", "syncSalesCrm",
@@ -2397,8 +2413,20 @@ async def workload(u: User = Depends(current_user)):
 
     Lead time is measured from first assignment to the ticket leaving PNS hands, taken
     from ticket_history rather than the ticket row, status_since only remembers the
-    latest move, so it cannot answer 'how long did this take'."""
-    require(u, "assign")
+    latest move, so it cannot answer 'how long did this take'.
+
+    Two audiences since 2026-08-14, when taking a ticket became anyone in PNS's to do:
+
+      the team   how loaded each person is, and who is at the cap. You cannot sensibly
+                 choose whether to pick something up without it.
+      the Head   the same, plus won / decided / average and worst days-to-clear.
+
+    That second set is a per-person performance comparison and it is not published to
+    the team. It is filtered out here rather than hidden in the UI, so it never leaves
+    the server for someone who should not see it."""
+    require(u, "seeWorkload")
+    # The Head's view. manageUsers is pns_head-or-admin, which is exactly the audience.
+    full = can(u, "manageUsers")
 
     pns = await q(
         "SELECT u.name, "
@@ -2432,17 +2460,21 @@ async def workload(u: User = Depends(current_user)):
     team = []
     for r in pns:
         l = lead_by.get(r["name"], {})
-        team.append({
+        row = {
             "name": r["name"],
             "pending_pns": int(r["pending_pns"] or 0),
             "open_total": int(r["open_total"] or 0),
             "at_cap": int(r["pending_pns"] or 0) >= PNS_WIP_CAP,
-            "won": int(r["won"] or 0),
-            "decided": int(r["decided"] or 0),
-            "avg_days_to_clear": float(l["avg_days"]) if l.get("avg_days") is not None else None,
-            "worst_days_to_clear": int(l["worst_days"]) if l.get("worst_days") is not None else None,
-            "finished": int(l.get("finished") or 0),
-        })
+        }
+        if full:
+            row |= {
+                "won": int(r["won"] or 0),
+                "decided": int(r["decided"] or 0),
+                "avg_days_to_clear": float(l["avg_days"]) if l.get("avg_days") is not None else None,
+                "worst_days_to_clear": int(l["worst_days"]) if l.get("worst_days") is not None else None,
+                "finished": int(l.get("finished") or 0),
+            }
+        team.append(row)
 
     # Salespeople ranked by how much they currently have sitting on PNS. This is the
     # demand side of the same picture, a spike here explains a queue over there.
@@ -2457,6 +2489,9 @@ async def workload(u: User = Depends(current_user)):
 
     return {
         "cap": PNS_WIP_CAP,
+        # The screen says which view it is showing rather than leaving a PNS member to
+        # wonder whether the missing columns are a bug.
+        "full": full,
         "pns": team,
         "sales": [{"name": r["name"], "email": r["email"],
                    "open_tickets": int(r["open_tickets"] or 0),

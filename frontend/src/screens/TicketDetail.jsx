@@ -516,10 +516,10 @@ export default function TicketDetail({ ticketRef: initialRef, me, notify, onBack
               <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-slate-50 px-3 py-2">
                 <p className="text-[12px] text-slate-500">
                   {!p.editInput
-                    ? "Read-only — Commercial and Admin correct the original input."
+                    ? "Read-only — Commercial, Sales Planning, PNS and Admin correct the original input."
                     : p.editAcctOrRev
-                      ? "You can correct anything here, including account type and revenue."
-                      : "Account type and potential revenue are Commercial Head only — they change who owes the price."}
+                      ? "You can correct anything here, including account type and potential revenue. Both re-run the routing rule, and the change is written to the history with your name on it."
+                      : "Account type and potential revenue are the Sales Head's — they change who owes the price."}
                 </p>
                 {p.editInput && (
                   draft ? (
@@ -551,7 +551,7 @@ export default function TicketDetail({ ticketRef: initialRef, me, notify, onBack
                   ) : (
                     <>
                       {t.acct_type}
-                      {!p.editAcctOrRev && <span className="ml-2 text-[11px] text-slate-400">🔒 Head only</span>}
+                      {!p.editAcctOrRev && <span className="ml-2 text-[11px] text-slate-400">🔒 Sales Head only</span>}
                     </>
                   )}
                 </Row>
@@ -562,7 +562,7 @@ export default function TicketDetail({ ticketRef: initialRef, me, notify, onBack
                   ) : (
                     <>
                       {rp(t.revenue)}
-                      {!p.editAcctOrRev && <span className="ml-2 text-[11px] text-slate-400">🔒 Head only</span>}
+                      {!p.editAcctOrRev && <span className="ml-2 text-[11px] text-slate-400">🔒 Sales Head only</span>}
                     </>
                   )}
                 </Row>

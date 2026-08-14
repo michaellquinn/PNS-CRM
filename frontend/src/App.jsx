@@ -60,8 +60,8 @@ const NAV = [
     // there duplicates?" turned out to mean most of the time.
     { id: "accounts", label: "Accounts", icon: "🏢",
       keywords: "account group shipper parent grouped duplicates opportunities" },
-    { id: "workload", label: "Workload", icon: "◴", when: (m) => m.permissions.assign,
-      keywords: "pns capacity assignment" },
+    { id: "workload", label: "Workload", icon: "◴", when: (m) => m.permissions.seeWorkload,
+      keywords: "pns capacity assignment load who is free" },
     { id: "sync", label: "Sales CRM sync", icon: "⇄", when: (m) => m.permissions.syncSalesCrm },
   ]],
   // The three watched groups, as their own section rather than three more entries in a

@@ -32,13 +32,22 @@ export default function Workload() {
   return (
     <>
       <Head title="Workload"
-        sub={`Who is carrying what, and how quickly it clears. Past ${d.cap} tickets at Pending PNS, new work waits for the Head to assign it by hand.`} />
+        sub={d.full
+          ? `Who is carrying what, and how quickly it clears. Past ${d.cap} tickets at Pending PNS the auto-assigner stops, and new work is left unassigned for you to place by hand.`
+          : `Who is carrying what, so you can tell whether to pick something up. Past ${d.cap} tickets at Pending PNS the auto-assigner stops and new work is left unassigned.`} />
 
       <div className="mb-4">
         <Card>
           <div className="border-b border-slate-200 px-4 py-3">
             <h2 className="text-[13.5px] font-semibold">PNS team</h2>
             <p className="text-[12px] text-slate-500">
+              {!d.full ? (
+                <>
+                  Queue depth only. Days-to-clear and won/decided are a per-person
+                  comparison and stay with the Head of PNS &mdash; this is here so
+                  &ldquo;should I take this one?&rdquo; is answerable, not to rank anyone.
+                </>
+              ) : (<>
               <b>Avg to clear</b> is the mean number of days from the first time a ticket
               entered <b>Pending PNS</b> to the first time it left PNS hands — reaching
               Proposal Submitted, or Pending Review - Head PNS. It counts only tickets
@@ -46,14 +55,16 @@ export default function Workload() {
               flatters it and never inflates it. Mean rather than median because MySQL
               has no median; <b>Worst</b> sits beside it because on these volumes one
               stalled ticket moves the average and then hides inside it.
+              </>)}
             </p>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-[13px]">
               <thead>
                 <tr className="bg-slate-50 text-left text-xs font-semibold text-slate-600">
-                  {["PNS member", "Pending PNS", "Open total", "Avg to clear", "Worst",
-                    "Finished", "Won / decided"].map((h) => (
+                  {["PNS member", "Pending PNS", "Open total",
+                    ...(d.full ? ["Avg to clear", "Worst", "Finished", "Won / decided"] : []),
+                  ].map((h) => (
                     <th key={h} className="whitespace-nowrap px-4 py-3">{h}</th>
                   ))}
                 </tr>
@@ -67,16 +78,20 @@ export default function Workload() {
                     </td>
                     <td className="px-4 py-3"><Bar n={p.pending_pns} cap={d.cap} /></td>
                     <td className="px-4 py-3 tabular-nums">{p.open_total}</td>
-                    <td className="px-4 py-3 tabular-nums">{days(p.avg_days_to_clear)}</td>
-                    <td className="px-4 py-3 tabular-nums text-slate-500">{days(p.worst_days_to_clear)}</td>
-                    <td className="px-4 py-3 tabular-nums text-slate-500">{p.finished}</td>
-                    <td className="px-4 py-3 tabular-nums text-slate-500">
-                      {p.won} / {p.decided}
-                    </td>
+                    {/* Absent from the payload entirely for a non-Head, not merely
+                        hidden here — the figures never leave the server. */}
+                    {d.full && (
+                      <>
+                        <td className="px-4 py-3 tabular-nums">{days(p.avg_days_to_clear)}</td>
+                        <td className="px-4 py-3 tabular-nums text-slate-500">{days(p.worst_days_to_clear)}</td>
+                        <td className="px-4 py-3 tabular-nums text-slate-500">{p.finished}</td>
+                        <td className="px-4 py-3 tabular-nums text-slate-500">{p.won} / {p.decided}</td>
+                      </>
+                    )}
                   </tr>
                 ))}
                 {!d.pns.length && (
-                  <tr><td colSpan={7} className="px-4 py-6 text-center text-slate-500">
+                  <tr><td colSpan={d.full ? 7 : 3} className="px-4 py-6 text-center text-slate-500">
                     No active PNS members registered.
                   </td></tr>
                 )}

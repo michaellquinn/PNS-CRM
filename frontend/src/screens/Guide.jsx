@@ -29,6 +29,18 @@ const TASKS = [
     note: "During the PNS pilot, PNS can attach prices on Sales-owed tickets too.",
   },
   {
+    q: "My ticket is stuck — what actually moves it?",
+    who: "Anyone",
+    go: "statusflow",
+    steps: [
+      "Two kinds of move, and telling them apart answers most of it. Most statuses are a CONSEQUENCE of doing something — attaching a price, the Head of PNS finalising, a signature, the Sales CRM sync — and the app works out where the ticket goes. That is why there is no dropdown for them: a person naming the next status is how an approval gets skipped.",
+      "A few moves ARE a choice, and those have buttons: picking a ticket up from Open, sending it back with a reason, marking it Lost or Cancel, escalating to PSP.",
+      "So if nothing is happening, the question is not “which status do I set?” but “what has not been done yet?”. Status flow lists, for every status, exactly what leads out of it, who does it and which button or screen it is.",
+      "The two that stop a ticket dead: no Sales CRM opportunity id (it parks in Pending CRM ID and cannot move at all), and potential revenue 0 (it cannot enter any working status, because revenue decides who prices it, which 5A ceiling applies and whether PNS reviews it).",
+      "Status flow is generated from the same table the server enforces, so if a move is not on that page the app refuses it — the page cannot be out of date with the rule.",
+    ],
+  },
+  {
     q: "I want to know why my ticket went to a review queue",
     who: "Anyone",
     go: "matrix",
@@ -122,6 +134,18 @@ const TASKS = [
       "My requests is the personal view: what you raised (Sales) or what you were assigned (PNS), with what you owe a move on first.",
       "Every queue also has an Assigned to me toggle and a PNS PIC dropdown, so you can narrow any list without leaving it.",
       "The Waiting on me tile on the dashboard counts your still-pending tickets.",
+    ],
+  },
+  {
+    q: "The intake is wrong or half-empty — can I fix it?",
+    who: "PNS, Commercial, Sales Planning or Admin",
+    go: null,
+    steps: [
+      "Yes, all of it. Open the ticket, Input tab, Edit input. Most tickets arrive from the Sales CRM sync carrying only what Sales CRM knows, which is never the whole solutioning picture, so correcting somebody else's intake is normal work rather than an exception.",
+      "Potential revenue and account type included. Those two used to be the Sales Head's alone because they re-route the ticket — but while PNS is the only team on the platform, leaving the fix with the one role that is not using the app meant you could see exactly what was wrong and not correct it. They go back to the Sales Head when Sales starts working its own queues.",
+      "Correcting either re-runs the routing rule on the corrected facts, and the ticket says so: 'now priced by PNS' appears in the history with your name and the before/after. The status is deliberately left where it is — a correction should not yank a ticket out of the queue it is sitting in.",
+      "A missing Sales CRM opportunity id is the same idea: it is a missing fact, not a decision, so anyone who can edit intake can supply it from the Pending CRM ID screen.",
+      "A go-live date is the one thing that is refused until the account identifiers are filled in — it is a commitment to Ops, and Ops cannot act on a date without the IDs to onboard against.",
     ],
   },
   {
