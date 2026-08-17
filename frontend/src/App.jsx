@@ -16,7 +16,7 @@ import Accounts from "./screens/Accounts";
 import Ignored from "./screens/Ignored";
 import Rdo from "./screens/Rdo";
 import Fields from "./screens/Fields";
-import { ReviewMeeting, WeeklyMeeting } from "./screens/Meetings";
+import { ReviewMeeting } from "./screens/Meetings";
 import StatusFlow from "./screens/StatusFlow";
 import DataChecks from "./screens/DataChecks";
 import {
@@ -44,8 +44,6 @@ const NAV = [
     { id: "new", label: "New request", icon: "＋", when: (m) => m.permissions.createTicket },
     { id: "open", label: "Open", icon: "○", count: "Open",
       keywords: "open ready unclaimed available not started" },
-    { id: "crmid", label: "Pending CRM ID", icon: "⚠", count: "Pending CRM ID",
-      keywords: "crm id missing blocked salesforce opportunity" },
     { id: "awaiting", label: "Awaiting price", icon: "◷", count: "awaiting", keywords: "pricing" },
     { id: "review", label: "Review - Head PNS", icon: "◎", count: "Pending Review - Head PNS",
       keywords: "pns view pns review" },
@@ -58,21 +56,27 @@ const NAV = [
       keywords: "executive exec sign-off alex dhinesh cso coo" },
     { id: "proposals", label: "Proposal submitted", icon: "◫", count: "Proposal Submitted" },
     { id: "ship", label: "Ready to ship", icon: "➔", count: "Proposal Accepted / Ready to Ship" },
+  ]],
+  // The team-level views: walking the agenda in a meeting, and reading who has capacity
+  // — both a step back from any single ticket, so they sit apart from Solutioning's
+  // queues rather than inside the fifteen-line list.
+  ["Planning", [
     { id: "meeting", label: "Review meeting", icon: "☷", when: works,
       keywords: "agenda sales region salesperson walk the list" },
-    // The PNS side of the same habit. Separate screen rather than a mode, because it
-    // answers a different question: the Review meeting is run by region for Sales,
-    // this one is run by watched group for PNS.
-    { id: "weekly", label: "Weekly meeting", icon: "☶", when: works,
-      keywords: "pns agenda pending group owner queue standup" },
+    { id: "workload", label: "Workload", icon: "◴", when: (m) => m.permissions.seeWorkload,
+      keywords: "pns capacity assignment load who is free" },
+  ]],
+  // Everything that traces back to a Sales CRM opportunity, together: what is blocked
+  // on a CRM id, the accounts those opportunities roll up to, and the sync itself.
+  ["Sales CRM", [
+    { id: "crmid", label: "Pending CRM ID", icon: "⚠", count: "Pending CRM ID",
+      keywords: "crm id missing blocked salesforce opportunity" },
     // A ticket is per opportunity; an account normally runs several at once. Without
     // this the flat queues make one shipper look like four, which is what "why are
     // there duplicates?" turned out to mean most of the time.
     { id: "accounts", label: "Accounts", icon: "🏢",
       keywords: "account group shipper parent grouped duplicates opportunities" },
-    { id: "workload", label: "Workload", icon: "◴", when: (m) => m.permissions.seeWorkload,
-      keywords: "pns capacity assignment load who is free" },
-    { id: "sync", label: "Sales CRM sync", icon: "⇄", when: (m) => m.permissions.syncSalesCrm },
+    { id: "sync", label: "Sync", icon: "⇄", when: (m) => m.permissions.syncSalesCrm },
   ]],
   // The three watched groups, as their own section rather than three more entries in a
   // fifteen-line Solutioning list. Every rule in the app keys off this distinction, and
@@ -410,7 +414,6 @@ export default function App() {
     proposals: <Proposals me={me} notify={notify} onOpen={open} />,
     ship: <ReadyToShip me={me} onOpen={open} />,
     meeting: <ReviewMeeting onOpen={open} />,
-    weekly: <WeeklyMeeting onOpen={open} />,
     rdo: <Rdo onOpen={open} />,
     fields: <Fields />,
     ignored: <Ignored notify={notify} />,

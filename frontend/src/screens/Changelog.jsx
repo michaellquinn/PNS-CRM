@@ -3,6 +3,20 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-08-14",
+    title: "Sidebar regrouped: Weekly meeting removed, Planning and Sales CRM sections added",
+    by: "Michael + Claude",
+    changes: [
+      "Weekly meeting is gone. It covered the same ground as Review meeting (everything pending, by who's carrying it) and the two were confusing people about which one to open.",
+      "New Planning section holds Review meeting and Workload — both a step back from any single ticket, walking the team's agenda or capacity rather than acting on one queue.",
+      "New Sales CRM section holds Pending CRM ID, Accounts and the sync screen (renamed from \"Sales CRM sync\" to just \"Sync\" now that it sits under a Sales CRM heading) — everything that traces back to a Sales CRM opportunity, together instead of scattered through Solutioning's queue list.",
+      "No backend or routing changes — every screen kept its id, so links and the global search still resolve the same places. This is a sidebar reorganization only.",
+    ],
+    overruled: [
+      "Review meeting, Workload, Pending CRM ID, Accounts and Sync were entries in the Solutioning list. They now live in their own sections.",
+    ],
+  },
+  {
+    date: "2026-08-14",
     title: "Edit input fixed; the rest of the backlog: ignore list, two meetings, RDO",
     by: "Baskoro + Claude",
     changes: [
