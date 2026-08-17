@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, SERVICES, STATUSES, isPnsWork, rp } from "../api";
-import { Chip, Head, Pill, Sla, Tile, usePnsTeam } from "../ui";
+import { Head, Pill, Sla, Tile, usePnsTeam } from "../ui";
 
 const EMPTY = { search: "", status: [], service: [], acct: [], owner: "", sales: "",
                 line: "", stage: "", group: "", from: "", to: "" };
@@ -67,6 +67,82 @@ const COL_HINTS = {
   "First synced": "The first time this app saw the deal. Written once and never revised — the gap from Submitted is how long PNS was unaware of a live opportunity.",
   "Sales CRM": "The stage in Sales CRM. Reference only — it is not this app's status.",
 };
+
+// Status, Service and Group were three rows of chips — twenty-five pills wrapping over
+// five lines and pushing the table below the fold before anyone had filtered anything.
+// They collapse into dropdowns here, and the multi-select is the whole point of keeping
+// them: a native <select multiple> is the control nobody can operate without being told
+// to hold ctrl, so the panel holds ordinary checkboxes and stays open while you tick
+// several. The button reads the one thing you want at a glance — what is picked.
+//
+// `sections` is [{ label, items: [{ key, label, on, toggle, n }] }]. Each item carries
+// its own toggle because Group mixes two different filters in one list: Hypercare and
+// Strategic are account tiers (f.acct), Must Win is a per-deal flag (f.group), and the
+// reader scanning for "how much attention does this need" should not have to care.
+function MultiSelect({ label, sections, picked, onClear }) {
+  const [open, setOpen] = useState(false);
+  const box = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const away = (e) => { if (box.current && !box.current.contains(e.target)) setOpen(false); };
+    const esc = (e) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", away);
+    document.addEventListener("keydown", esc);
+    return () => {
+      document.removeEventListener("mousedown", away);
+      document.removeEventListener("keydown", esc);
+    };
+  }, [open]);
+
+  return (
+    <div ref={box} className="relative">
+      <button type="button" onClick={() => setOpen(!open)}
+        className={`flex min-w-[178px] items-center gap-2 rounded-lg border px-3 py-2 text-left text-[13.5px] ${
+          picked.length
+            ? "border-[#EE1B2C] bg-rose-50 font-semibold text-[#EE1B2C]"
+            : "border-slate-300 bg-white"}`}>
+        <span className="truncate">
+          {picked.length === 0 ? `Any ${label.toLowerCase()}`
+            : picked.length === 1 ? picked[0]
+            : `${label} · ${picked.length}`}
+        </span>
+        <span className="ml-auto shrink-0 opacity-40">▾</span>
+      </button>
+      {open && (
+        <div className="absolute left-0 top-full z-30 mt-1.5 max-h-[58vh] w-[272px] overflow-auto rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg">
+          {sections.map((sec, i) => (
+            <div key={sec.label || i}>
+              {sec.label && (
+                <div className="px-2 pb-1 pt-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  {sec.label}
+                </div>
+              )}
+              {sec.items.map((it) => (
+                <label key={it.key}
+                  className="flex cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 text-[13px] hover:bg-slate-50">
+                  <input type="checkbox" checked={it.on} onChange={it.toggle} />
+                  <span className="truncate">{it.label}</span>
+                  {it.n > 0 && (
+                    <span className="ml-auto shrink-0 font-mono text-[11px] tabular-nums text-slate-400">
+                      {it.n}
+                    </span>
+                  )}
+                </label>
+              ))}
+            </div>
+          ))}
+          {picked.length > 0 && (
+            <button onClick={onClear}
+              className="mt-1 w-full border-t border-slate-100 px-2 pt-2 text-left text-[12.5px] text-slate-500 hover:text-[#EE1B2C]">
+              Clear {label.toLowerCase()}
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 // One component, two boards. `view="pns"` narrows the whole screen — table, tiles,
 // dropdowns and every count — to the tickets PNS has a stake in. A separate component
@@ -232,6 +308,50 @@ export default function Dashboard({ me, onOpen, view = "all" }) {
 
   const sel = "rounded-lg border border-slate-300 px-3 py-2 text-[13.5px]";
 
+  // The statuses keep the grouping that made them readable — "show me what is stuck at
+  // approval" is the question people bring to this filter, and a flat list of eleven
+  // half-identical "Pending …" strings does not answer it. Any status missing from
+  // STATUS_GROUPS falls into a trailing Other, so a future one cannot silently vanish.
+  const statusSections = [...STATUS_GROUPS,
+    ["Other", STATUSES.filter((s) => !STATUS_GROUPS.some(([, g]) => g.includes(s)))]]
+    .filter(([, g]) => g.length)
+    .map(([label, group]) => ({
+      label,
+      items: group.map((s) => ({
+        key: s, label: s, on: f.status.includes(s),
+        toggle: () => toggle("status", s), n: counts[s],
+      })),
+    }));
+
+  const serviceSections = [{
+    label: null,
+    items: SERVICES.map((s) => ({
+      key: s, label: s, on: f.service.includes(s), toggle: () => toggle("service", s),
+    })),
+  }];
+
+  // Hypercare, Strategic, Must Win, then Standard — the three watched groups first, in
+  // the order every rule names them, and the unwatched one last. Must Win sits between
+  // them despite being a different KIND of filter (a property of the deal, not the
+  // account) because the reader is scanning by how much attention a deal needs.
+  const groupSections = [{
+    label: null,
+    items: [
+      ...WATCHED_TIERS.map((s) => ({
+        key: s, label: s, on: f.acct.includes(s),
+        toggle: () => toggle("acct", s), n: counts.__acct?.[s],
+      })),
+      { key: "Must Win", label: "Must Win", on: f.group === "Must Win",
+        toggle: () => setF((p) => ({ ...p, group: p.group === "Must Win" ? "" : "Must Win" })),
+        n: counts.__mustwin },
+      { key: "Standard", label: "Standard", on: f.acct.includes("Standard"),
+        toggle: () => toggle("acct", "Standard"), n: counts.__acct?.Standard },
+    ],
+  }];
+
+  // Two state fields behind one control, so the button's label has to read from both.
+  const pickedGroups = [...f.acct, ...(f.group === "Must Win" ? ["Must Win"] : [])];
+
   // Export exactly what is on screen, and only the columns this role may see — margin
   // stays out of the file for anyone without seeMargin, same rule as the table.
   const exportCsv = () => {
@@ -383,55 +503,18 @@ export default function Dashboard({ me, onOpen, view = "all" }) {
               {stageNames.map((n) => <option key={n}>{n}</option>)}
             </select>
           )}
+          {/* The three multi-selects sit in the same row as the rest, so the whole bar is
+              one line of controls rather than a bar plus three rows of pills. */}
+          <MultiSelect label="Status" sections={statusSections} picked={f.status}
+            onClear={() => setF({ ...f, status: [] })} />
+          <MultiSelect label="Service" sections={serviceSections} picked={f.service}
+            onClear={() => setF({ ...f, service: [] })} />
+          <MultiSelect label="Group" sections={groupSections} picked={pickedGroups}
+            onClear={() => setF({ ...f, acct: [], group: "" })} />
           <button onClick={() => setF(EMPTY)}
             className="ml-auto rounded-lg bg-rose-50 px-4 py-2 text-[13.5px] font-semibold text-[#EE1B2C] hover:bg-[#EE1B2C] hover:text-white">
             Clear all
           </button>
-        </div>
-
-        <div className="mt-3.5 flex flex-wrap items-center gap-x-4 gap-y-2.5">
-          <span className="w-14 shrink-0 text-[10.5px] font-bold uppercase tracking-wider text-slate-400">Status</span>
-          {[...STATUS_GROUPS,
-            ["Other", STATUSES.filter((s) => !STATUS_GROUPS.some(([, g]) => g.includes(s)))]]
-            .filter(([, g]) => g.length)
-            .map(([label, group]) => (
-            <span key={label} className="flex flex-wrap items-center gap-2">
-              <span className="text-[10.5px] font-semibold uppercase tracking-wide text-slate-300">{label}</span>
-              {group.map((s) => (
-                <Chip key={s} on={f.status.includes(s)} onClick={() => toggle("status", s)}>
-                  {s}{counts[s] ? ` · ${counts[s]}` : ""}
-                </Chip>
-              ))}
-            </span>
-          ))}
-        </div>
-        <div className="mt-3.5 flex flex-wrap items-center gap-2.5">
-          <span className="w-14 shrink-0 text-[10.5px] font-bold uppercase tracking-wider text-slate-400">Service</span>
-          {SERVICES.map((s) => (
-            <Chip key={s} on={f.service.includes(s)} onClick={() => toggle("service", s)}>{s}</Chip>
-          ))}
-        </div>
-        {/* Tier decides routing, ceilings, PSP entry and exec sign-off, so it filters
-            alongside status rather than hiding in a dropdown. */}
-        <div className="mt-3.5 flex flex-wrap items-center gap-2.5">
-          <span className="w-14 shrink-0 text-[10.5px] font-bold uppercase tracking-wider text-slate-400">Group</span>
-          {/* Hypercare, Strategic, Must Win, then Standard — the three watched groups
-              first, in the order every rule names them, and the unwatched one last.
-              Must Win sits between them despite being a different KIND of filter (it is
-              a property of the deal, not the account) because the reader is scanning by
-              how much attention a deal needs, not by which table the flag lives in. */}
-          {WATCHED_TIERS.map((s) => (
-            <Chip key={s} on={f.acct.includes(s)} onClick={() => toggle("acct", s)}>
-              {s}{counts.__acct?.[s] ? ` · ${counts.__acct[s]}` : ""}
-            </Chip>
-          ))}
-          <Chip on={f.group === "Must Win"}
-            onClick={() => setF({ ...f, group: f.group === "Must Win" ? "" : "Must Win" })}>
-            Must Win{counts.__mustwin ? ` · ${counts.__mustwin}` : ""}
-          </Chip>
-          <Chip on={f.acct.includes("Standard")} onClick={() => toggle("acct", "Standard")}>
-            Standard{counts.__acct?.Standard ? ` · ${counts.__acct.Standard}` : ""}
-          </Chip>
         </div>
       </div>
 

@@ -11,9 +11,11 @@ const ENTRIES = [
       "Why it exists: the Sales CRM sync imports every opportunity it can map, and most of them are Sales working alone. On the full board that is the majority of the rows, and finding PNS's own work meant filtering by hand every time.",
       "The board says what it is holding back — how many of the book's tickets qualify, how many sit on the Sales side — and points at Dashboard all for the rest. Win rate and Total are recomputed from the PNS rows rather than read from the whole-book stats endpoint, so the headline numbers and the tiles under them count the same tickets.",
       "Review meeting now filters by PNS PIC as well as by salesperson, including an Unassigned option, since the answer to 'where is this one' in a review is usually a PNS name. Both are dropdowns now rather than a wrapping row of name pills; region stays as toggles, there being four of them.",
+      "Status, Service and Group are dropdowns on both boards instead of three rows of chips. They were twenty-five pills wrapping over five lines and pushing the table below the fold before anyone had filtered anything. Still multi-select — the panel holds ordinary checkboxes and stays open while you tick several, and the button says how many are picked. The status grouping (Not started, Being worked, In approval, With shipper, Decided) survives inside the panel, because 'show me what is stuck at approval' is the question people bring to that filter.",
     ],
     overruled: [
       "The salesperson filter on Review meeting was multi-select. It is one at a time now — the row of pills was what made the bar unreadable once Commercial grew past a handful of names.",
+      "Status, Service and Group filtered as chip rows. Same filters and same multi-select, in dropdowns. Applied to Dashboard all as well as Dashboard PNS: they are one component, and two sibling boards with different filter controls would be worse than either choice made consistently.",
     ],
   },
   {
