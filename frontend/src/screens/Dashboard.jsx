@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { api, SERVICES, STATUSES, rp } from "../api";
+import { api, SERVICES, STATUSES, isPnsWork, rp } from "../api";
 import { Chip, Head, Pill, Sla, Tile, usePnsTeam } from "../ui";
 
 const EMPTY = { search: "", status: [], service: [], acct: [], owner: "", sales: "",
@@ -68,11 +68,19 @@ const COL_HINTS = {
   "Sales CRM": "The stage in Sales CRM. Reference only — it is not this app's status.",
 };
 
-export default function Dashboard({ me, onOpen }) {
+// One component, two boards. `view="pns"` narrows the whole screen — table, tiles,
+// dropdowns and every count — to the tickets PNS has a stake in. A separate component
+// would have been four hundred duplicated lines drifting apart on the next change; the
+// two boards differ only in which tickets they are allowed to hold.
+export default function Dashboard({ me, onOpen, view = "all" }) {
+  const pnsOnly = view === "pns";
   const [stats, setStats] = useState(null);
   const [rows, setRows] = useState([]);
   const [f, setF] = useState(EMPTY);
   const [salesNames, setSalesNames] = useState([]);
+  // The whole book's size before the PNS filter, so the board can say what it is holding
+  // back rather than just quietly showing a smaller number than the other screen.
+  const [bookTotal, setBookTotal] = useState(0);
   const team = usePnsTeam();
 
   // Who the tile numbers describe. Separate from the table filters on purpose: you want
@@ -104,10 +112,13 @@ export default function Dashboard({ me, onOpen }) {
         ? (leaderLevel[f.line] === "head" ? { sales_head: f.line } : { sales_manager: f.line })
         : {}),
       submitted_from: f.from, submitted_to: f.to,
-    }).then((d) => setRows(d.tickets)).catch(() => setRows([]));
+      // The PNS cut is applied here rather than as a server filter: /api/tickets has no
+      // parameter for it, and the board already holds the whole book for its tiles.
+    }).then((d) => setRows(pnsOnly ? d.tickets.filter(isPnsWork) : d.tickets))
+      .catch(() => setRows([]));
     // leaderLevel is a dependency: it decides whether f.line means head or manager, and
     // it arrives after the first render.
-  }, [f, leaderLevel]);
+  }, [f, leaderLevel, pnsOnly]);
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
@@ -116,15 +127,22 @@ export default function Dashboard({ me, onOpen }) {
     // here is what lets the tiles re-count instantly as the scope changes, with no
     // round trip per selection.
     api.tickets({}).then((d) => {
-      setAll(d.tickets);
-      setSalesNames([...new Set(d.tickets.map((t) => t.sales).filter(Boolean))].sort());
-      setStageNames([...new Set(d.tickets.map((t) => t.stage).filter(Boolean))].sort());
+      setBookTotal(d.tickets.length);
+      // The dropdowns are built from the SAME cut as the table, so the PNS board never
+      // offers a salesperson whose deals it would then refuse to show.
+      const book = pnsOnly ? d.tickets.filter(isPnsWork) : d.tickets;
+      setAll(book);
+      setSalesNames([...new Set(book.map((t) => t.sales).filter(Boolean))].sort());
+      setStageNames([...new Set(book.map((t) => t.stage).filter(Boolean))].sort());
     }).catch(() => {});
     api.users()
       .then((d) => setLeaders(d.users.filter(
         (r) => r.active && r.group === "Commercial" && r.level !== "staff")))
       .catch(() => setLeaders([]));
-  }, []);
+    // pnsOnly belongs here: the two boards are the same component at the same place in
+    // the tree, so switching between them updates a prop rather than mounting anew. With
+    // an empty array this fetch would keep whichever cut was loaded first.
+  }, [pnsOnly]);
 
   // Tile counts, scoped by the PIC selectors above them.
   const scoped = useMemo(() => all.filter((t) =>
@@ -144,6 +162,19 @@ export default function Dashboard({ me, onOpen }) {
   const minePending = useMemo(() => all.filter((t) =>
     (me.group === "PNS" ? t.owner === me.name : t.sales === me.name)
     && t.status.startsWith("Pending")).length, [all, me]);
+
+  // /api/stats counts the whole book, which is the right answer on Dashboard all and the
+  // wrong one here — a win rate that includes deals this board refuses to list would have
+  // people reconciling two numbers that were never counting the same thing. On the PNS
+  // board these are recomputed from the same rows the tiles above them count.
+  const headline = useMemo(() => {
+    if (!pnsOnly) return stats;
+    const won = all.filter((t) => t.status === "Proposal Accepted / Ready to Ship").length;
+    const lost = all.filter((t) => t.status === "Lost").length;
+    const decided = won + lost;
+    return { win_rate: decided ? Math.round((won / decided) * 100) : null,
+             won, lost, total_year: all.length };
+  }, [pnsOnly, stats, all]);
 
   // Clicking a tile filters the table to that status and pushes the tile scope down
   // with it, so the table shows exactly the tickets the number counted.
@@ -222,7 +253,8 @@ export default function Dashboard({ me, onOpen }) {
       new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv;charset=utf-8;" }));
     const a = document.createElement("a");
     a.href = url;
-    a.download = `ninja-pns-tickets-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.download = `ninja-pns-${pnsOnly ? "pns-work" : "tickets"}-${
+      new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -234,14 +266,29 @@ export default function Dashboard({ me, onOpen }) {
 
   return (
     <>
-      <Head title="Dashboard"
-        sub="Every ticket you're allowed to see. Filters stack, so combine as many as you need."
+      <Head title={pnsOnly ? "Dashboard PNS" : "Dashboard all"}
+        sub={pnsOnly
+          ? "Only the tickets PNS has a stake in. Filters stack, so combine as many as you need."
+          : "Every ticket you're allowed to see. Filters stack, so combine as many as you need."}
         right={
           <button onClick={exportCsv} disabled={!rows.length}
             className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-[13px] font-medium disabled:opacity-40">
             Export CSV ({rows.length})
           </button>
         } />
+
+      {/* What this board leaves out, said plainly and with the number. A screen that
+          silently holds back rows is one people stop trusting the moment they compare it
+          against the full board and find a ticket missing. */}
+      {pnsOnly && (
+        <div className="mb-3 rounded-xl border border-violet-200 bg-violet-50/50 px-4 py-3 text-[12.5px] text-violet-900">
+          <b>PNS work only.</b> A ticket is here because PNS owes the price, or because
+          PNS reviews the price Sales built. Deals Sales handles alone are left out —{" "}
+          <b>{all.length}</b> of the book&rsquo;s <b>{bookTotal}</b> tickets qualify
+          {bookTotal > all.length && <>, {bookTotal - all.length} sit on the Sales side</>}.
+          Nothing is hidden permanently: <b>Dashboard all</b> still shows everything.
+        </div>
+      )}
 
       {/* -------------------------------------------------- tiles and their scope */}
       <div className="mb-3 flex flex-wrap items-center gap-2.5 rounded-xl border border-slate-200 bg-white px-4 py-3">
@@ -279,17 +326,18 @@ export default function Dashboard({ me, onOpen }) {
         ))}
       </div>
 
-      {stats && (
+      {headline && (
         <div className="mb-5 grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(148px,1fr))]">
           <Tile label="Waiting on me" value={minePending}
                 sub={me.group === "PNS" ? "my assigned, still pending" : "my tickets, still pending"}
                 tone={minePending > 0 ? "text-[#EE1B2C]" : "text-emerald-600"} />
-          <Tile label="Win rate" value={stats.win_rate === null ? "—" : `${stats.win_rate}%`}
-                sub={`${stats.won} won of ${stats.won + stats.lost} decided`}
+          <Tile label="Win rate" value={headline.win_rate === null ? "—" : `${headline.win_rate}%`}
+                sub={`${headline.won} won of ${headline.won + headline.lost} decided`}
                 tone="text-emerald-600" />
           {/* total_year is a historical field name: the query has no date filter, so
               this is every ticket ever raised. Label it for what it counts. */}
-          <Tile label="Total" value={stats.total_year} sub="all time" />
+          <Tile label="Total" value={headline.total_year}
+                sub={pnsOnly ? "PNS work, all time" : "all time"} />
           <Tile label="Showing" value={rows.length} sub={active ? "after filters" : "no filters"} />
         </div>
       )}

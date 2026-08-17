@@ -2,12 +2,14 @@ import { useEffect, useMemo, useState } from "react";
 import { api, PENDING, groupTone, rp } from "../api";
 import { Btn, Card, Head, Pill } from "../ui";
 
-// Review meeting, run by region. Pick the regions in the room, and the salesperson
-// list narrows to the people who actually have deals there — picking from all of
-// Commercial when three of them cover your region is how an agenda ends up with
-// somebody else's deals in it.
+// Review meeting, run by region. Pick the regions in the room, and both people lists —
+// the salesperson who sold it and the PNS PIC holding it — narrow to whoever actually
+// has deals there. Picking from all of Commercial when three of them cover your region
+// is how an agenda ends up with somebody else's deals in it.
 
 const REGIONS = ["GJ", "WJ", "CJ", "EJ"];
+
+const sel = "rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-[12.5px]";
 
 /* A multi-select that reads as a row of toggles rather than a <select multiple>, which
    nobody can operate without being told to hold ctrl. */
@@ -58,7 +60,11 @@ export function ReviewMeeting({ onOpen }) {
   const [props_, setProps] = useState(null);
   const [pend, setPend] = useState(null);
   const [regions, setRegions] = useState([]);
-  const [people, setPeople] = useState([]);
+  // Salesperson and PNS PIC are dropdowns rather than the toggle row the regions use:
+  // there are four regions and there are as many names as the company has people, and a
+  // wrapping row of thirty pills is the thing that made this bar hard to read.
+  const [person, setPerson] = useState("");
+  const [owner, setOwner] = useState("");
   const [err, setErr] = useState(null);
 
   useEffect(() => {
@@ -81,14 +87,26 @@ export function ReviewMeeting({ onOpen }) {
     () => [...new Set(all.map((t) => t.sales).filter(Boolean))].sort(),
     [all.length, regions.join(",")]);
 
-  // A salesperson picked for one region and then deselected with the region should not
-  // keep filtering invisibly.
+  // The PNS side of the same question. A review meeting walks Sales' deals, but the
+  // answer to "where is this one" is usually a PNS name, so the agenda has to be
+  // narrowable by who is holding it as well as by who sold it.
+  const owners = useMemo(
+    () => [...new Set(all.map((t) => t.owner).filter(Boolean))].sort(),
+    [all.length, regions.join(",")]);
+
+  // Somebody picked for one region and then deselected with the region should not keep
+  // filtering invisibly.
   useEffect(() => {
-    setPeople((p) => p.filter((n) => sales.includes(n)));
+    if (person && !sales.includes(person)) setPerson("");
   }, [sales.join(",")]);
+  useEffect(() => {
+    if (owner && owner !== "__unassigned__" && !owners.includes(owner)) setOwner("");
+  }, [owners.join(",")]);
 
   const keep = (list) =>
-    (list || []).filter((t) => !people.length || people.includes(t.sales));
+    (list || []).filter((t) =>
+      (!person || t.sales === person)
+      && (!owner || (owner === "__unassigned__" ? !t.owner : t.owner === owner)));
 
   let n = 0;
   const Block = ({ label, sub, list, tone }) => {
@@ -142,22 +160,43 @@ export function ReviewMeeting({ onOpen }) {
           </span>
           <Toggles options={REGIONS} value={regions} onChange={setRegions} empty="All regions" />
         </div>
-        <div className="flex flex-wrap items-center gap-2.5 border-t border-slate-100 pt-3">
-          <span className="w-[92px] shrink-0 text-[10.5px] font-bold uppercase tracking-wider text-slate-400">
-            Salesperson
-          </span>
-          {sales.length === 0 ? (
-            <span className="text-[12.5px] text-slate-400">
-              {props_ === null ? "Loading…" : "Nobody has a live deal in those regions."}
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-2.5 border-t border-slate-100 pt-3">
+          <div className="flex items-center gap-2.5">
+            <span className="w-[92px] shrink-0 text-[10.5px] font-bold uppercase tracking-wider text-slate-400">
+              Salesperson
             </span>
-          ) : (
-            <Toggles options={sales} value={people} onChange={setPeople} empty="Everyone" />
+            <select className={sel} value={person} onChange={(e) => setPerson(e.target.value)}
+              disabled={sales.length === 0}>
+              <option value="">
+                {sales.length === 0
+                  ? (props_ === null ? "Loading…" : "Nobody in those regions")
+                  : "Everyone"}
+              </option>
+              {sales.map((s) => <option key={s}>{s}</option>)}
+            </select>
+          </div>
+          <div className="flex items-center gap-2.5">
+            <span className="shrink-0 text-[10.5px] font-bold uppercase tracking-wider text-slate-400">
+              PNS PIC
+            </span>
+            <select className={sel} value={owner} onChange={(e) => setOwner(e.target.value)}>
+              <option value="">Anyone</option>
+              {/* Unassigned is a real answer here, and the one worth raising in the room. */}
+              <option value="__unassigned__">Unassigned</option>
+              {owners.map((o) => <option key={o}>{o}</option>)}
+            </select>
+          </div>
+          {(person || owner) && (
+            <button onClick={() => { setPerson(""); setOwner(""); }}
+              className="ml-auto rounded-lg border border-slate-300 px-3 py-1.5 text-[12.5px]">
+              Clear
+            </button>
           )}
         </div>
         {regions.length > 0 && (
           <p className="text-[11.5px] text-slate-400">
-            The salesperson list is narrowed to whoever has a live deal in{" "}
-            {regions.join(", ")} — not the whole of Commercial.
+            Both lists are narrowed to whoever has a live deal in {regions.join(", ")} —
+            not the whole of Commercial or PNS.
           </p>
         )}
       </Card>

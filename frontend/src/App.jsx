@@ -39,7 +39,14 @@ const works = (m) => !READ_ONLY.includes(m.group);
 // a separate pipeline — but keep their tag so it is obvious which entries are PSP's.
 const NAV = [
   ["Solutioning", [
-    { id: "dashboard", label: "Dashboard", icon: "▤", keywords: "overview home stats" },
+    { id: "dashboard", label: "Dashboard all", icon: "▤",
+      keywords: "overview home stats everything whole book" },
+    // The same board, cut to the tickets PNS owes a price on or reviews. The full board
+    // carries every opportunity the Sales CRM sync could map, which is the right default
+    // for Sales and unreadable for a PNS reader looking for their own work.
+    { id: "dashboard-pns", label: "Dashboard PNS", icon: "▨",
+      when: (m) => ["PNS", "Commercial", "Admin"].includes(m.group),
+      keywords: "pns overview clean filtered my team work review" },
     { id: "mine", label: "My requests", icon: "◐", when: works, keywords: "my tickets assignment" },
     { id: "new", label: "New request", icon: "＋", when: (m) => m.permissions.createTicket },
     { id: "open", label: "Open", icon: "○", count: "Open",
@@ -399,7 +406,8 @@ export default function App() {
     return <main className="grid min-h-screen place-items-center bg-slate-50 text-slate-500">Loading…</main>;
 
   const screens = {
-    dashboard: <Dashboard me={me} onOpen={open} />,
+    dashboard: <Dashboard me={me} onOpen={open} view="all" />,
+    "dashboard-pns": <Dashboard me={me} onOpen={open} view="pns" />,
     mine: <Mine me={me} onOpen={open} />,
     workload: <Workload />,
     sync: <Sync notify={notify} />,

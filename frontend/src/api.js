@@ -216,6 +216,16 @@ export const BOTTOM_MARGIN = { LTL: 5, B2BR: 10 };
 export const mayGoToPsp = (t) =>
   t.acct_type === "Strategic" || t.acct_type === "Hypercare" || !!t.psp_allowed;
 
+// What Dashboard PNS keeps and the all-tickets board does not filter on. A ticket is
+// PNS's business when PNS owes the price (resp on the backend, priced_by here), or when
+// PNS reviews a price Sales built (needs_review, which is review_level() server-side).
+// Everything else in the book is Sales working alone, and since the Sales CRM sync
+// imports every opportunity it can map, that is most of what makes the full board hard
+// to read for a PNS reader. Deliberately NOT a status list: status changes through the
+// life of a ticket and this does not, so a PNS ticket stays on the PNS board from intake
+// to won or lost, rather than appearing and vanishing as it moves between gates.
+export const isPnsWork = (t) => t.priced_by === "PNS" || !!t.needs_review;
+
 // The three watched groups, in the order the rules treat them. Mirrors big_group() in
 // the backend: Hypercare and Strategic sit on the ACCOUNT and are inherited from the
 // Sales CRM account group; Must Win sits on ONE OPPORTUNITY, so the same account can

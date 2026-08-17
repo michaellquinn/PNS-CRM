@@ -3,6 +3,21 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-08-14",
+    title: "Dashboard PNS: the same board, cut to the work PNS actually owns",
+    by: "Michael + Claude",
+    changes: [
+      "The dashboard is renamed Dashboard all, and a second board sits beside it: Dashboard PNS, open to PNS, Commercial and Admin. Same filters, same tiles, same export — it just refuses to hold tickets PNS has no part in.",
+      "A ticket is on the PNS board when PNS owes the price, or when PNS reviews the price Sales built. That is the backend's own resp and review_level, not a status list, so a ticket stays on the board from intake through to won or lost instead of appearing and vanishing as it moves between gates.",
+      "Why it exists: the Sales CRM sync imports every opportunity it can map, and most of them are Sales working alone. On the full board that is the majority of the rows, and finding PNS's own work meant filtering by hand every time.",
+      "The board says what it is holding back — how many of the book's tickets qualify, how many sit on the Sales side — and points at Dashboard all for the rest. Win rate and Total are recomputed from the PNS rows rather than read from the whole-book stats endpoint, so the headline numbers and the tiles under them count the same tickets.",
+      "Review meeting now filters by PNS PIC as well as by salesperson, including an Unassigned option, since the answer to 'where is this one' in a review is usually a PNS name. Both are dropdowns now rather than a wrapping row of name pills; region stays as toggles, there being four of them.",
+    ],
+    overruled: [
+      "The salesperson filter on Review meeting was multi-select. It is one at a time now — the row of pills was what made the bar unreadable once Commercial grew past a handful of names.",
+    ],
+  },
+  {
+    date: "2026-08-14",
     title: "Sidebar regrouped: Weekly meeting removed, Planning and Sales CRM sections added",
     by: "Michael + Claude",
     changes: [
