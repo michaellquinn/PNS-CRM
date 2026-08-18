@@ -277,6 +277,12 @@ export function TicketCard({ t, badges = [], children, onOpen }) {
             {/* One of the three watched groups. Must Win is per-deal, so it can appear
                 on an otherwise Standard account and must be visible at a glance. */}
             {t.must_win && <Pill tone="bg-orange-100 text-orange-800">Must Win</Pill>}
+            {/* On a synced loss our own reason is the generic "Closed in Sales CRM",
+                which explains nothing. Sales CRM's own reason is shown instead wherever
+                the ticket appears (Baskoro, 2026-08-18). */}
+            {t.crm_loss_reason && (
+              <Pill tone="bg-rose-50 text-rose-700">Lost: {t.crm_loss_reason}</Pill>
+            )}
             {t.open_questions > 0 && (
               <Pill tone="bg-amber-50 text-amber-700">
                 {t.open_questions} unanswered

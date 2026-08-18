@@ -1074,6 +1074,10 @@ class Ticket(BaseModel):
     # Win) comes from the opportunity — seeing only one of the two makes the tier look
     # arbitrary.
     must_win: bool = False
+    # Why Sales CRM says the deal was lost, in its own words. Our own loss_reason stays
+    # the seven-value enum; this is what the dashboard shows for a synced loss, because
+    # "Closed in Sales CRM" is not a reason anybody can act on.
+    crm_loss_reason: str | None = None
     group: str | None = None          # Hypercare | Strategic | Must Win | None
     account_id: str | None = None
     account_name: str | None = None
@@ -1225,6 +1229,10 @@ def shape(t: dict, u: User) -> Ticket:
         opportunity_name=t.get("opportunity_name"),
         first_synced_on=(str(t["first_synced_at"])[:10] if t.get("first_synced_at") else None),
         must_win=bool(t.get("must_win")),
+        crm_loss_reason=((f"{t['ob_loss']} — {t['ob_loss_detail']}"
+                          if t.get("ob_loss_detail") and t.get("ob_loss_detail") != "null"
+                          else t["ob_loss"])
+                         if t.get("ob_loss") and t.get("ob_loss") != "null" else None),
         group=big_group(t),
         account_id=(str(t["account_id"]) if t.get("account_id") else None),
         account_name=t.get("account_name"),
@@ -1292,6 +1300,8 @@ async def list_tickets(
            # and fetching each ticket individually to read one intake field would be a
            # request per row.
            "JSON_UNQUOTE(JSON_EXTRACT(i.payload,'$.rdo')) AS ob_rdo, "
+           "JSON_UNQUOTE(JSON_EXTRACT(i.payload,'$.crmLossReason')) AS ob_loss, "
+           "JSON_UNQUOTE(JSON_EXTRACT(i.payload,'$.crmLossDetail')) AS ob_loss_detail, "
            "JSON_UNQUOTE(JSON_EXTRACT(i.payload,'$.rdoNotes')) AS ob_rdo_notes, "
            "(SELECT COUNT(*) FROM ticket_files tf WHERE tf.ticket_id=t.id "
            " AND tf.kind='rdo_evidence') AS ob_rdo_files "
@@ -2601,14 +2611,31 @@ async def _refresh_from_salescrm(o: dict, account: dict | None = None,
     if crm_service and crm_service != t["service_type"]:
         changed.append(f"service {t['service_type']} to {crm_service}")
 
-    new_tier = tier or t.get("acct_type") or "Standard"
-    if tier and tier != t.get("acct_type"):
-        changed.append(f"account tier {t.get('acct_type')} to {tier}")
+    # Sales CRM can PROMOTE an account but not silently demote it.
+    #
+    # tier_for() returns "Standard" both when Sales CRM says an account is ordinary and
+    # when it says nothing at all — the source is Account.customer_success_manager, a
+    # free-text field that also holds legacy Salesforce ids and junk like "-", and which
+    # has no way to express "Standard" affirmatively. So a blank field and a real
+    # demotion are indistinguishable.
+    #
+    # Treating that as a demotion would reset a Hypercare account to Standard on every
+    # run, five minutes apart, silently — and the tier decides who prices the deal, PSP
+    # entry, the watched groups and C-level sign-off, so it is the most expensive field
+    # in the app to get wrong. Same principle already applied to revenue (only when > 0)
+    # and the service line (only when the product maps): absence is not an answer.
+    #
+    # A genuine demotion is done by hand here. Baskoro, ask if you want this reversed.
+    stated_tier = tier if tier in MANAGED_ACCTS else None
+    new_tier = stated_tier or t.get("acct_type") or "Standard"
+    if stated_tier and stated_tier != t.get("acct_type"):
+        tier = stated_tier
+        changed.append(f"account tier {t.get('acct_type')} to {stated_tier}")
         # The tier lives on the shipper, not the ticket — it is an account fact and
         # applies to every deal that account brings.
         await execute("UPDATE shippers SET acct_type=%s, status_changed_by=%s, "
                       "status_changed_at=NOW() WHERE id=(SELECT shipper_id FROM tickets "
-                      "WHERE id=%s)", (tier, "Sales CRM sync", t["id"]))
+                      "WHERE id=%s)", (stated_tier, "Sales CRM sync", t["id"]))
 
     if changed:
         # Routing is re-derived on the corrected facts, because who prices the deal,
@@ -2645,9 +2672,27 @@ async def _refresh_from_salescrm(o: dict, account: dict | None = None,
             "Lost", "Cancel", "Proposal Accepted / Ready to Ship"):
         ref = t["ticket_ref"]
         if wants == "Lost":
+            # Sales CRM's own reason, not the generic "Closed in Sales CRM" bucket
+            # (Baskoro, 2026-08-18). Every synced loss used to land in one bucket that
+            # explained nothing, which made the loss breakdown useless for exactly the
+            # deals there are most of.
+            #
+            # Kept OUT of our seven-value loss_reason column: that enum is validated on
+            # manual entry and rendered from a fixed label list, so writing Sales CRM's
+            # picklist values into it would break both. It rides in the intake payload
+            # instead, as crmLossReason / crmLossDetail, which merge_crm_payload already
+            # writes on every run — so this needs NO MIGRATION. That matters: two people
+            # deploy into one shared database from separate clones and migrations have
+            # collided three times. A column is not worth a fourth.
+            crm_reason = _crm_pick(o, ["loss_reason"])
+            crm_detail = _crm_pick(o, ["detailed_lost_reason"])
             await execute("UPDATE tickets SET outcome='lost', loss_reason='salescrm' "
                           "WHERE id=%s", (t["id"],))
             note = f"Sales CRM closed this opportunity ({o.get('stage')})"
+            if crm_reason:
+                note += f", reason: {crm_reason}"
+                if crm_detail:
+                    note += f" ({crm_detail})"
         else:
             await execute("UPDATE tickets SET outcome='accepted' WHERE id=%s", (t["id"],))
             missing = [label for key, label in ONBOARDING_IDS.items()
