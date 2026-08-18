@@ -29,7 +29,6 @@ const OWED = [
   ["Pending Sales", "The sales PIC", "Commercial Head"],
   ["Pending Vendor", "The assigned PNS owner", "PNS Head"],
   ["Pending Review - PSP", "Everyone in PSP", "—"],
-  ["Pending Review - Head Sales", "Head of the team that priced it", "Admin"],
 ];
 
 // Some routes are PSP's by rule. The rest are discretionary, and there PSP only takes
@@ -40,8 +39,13 @@ const APPROVAL = [
   ["Either FTL line at or above Rp 30 Mio", "PSP, by rule.", "Pending Review - PSP"],
   ["Hypercare or Strategic account", "PSP, by rule. Manual review at every band.",
    "Pending Review - PSP"],
-  ["Margin below the tier floor", "Sales Head. Sales owns the concession.",
-   "Pending Review - Head Sales"],
+  // The Head of Sales accepts the concession in Sales CRM now (Baskoro, 2026-08-14),
+  // so a below-floor price has no gate of its own here -- it is refused outright on a
+  // Standard deal, and on a watched one it rides the normal chain.
+  ["Margin below the tier floor, Standard deal",
+   "Refused. Reprice, or tag the deal Must Win.", "—"],
+  ["Margin below the tier floor, watched group",
+   "PSP on the margin, then the Head of PNS finalises.", "Pending Review - PSP"],
   ["Sales Head acknowledges a below-bottom price",
    "Ends there, unless the ticket carries a PSP exception, in which case PSP signs off.",
    "Proposal, or Pending Review - PSP"],

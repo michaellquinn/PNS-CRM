@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, SERVICES, STATUSES, isPnsWork, rp } from "../api";
-import { Head, Pill, Sla, Tile, usePnsTeam } from "../ui";
+import { Head, Pill, Sla, StagePill, Tile, usePnsTeam } from "../ui";
 
 const EMPTY = { search: "", status: [], service: [], acct: [], owner: "", sales: "",
                 line: "", stage: "", group: "", from: "", to: "" };
@@ -20,7 +20,7 @@ const STATUS_GROUPS = [
   ["Not started", ["Pending CRM ID", "Open"]],
   ["Being worked", ["Pending Sales", "Pending PNS", "Pending Vendor"]],
   ["In approval", ["Pending Review - PSP", "Pending Review - Head PSP",
-                   "Pending Review - Head PNS", "Pending Review - Head Sales",
+                   "Pending Review - Head PNS",
                    "Pending Review - C-level"]],
   ["With shipper", ["Proposal Submitted"]],
   ["Decided", ["Proposal Accepted / Ready to Ship", "Lost", "Cancel"]],
@@ -37,7 +37,6 @@ const TILES = [
   ["Pending PNS", "PNS owes the price"],
   ["Pending Vendor", "waiting on vendor cost"],
   ["Pending Review - Head PNS", "PNS checks a Sales price"],
-  ["Pending Review - Head Sales", "price below the floor"],
   ["Pending Review - PSP", "margin sign-off"],
   ["Pending Review - Head PSP", "PSP Head owns it"],
   ["Pending Review - C-level", "Alex + Dhinesh"],
@@ -50,7 +49,6 @@ const TILE_TONE = {
   "Pending CRM ID": "text-rose-600",
   Open: "text-emerald-600",
   "Pending Review - Head PNS": "text-violet-600",
-  "Pending Review - Head Sales": "text-amber-600",
   "Pending Review - PSP": "text-amber-600",
   "Pending Review - Head PSP": "text-amber-700",
   "Pending Review - C-level": "text-fuchsia-600",
@@ -581,7 +579,7 @@ export default function Dashboard({ me, onOpen, view = "all" }) {
                     {t.needs_review && <span className="ml-1.5 text-[11.5px] text-violet-600">· PNS review</span>}
                   </td>
                   <td className="whitespace-nowrap px-4 py-3.5 text-[12px] text-slate-500">
-                    {t.stage || <span className="text-slate-300">—</span>}
+                    <StagePill>{t.stage}</StagePill>
                   </td>
                   <td className="whitespace-nowrap px-4 py-3.5">
                     <Sla elapsed={t.sla_elapsed} target={t.sla_target} />

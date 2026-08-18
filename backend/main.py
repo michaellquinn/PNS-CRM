@@ -13,6 +13,7 @@ is the single source of truth and every mutating route checks it. Hiding a contr
 in the frontend is not a permission.
 """
 import asyncio
+import contextlib
 import json
 import logging
 import smtplib
@@ -48,7 +49,12 @@ async def lifespan(app: FastAPI):
     global _pool
     if os.getenv("DATABASE_URL"):
         _pool = await asyncmy.create_pool(**_dsn(), autocommit=True)
+    task = asyncio.create_task(_auto_sync_loop()) if AUTO_SYNC_MINUTES else None
     yield
+    if task:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
     if _pool is not None:
         _pool.close()
         await _pool.wait_closed()
@@ -123,7 +129,7 @@ LOSS_REASONS = ["pricing", "shipper", "solution", "ops", "no_vendor", "billing",
 # screen people go to when they are looking for something to do.
 AWAIT_STATUSES = ("Open", "Pending Sales", "Pending PNS", "Pending Vendor")
 PENDING_STATUSES = ["Open", "Pending Sales", "Pending PNS", "Pending Review - Head PNS",
-                    "Pending Review - Head Sales", "Pending Review - PSP",
+                    "Pending Review - PSP",
                     "Pending Review - Head PSP", "Pending Vendor",
                     "Pending Review - C-level"]
 # Raised here with no Sales CRM opportunity behind it. Deliberately outside
@@ -133,7 +139,7 @@ NO_CRM_STATUS = "Pending CRM ID"
 # Statuses that mean somebody is actually working the deal. Reaching any of them needs
 # the facts the work depends on — today that is potential revenue, see change_status.
 WORK_STATUSES = ("Pending Sales", "Pending PNS", "Pending Vendor",
-                 "Pending Review - Head PNS", "Pending Review - Head Sales",
+                 "Pending Review - Head PNS",
                  "Pending Review - PSP", "Pending Review - Head PSP",
                  "Pending Review - C-level")
 # Fields the intake keeps as free text but remembers: the dropdown would otherwise have
@@ -141,9 +147,12 @@ WORK_STATUSES = ("Pending Sales", "Pending PNS", "Pending Vendor",
 REMEMBERED_FIELDS = ["commodity", "product", "pallet", "destType", "truck", "freq"]
 
 # Every status in the order a ticket meets them. The two terminal outcomes come last.
+# "Pending Review - Head Sales" was removed on 2026-08-14 along with the gate itself.
+# Checked first: zero tickets held it, so nothing needed migrating and the
+# orphaned-status diagnostic stays at zero.
 ALL_STATUSES = [NO_CRM_STATUS, "Open", "Pending Sales", "Pending PNS", "Pending Vendor",
                 "Pending Review - Head PNS", "Pending Review - PSP",
-                "Pending Review - Head PSP", "Pending Review - Head Sales",
+                "Pending Review - Head PSP",
                 "Pending Review - C-level", "Proposal Submitted",
                 "Proposal Accepted / Ready to Ship", "Lost", "Cancel"]
 
@@ -205,9 +214,6 @@ TRANSITIONS = [
      "POST /tickets/{ref}/psp"),
     ("Pending Review - Head PSP", "the next gate, or back to the pricer on a rejection",
      "The Head of PSP owns PSP's decision", "Head of PSP", "POST /tickets/{ref}/psp"),
-    ("Pending Review - Head Sales", "the next gate in the approval chain",
-     "The Sales Head accepts the commercial concession",
-     "Head of Sales (Head of PNS during the pilot)", "POST /tickets/{ref}/head-ack"),
     ("Pending Review - C-level", "Proposal Submitted",
      "Alex (CSO) and Dhinesh (COO) sign the solution off",
      "recorded by PNS or Sales", "POST /tickets/{ref}/exec-signoff"),
@@ -532,16 +538,21 @@ def review_level(t: dict) -> str | None:
 # spread over three functions and nobody could answer "what comes next" without reading
 # all of them.
 #
-#   watched + below floor : PSP -> Head PSP -> Head PNS -> Head Sales -> C-level
-#   watched + clean price :                    Head PNS -> Head Sales -> C-level
+#   watched + below floor : PSP -> Head PSP -> Head PNS -> C-level
+#   watched + clean price :                    Head PNS -> C-level
 #   Standard >= 30 Mio    : PNS (an ordinary member checks it, then it goes out)
 #   Standard <  30 Mio    : Head or Manager of Sales
 #
 # C-level applies only to Hypercare and Strategic — a Must Win deal on a Standard
 # account is watched by PNS and Sales, not by Alex and Dhinesh.
+# The Head of Sales is NOT in either chain (Baskoro, 2026-08-14): they approve in Sales
+# CRM instead, which is where they already work. Keeping a gate here that nobody watches
+# is worse than not having one -- a ticket would sit in a queue waiting on a person who
+# was never going to open this app. Verified zero tickets were sitting at that status
+# when it was removed, so nothing was stranded.
 CHAIN_WATCHED_BELOW = ["Pending Review - PSP", "Pending Review - Head PSP",
-                       "Pending Review - Head PNS", "Pending Review - Head Sales"]
-CHAIN_WATCHED_CLEAN = ["Pending Review - Head PNS", "Pending Review - Head Sales"]
+                       "Pending Review - Head PNS"]
+CHAIN_WATCHED_CLEAN = ["Pending Review - Head PNS"]
 
 
 def approval_chain(t: dict, below_floor: bool) -> list[str]:
@@ -556,8 +567,11 @@ def approval_chain(t: dict, below_floor: bool) -> list[str]:
         if not t.get("exec_signoff"):
             chain.append("Pending Review - C-level")
         return chain
-    # Standard never reaches a floor question at all — see reject_below_floor().
-    return ["Pending PNS"] if t.get("needs_review") else ["Pending Review - Head Sales"]
+    # Standard never reaches a floor question at all — see reject_below_floor(). With the
+    # Head of Sales gate retired, a Standard deal under 30 Mio has nothing left to clear:
+    # Sales priced it, Sales owns it, and the proposal goes straight out. An empty chain
+    # means next_gate() answers "Proposal Submitted", which is the point.
+    return ["Pending PNS"] if t.get("needs_review") else []
 
 
 def next_gate(t: dict, current: str | None = None) -> str:
@@ -580,13 +594,9 @@ def needs_pns_review(t: dict) -> bool:
     return review_level(t) is not None
 
 
-def head_for(t: dict) -> str:
-    """Who acknowledges a price below the product floor: always the Sales Head.
-
-    It used to be the head of whichever team priced it, which meant PNS reviewed its own
-    discount. Sales owns the commercial concession regardless of who typed the number,
-    so the acknowledgement sits with them."""
-    return "Commercial"
+# head_for() lived here and answered "which Head acknowledges a below-floor price". The
+# answer is now "nobody, in this app" — the Head of Sales accepts the concession in Sales
+# CRM (Baskoro, 2026-08-14) — so the function and its only gate are both gone.
 
 
 def may_go_to_psp(t: dict) -> bool:
@@ -681,17 +691,9 @@ def can(u: User, action: str, t: dict | None = None) -> bool:
     if u.group in READ_ONLY_GROUPS:
         return False
 
-    if action == "headAck":
-        if admin:
-            return True
-        if t is None:
-            return com_head or pns_head
-        if head_for(t) == "PNS":
-            return pns_head
-        # Pilot period: the tool runs inside PNS before Sales is onboarded, so the PNS
-        # Head may acknowledge in the Sales Head's place. Recorded in the note either
-        # way. Turn off by setting PNS_PILOT=0 once Sales works its own queue.
-        return com_head or (PNS_PILOT and pns_head)
+    # headAck is retired. The Head of Sales accepts a below-floor concession in Sales
+    # CRM now (Baskoro, 2026-08-14), so there is no gate here for them to hold, and the
+    # PNS-Head-acts-in-their-place pilot clause went with it.
 
     return {
         # Raising a ticket by hand is open to everyone who works the pipeline, not just
@@ -808,8 +810,9 @@ def require(u: User, action: str, t: dict | None = None) -> None:
 
 
 # Pilot period: the whole tool runs inside PNS first, so PNS also works the Sales side
-# — attaching Sales-owed prices (below-floor included) and, via headAck above, the PNS
-# Head acknowledging in the Sales Head's place. Set PNS_PILOT=0 in the portal the day
+# — attaching Sales-owed prices, below-floor included. (It also used to cover the PNS
+# Head acknowledging in the Sales Head's place; that gate is gone.) It additionally
+# carries PNS's right to correct revenue and account type. Set PNS_PILOT=0 the day
 # Sales starts working its own queues; every rule then snaps back without a deploy.
 PNS_PILOT = os.getenv("PNS_PILOT", "1").strip().lower() not in ("0", "false", "")
 
@@ -975,8 +978,6 @@ async def owed_by(t: dict, status: str) -> list[str]:
         return [owner] if owner else await names_in("PNS", head_only=True)
     if status == "Pending Review - PSP":
         return await names_in("PSP")
-    if status == "Pending Review - Head Sales":
-        return await names_in(head_for(t), head_only=True) or await names_in("Admin")
     return []
 
 
@@ -1017,7 +1018,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-08-14.44"
+BUILD = "2026-08-14.45"
 
 
 class Me(BaseModel):
@@ -1198,7 +1199,7 @@ async def me(u: User = Depends(current_user)):
                # revenue beside it. Removed rather than left looking live.
                "setSales", "reopen", "pspDecide", "vendorToggle", "sendToPsp",
                "acceptProposal", "sendBackProposal", "seeMargin", "capaRaise",
-               "capaClose", "capaSubmit", "headAck", "manageUsers", "grantAdmin",
+               "capaClose", "capaSubmit", "manageUsers", "grantAdmin",
                "pspAssign", "pspOverride", "allowPsp", "syncSalesCrm",
                "pspHeadDecide", "manageIgnored"]
     return Me(email=u.email, name=u.name, group=u.group, level=u.level, team=u.team,
@@ -1413,6 +1414,12 @@ class AccountRow(BaseModel):
     account_id: str | None
     account_url: str | None
     parent_account_id: str | None
+    # The account GROUP. Hypercare and Strategic are inherited from it, so an account
+    # whose parent is not linked is one whose tier nobody can explain from this screen.
+    parent_account_url: str | None = None
+    parent_account_name: str | None = None
+    # Sibling shippers under the same parent, so a group reads as a group.
+    siblings_in_group: int = 0
     acct_type: str
     region: str | None
     group: str | None            # Hypercare | Strategic | Must Win | None
@@ -1466,6 +1473,25 @@ async def accounts(u: User = Depends(current_user),
     for r in rows:
         buckets.setdefault(int(r["shipper_id"]), []).append(r)
 
+    # The account group. Sales CRM's parent account is an id on every child, and the
+    # parent is usually itself a shipper we hold — so its name is already here and does
+    # not need a Sales CRM call. Where it is not, the id is still a working link.
+    parent_names: dict[str, str] = {}
+    group_size: dict[str, int] = {}
+    for r in rows:
+        aid, pid = str(r.get("account_id") or ""), str(r.get("parent_account_id") or "")
+        if aid:
+            parent_names.setdefault(aid, r["shipper"])
+        if pid:
+            group_size.setdefault(pid, 0)
+    seen_ship: set[tuple] = set()
+    for r in rows:
+        pid = str(r.get("parent_account_id") or "")
+        key = (pid, int(r["shipper_id"]))
+        if pid and key not in seen_ship:
+            seen_ship.add(key)
+            group_size[pid] = group_size.get(pid, 0) + 1
+
     out: list[AccountRow] = []
     for sid, rs in buckets.items():
         live = [r for r in rs if r["status"] not in ("Lost", "Cancel",
@@ -1488,6 +1514,10 @@ async def accounts(u: User = Depends(current_user),
             account_url=account_link(head.get("account_id")),
             parent_account_id=(str(head["parent_account_id"])
                                if head.get("parent_account_id") else None),
+            parent_account_url=account_link(head.get("parent_account_id")),
+            parent_account_name=parent_names.get(str(head.get("parent_account_id") or "")),
+            siblings_in_group=max(0, group_size.get(
+                str(head.get("parent_account_id") or ""), 0) - 1),
             acct_type=head["acct_type"], region=head.get("region"), group=acct_group,
             open_tickets=len(live),
             total_revenue=sum(int(r["potential_rev"] or 0) for r in live),
@@ -1612,20 +1642,27 @@ def read_must_win(o: dict) -> tuple[bool, str | None]:
 # nothing here reads yet, which is how this list grows on evidence instead of guesswork.
 CRM_OPP_PAYLOAD = [
     ("volume",       ["expected_vol_mth", "total_potential_volume"],
-     "Est. volume per month", False),
+     "Est. volume per month", True),
     ("dest",         ["delivery_areas", "delivery_area", "destination"],
-     "Destination", False),
+     "Destination", True),
     ("pickup",       ["pickup_areas", "pickup_area", "pickup_address"],
-     "Pickup address", False),
-    ("pickSlot",     ["pickup_timing"], "Pickup time slot", False),
-    ("delSlot",      ["delivery_timing"], "Delivery time slot", False),
+     "Pickup address", True),
+    ("pickSlot",     ["pickup_timing"], "Pickup time slot", True),
+    ("delSlot",      ["delivery_timing"], "Delivery time slot", True),
     ("freq",         ["delivery_frequency", "shipment_frequency"],
-     "Delivery frequency", False),
+     "Delivery frequency", True),
+    # THE ONE DELIBERATE EXCEPTION to "Sales CRM always wins", flagged to Baskoro on
+    # 2026-08-14: `expected_close_date` is when the DEAL is expected to close, and
+    # `golive` is when the shipper starts shipping. They are different facts that happen
+    # to be dates, so letting the close date overwrite a go-live Ops has committed to
+    # would not be honouring the rule, it would be corrupting a field with a value from
+    # a different question. It still fills a blank, which is where the mapping earns its
+    # place. Say so if this is revisited.
     ("golive",       ["expected_close_date"], "Go-live date", False),
-    ("shipperPic",   ["contact_name", "primary_contact_name"], "Shipper PIC", False),
+    ("shipperPic",   ["contact_name", "primary_contact_name"], "Shipper PIC", True),
     ("shipperContact", ["contact_phone", "primary_contact_phone", "contact_mobile"],
-     "Contact shipper PIC", False),
-    ("notes",        ["description", "next_step"], "Notes", False),
+     "Contact shipper PIC", True),
+    ("notes",        ["description", "next_step"], "Notes", True),
     # Sales CRM's own numbers. Reported on alongside potential revenue, and both change
     # as a deal is negotiated, so these are re-read every time.
     ("committedRev", ["committed_revenue_mth"], "Committed revenue / month", True),
@@ -1638,9 +1675,9 @@ CRM_OPP_PAYLOAD = [
 ]
 
 CRM_ACCOUNT_PAYLOAD = [
-    ("commodity",  ["industry"], "Commodity", False),
-    ("shipperId",  ["global_id"], "Shipper ID", False),
-    ("invAddr",    ["billing_address", "address"], "Invoicing address", False),
+    ("commodity",  ["industry"], "Commodity", True),
+    ("shipperId",  ["global_id"], "Shipper ID", True),
+    ("invAddr",    ["billing_address", "address"], "Invoicing address", True),
     ("crmAccountOwner", ["owner_name"], "Sales CRM account owner", True),
 ]
 
@@ -1969,6 +2006,79 @@ class SyncIn(BaseModel):
     until: str | None = None
 
 
+# ------------------------------------------------------------------ automatic sync
+#
+# Sales CRM has no webhooks, so the only way to stay current is to poll. Doing that by
+# hand means the app is only as fresh as the last person who remembered to press the
+# button, which on a Monday morning is not fresh at all.
+#
+# Baskoro asked for every 5 minutes (2026-08-14) and that is the default. Three things
+# are worth knowing before changing it:
+#
+#   * The API key is issued per person and expires roughly every 30 days — the current
+#     one around 2026-09-07. When it lapses this loop starts failing silently, which is
+#     exactly why the last result is recorded and surfaced on the Sync screen rather than
+#     only logged. A red banner there is the warning that the key needs reissuing.
+#   * A run has a 25-second budget and re-reads up to 400 held opportunities. Five
+#     minutes is comfortable for that; do not push it below the time a run actually takes.
+#   * The sweep takes a lock, so a manual run and an automatic one cannot collide — the
+#     loser skips this tick rather than queueing, because a queued sync is just a slower
+#     duplicate of the one that already ran.
+AUTO_SYNC_MINUTES = int(os.getenv("AUTO_SYNC_MINUTES", "5") or 0)
+# The window each automatic run asks for. Deliberately wider than the interval: a run
+# that only asked for today would miss an opportunity back-dated by a day, and asking for
+# two days costs two cheap exact-match queries.
+AUTO_SYNC_DAYS = int(os.getenv("AUTO_SYNC_DAYS", "2") or 2)
+
+# What the last automatic run did, for the Sync screen. In memory on purpose: it is
+# operational state about this process, not a fact about the business, and a restart
+# genuinely does mean "no automatic run has happened yet".
+_auto_sync = {"enabled": bool(AUTO_SYNC_MINUTES), "every_minutes": AUTO_SYNC_MINUTES,
+              "last_at": None, "last_ok": None, "last_error": None,
+              "last_counts": None, "runs": 0}
+
+
+async def _auto_sync_loop() -> None:
+    """Run the Sales CRM sweep on a timer, as the sync owner.
+
+    Every failure is caught and recorded rather than raised: an exception here would kill
+    the task and the app would go on serving happily with the sync silently dead, which
+    is the failure mode this whole loop exists to prevent."""
+    # A short delay before the first run so the pod is serving traffic and the migrations
+    # have settled before anything reaches out to a third party.
+    await asyncio.sleep(30)
+    while True:
+        try:
+            if not SALESCRM_API_KEY:
+                _auto_sync.update(last_at=str(datetime.now())[:19], last_ok=False,
+                                  last_error="SALESCRM_API_KEY is not set")
+            elif _sync_lock.locked():
+                log.info("auto-sync: a sync is already running, skipping this tick")
+            else:
+                owner = User(email=SYNC_OWNER_EMAIL, name="Sales CRM sync",
+                             group="Admin", level="head", team=None, sso=False)
+                r = await sync_salescrm(
+                    SyncIn(days=AUTO_SYNC_DAYS, refresh=True, dry_run=False), owner)
+                _auto_sync.update(last_at=str(datetime.now())[:19], last_ok=True,
+                                  last_error=None, last_counts=r.get("counts"),
+                                  runs=_auto_sync["runs"] + 1)
+                log.info("auto-sync: %s", r.get("counts"))
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:                      # noqa: BLE001 - see docstring
+            _auto_sync.update(last_at=str(datetime.now())[:19], last_ok=False,
+                              last_error=str(e)[:300])
+            log.exception("auto-sync failed")
+        await asyncio.sleep(AUTO_SYNC_MINUTES * 60)
+
+
+@app.get("/api/sync/auto")
+async def auto_sync_status(u: User = Depends(current_user)):
+    """Whether the timer is on, and what it did last. Read by the Sync screen."""
+    require(u, "syncSalesCrm")
+    return _auto_sync
+
+
 @app.post("/api/sync/salescrm")
 async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
     """Pull new Sales CRM opportunities and raise the matching solutioning tickets.
@@ -2193,13 +2303,18 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
                         # are theirs, ours are only ever a copy, so theirs wins.
                         if body.refresh and not any(x["id"] == oid for x in refreshed):
                             if not body.dry_run:
+                                acct_for_refresh = crm._accounts.get(
+                                    str(o.get("account_id") or ""))
                                 n = await _refresh_from_salescrm(
-                                    o, crm._accounts.get(str(o.get("account_id") or "")))
+                                    o, acct_for_refresh,
+                                    await crm.tier_for(acct_for_refresh)
+                                    if acct_for_refresh else None)
                                 if n:
                                     refreshed.append({"id": oid, "name": o.get("name"),
                                                       "stage": o.get("stage"),
                                                       "moved": n["moved"],
                                                       "revenue_filled": n["revenue_filled"],
+                                                      "overwritten": n["overwritten"],
                                                       "missing": n["missing"]})
                             else:
                                 # Predict the status move without writing, so the dry
@@ -2225,6 +2340,7 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
                                                   "stage": o.get("stage"),
                                                   "moved": would,
                                                   "revenue_filled": would_fill,
+                                                  "overwritten": [],
                                                   "missing": []})
                         continue
 
@@ -2314,13 +2430,24 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
                        "unmapped": len(unmapped)}}
 
 
-async def _refresh_from_salescrm(o: dict, account: dict | None = None) -> dict | None:
-    """Re-copy the fields Sales CRM owns onto a ticket we already hold.
+async def _refresh_from_salescrm(o: dict, account: dict | None = None,
+                                 tier: str | None = None) -> dict | None:
+    """Re-copy onto a ticket we already hold everything Sales CRM has to say about it.
 
-    Stage, committed revenue and the close date are Sales CRM's to state; ours are a
-    copy and a copy that disagrees with its source is worse than no copy. Deliberately
-    narrow: potential revenue, service and account tier are NOT refreshed, because PNS
-    corrects those here on purpose and an overwrite would silently undo the correction.
+    **Sales CRM always takes priority** (Baskoro, 2026-08-14). Every field it carries is
+    overwritten here, potential revenue, service line and account tier included. Those
+    three used to be left alone on the reasoning that PNS corrects them deliberately;
+    that reasoning is overruled. A copy that disagrees with its source is worse than no
+    copy, because people believe it.
+
+    The consequence is intended and worth stating plainly: **a correction made in this
+    app to revenue, service or tier survives only until the next run.** If it is wrong in
+    Sales CRM, it has to be fixed in Sales CRM. Reference / Fields says so per field, and
+    is generated from the same tables this walks.
+
+    What is NOT touched: a field Sales CRM did not send. It returns only populated
+    fields, so absent means "no answer", not "blank it" — treating absence as an answer
+    would wipe good data every morning.
 
     Terminal stages DO move our status (Baskoro, 2026-08-11): a deal that closed in
     Sales CRM must not sit open here. Closed-Lost/Future Opportunity -> Lost; the
@@ -2335,11 +2462,6 @@ async def _refresh_from_salescrm(o: dict, account: dict | None = None) -> dict |
                 "FROM tickets WHERE opportunity_id=%s", (oid,), one=True)
     if not t:
         return None
-    # Sales CRM is the system of record for everything it owns, so a refresh overwrites
-    # rather than fills gaps: stage, the deal name, the Sales PIC, the committed revenue
-    # and Must Win all come back as they stand there now. Service line, potential revenue
-    # and the account tier are still left alone — PNS corrects those here deliberately,
-    # and an overwrite would silently undo the correction every morning.
     # Must Win syncs both ways now that its source is known (Lead Source Detail), but
     # only when the field is actually present on the record — Sales CRM returns only
     # populated fields, so an absent one means "no answer", not "no". Treating absence
@@ -2356,30 +2478,51 @@ async def _refresh_from_salescrm(o: dict, account: dict | None = None) -> dict |
     if mw_field:
         sets.append("must_win=%s"); args.append(int(mw))
 
-    # Potential revenue is still not overwritten — PNS corrects it here on purpose. But
-    # a quarter of opportunities arrive with the field empty, and when Sales fills it in
-    # later nothing ever picked it up: the ticket stayed at 0 and stayed stuck. Filling a
-    # blank is not overwriting a correction, so this fills only while ours is 0. Routing
-    # is re-derived with it, because who prices the deal was decided on the missing
-    # number and would otherwise stay decided as if the deal were the smallest possible.
-    filled_rev = 0
-    if not int(t.get("potential_rev") or 0):
-        try:
-            filled_rev = int(float(o.get("total_potential_revenue_mth") or 0))
-        except (TypeError, ValueError):
-            filled_rev = 0
-    if filled_rev > 0:
-        rr = route(t.get("acct_type") or "Standard", t["service_type"], filled_rev)
-        sets += ["potential_rev=%s", "resp=%s", "needs_review=%s"]
-        args += [filled_rev, rr["resp"], int(rr["review"])]
+    # The three that used to be left alone. Sales CRM wins on all of them now.
+    #
+    # Each is applied only when Sales CRM actually stated it: revenue > 0, a product this
+    # app can map, a tier that was resolved. A missing value is not an instruction to
+    # zero ours out.
+    changed = []
+    try:
+        crm_rev = int(float(o.get("total_potential_revenue_mth") or 0))
+    except (TypeError, ValueError):
+        crm_rev = 0
+    new_rev = crm_rev if crm_rev > 0 else int(t.get("potential_rev") or 0)
+    if crm_rev > 0 and crm_rev != int(t.get("potential_rev") or 0):
+        changed.append(f"potential revenue Rp {int(t.get('potential_rev') or 0):,} "
+                       f"to Rp {crm_rev:,}")
+
+    raw_product = _first(o.get("core_product")) or o.get("nv_product_line")
+    crm_service = PRODUCT_MAP.get(str(raw_product or "").strip())
+    new_service = crm_service or t["service_type"]
+    if crm_service and crm_service != t["service_type"]:
+        changed.append(f"service {t['service_type']} to {crm_service}")
+
+    new_tier = tier or t.get("acct_type") or "Standard"
+    if tier and tier != t.get("acct_type"):
+        changed.append(f"account tier {t.get('acct_type')} to {tier}")
+        # The tier lives on the shipper, not the ticket — it is an account fact and
+        # applies to every deal that account brings.
+        await execute("UPDATE shippers SET acct_type=%s, status_changed_by=%s, "
+                      "status_changed_at=NOW() WHERE id=(SELECT shipper_id FROM tickets "
+                      "WHERE id=%s)", (tier, "Sales CRM sync", t["id"]))
+
+    if changed:
+        # Routing is re-derived on the corrected facts, because who prices the deal,
+        # which ceiling applies and whether PNS reviews were all decided on the old ones.
+        rr = route(new_tier, new_service, new_rev)
+        sets += ["potential_rev=%s", "service_type=%s", "resp=%s", "needs_review=%s"]
+        args += [new_rev, new_service, rr["resp"], int(rr["review"])]
+    filled_rev = crm_rev if (crm_rev > 0 and not int(t.get("potential_rev") or 0)) else 0
 
     # First time this app has ever seen the deal, written once and never revised.
     sets.append("first_synced_at=COALESCE(first_synced_at, NOW())")
     args.append(t["id"])
     await execute(f"UPDATE tickets SET {', '.join(sets)} WHERE id=%s", tuple(args))
-    if filled_rev > 0:
+    if changed:
         await log_note(t["id"], t["status"], "Sales CRM sync",
-                       f"potential revenue filled in from Sales CRM: Rp {filled_rev:,}")
+                       "Sales CRM takes priority — " + "; ".join(changed)[:400])
 
     payload = {}
     row = await q("SELECT payload FROM ticket_input WHERE ticket_id=%s", (t["id"],), one=True)
@@ -2419,7 +2562,8 @@ async def _refresh_from_salescrm(o: dict, account: dict | None = None) -> dict |
                 f"onboarding needs: {', '.join(missing)}. Fill them on the ticket input.",
                 groups=["PNS", "Commercial"], ticket_ref=ref)
         moved = wants
-    return {"moved": moved, "missing": missing, "revenue_filled": filled_rev}
+    return {"moved": moved, "missing": missing, "revenue_filled": filled_rev,
+            "overwritten": changed}
 
 
 async def _import_opportunity(o: dict, account: dict | None, plan: dict,
@@ -2791,25 +2935,27 @@ async def submit_price(ref: str, body: PriceIn, u: User = Depends(current_user))
         await notify(f"{ref}, price attached by {u.name}; needs PSP approval ({g['why']})",
                      groups=["PSP"], ticket_ref=ref)
     elif breach or body.below_bottom:
-        # Below the floor. PSP first, the Sales Head last (Baskoro, 2026-08-11): the
-        # Head is being asked to accept a commercial concession, and that question is
-        # only worth asking once PSP has said the margin is survivable. Asking the Head
-        # first meant they signed off on numbers PSP might still reject, and then had to
-        # be told the deal changed. Where PSP does not take the ticket at all, the Head
-        # is the only gate and it goes straight to them.
+        # Below the floor. PSP rules on whether the margin is survivable; the commercial
+        # concession is then the Head of Sales's to accept IN SALES CRM, not here
+        # (Baskoro, 2026-08-14), so there is no longer a gate for it in this app.
+        #
+        # Only a watched group can reach this line at all — a Standard deal below floor is
+        # refused outright above. So where PSP does not take the ticket (a Must Win on a
+        # Standard account, with no exception recorded), the Head of PNS is the remaining
+        # gate and next_gate() puts it there.
         await execute("UPDATE tickets SET below_bottom=1 WHERE id=%s", (t["id"],))
         if may_go_to_psp(t):
             nxt = "Pending Review - PSP"
-            note = (g["why"] or "flagged below bottom rate") + " — PSP first, then the Sales Head"
+            note = (g["why"] or "flagged below bottom rate") + " — PSP decides the margin"
             await notify(f"{ref}, {t['shipper']}: BELOW BOTTOM RATE ({g['why']}), "
                          f"priced by {u.name}. PSP decides the margin first.",
                          groups=["PSP"], ticket_ref=ref)
         else:
-            nxt = "Pending Review - Head Sales"
-            note = g["why"] or "flagged below bottom rate"
-            await notify(f"{ref}, price attached by {u.name} and flagged BELOW BOTTOM RATE"
-                         f" ({g['why']}); no PSP route, so this is yours to accept or refuse",
-                         roles=[f"{head_for(t)} - Head"], ticket_ref=ref)
+            nxt = next_gate(t, None)
+            note = (g["why"] or "flagged below bottom rate") + " — no PSP route"
+            await notify(f"{ref}, {t['shipper']}: price attached by {u.name} and flagged "
+                         f"BELOW BOTTOM RATE ({g['why']}); no PSP route, so it is yours to "
+                         f"finalise", roles=["PNS - Head"], ticket_ref=ref)
     elif review_level(t) == "pns":
         # At or above 30 Mio but not a watched group. Still reviewed, but as ordinary PNS
         # work: it becomes Pending PNS and is assigned like any other job. The Head is
@@ -3138,10 +3284,6 @@ async def pns_finalise(ref: str, u: User = Depends(current_user)):
     if nxt == "Pending Review - PSP":
         await notify(f"{ref}, {t['shipper']}: solution finalised by {u.name}, "
                      f"needs your margin decision", groups=["PSP"], ticket_ref=ref)
-    elif nxt == "Pending Review - Head Sales":
-        await notify(f"{ref}, {t['shipper']}: solution finalised, below the floor — "
-                     f"yours to accept or refuse", roles=[f"{head_for(t)} - Head"],
-                     ticket_ref=ref)
     elif nxt == "Pending Review - C-level":
         await notify(f"{ref}, {t['shipper']} ({t['acct_type']}): solution finalised by "
                      f"{u.name} and ready for Alex and Dhinesh",
@@ -3250,22 +3392,10 @@ async def reopen(ref: str, body: ReopenIn, u: User = Depends(current_user)):
     return {"ok": True, "ref": ref, "status": body.status}
 
 
-@app.post("/api/tickets/{ref}/head-ack", response_model=Ok)
-async def head_ack(ref: str, u: User = Depends(current_user)):
-    """The Sales Head accepts the commercial concession, then the chain continues.
-
-    By the time it reaches here PSP, the Head of PSP and the Head of PNS have all had
-    their say where they apply, so what is being signed is the concession itself with
-    the margin and the solution already settled. On a managed account C-level still
-    follows; next_gate() decides, so this endpoint never has to know."""
-    t = await get_ticket(ref)
-    require(u, "headAck", t)   # the Sales Head: Sales owns the commercial concession
-    nxt = next_gate(t, "Pending Review - Head Sales")
-    note = "accepted by the Sales Head"
-    await log_status(t["id"], nxt, u.name, note)
-    await execute("INSERT INTO approvals (ticket_id, kind, decision, actor, actor_role) "
-                  "VALUES (%s,'head_ack','approved',%s,%s)", (t["id"], u.name, u.group))
-    return {"ok": True, "ref": ref, "status": nxt}
+# POST /tickets/{ref}/head-ack lived here: the Sales Head accepting the commercial
+# concession. Retired on 2026-08-14 with the gate itself — that decision is made in Sales
+# CRM, where the Head of Sales already works. The `head_ack` rows already written to
+# `approvals` are left alone; they are a record of what happened.
 
 
 class AllowPspIn(BaseModel):
@@ -3420,15 +3550,20 @@ TICKET_FIELDS = [
      "Without it the ticket parks in Pending CRM ID and CANNOT MOVE AT ALL. The sync "
      "finds every deal by this id, so a ticket it cannot see drifts out of step with the "
      "commercial record and gets believed anyway."),
-    ("potential_rev", "Potential revenue", "Sales, correctable by PNS", "enforced",
+    ("potential_rev", "Potential revenue", "Sales CRM; correctable here until the next sync",
+     "enforced",
      "Without it the ticket cannot enter any working status and cannot be priced. It "
      "decides who prices the deal, which 5A ceiling applies and whether PNS reviews the "
-     "result — at zero all three are decided as if it were the smallest possible deal."),
-    ("service_type", "Service type", "Sales, correctable by PNS", "enforced",
+     "result — at zero all three are decided as if it were the smallest possible deal. "
+     "Sales CRM overwrites it on every run, and the routing is re-derived when it does."),
+    ("service_type", "Service type", "Sales CRM; correctable here until the next sync",
+     "enforced",
      "Decides the pricing ceiling and, with the tier, who prices it. Sales CRM says only "
-     "\"Trucking\" for FTL, so an imported FTL ticket needs the line confirmed."),
+     "\"Trucking\" for FTL, so an imported FTL ticket needs the line confirmed — and that "
+     "confirmation is overwritten on the next run, because Sales CRM takes priority."),
     ("acct_type", "Account type", "Sales CRM account group", "asked",
-     "Hypercare and Strategic put the deal in a watched group and route it to PNS."),
+     "Hypercare and Strategic put the deal in a watched group and route it to PNS. It is "
+     "resolved from the account group on every sync and overwrites what is held here."),
     ("must_win", "Must Win", "Sales CRM Lead Source Detail, settable here", "optional",
      "Puts this one deal in a watched group."),
     ("region", "Region", "Sales", "asked", "Used by the meeting screens to run by region."),
@@ -3875,9 +4010,6 @@ async def psp_decide(ref: str, body: PspIn, u: User = Depends(current_user)):
         elif nxt == "Pending Review - Head PNS":
             await notify(f"{ref}, {t['shipper']}: margin cleared by PSP — finalise the "
                          f"solution", roles=["PNS - Head"], ticket_ref=ref)
-        elif nxt == "Pending Review - Head Sales":
-            await notify(f"{ref}, {t['shipper']}: margin cleared, yours to accept",
-                         roles=[f"{head_for(t)} - Head"], ticket_ref=ref)
         elif nxt in ("Pending PNS", "Pending Sales"):
             ready_to_submit = True
             await execute("UPDATE tickets SET psp_ready=1 WHERE id=%s", (t["id"],))
@@ -5296,9 +5428,21 @@ class Move(BaseModel):
     via: str
 
 
+class StageRule(BaseModel):
+    """What a Sales CRM stage does to our status, if anything."""
+    stages: list[str]
+    becomes: str | None
+    why: str
+
+
 class StatusFlow(BaseModel):
     statuses: list[str]
     moves: list[Move]
+    # Sales CRM's stage is not our status and never has been. But some stages DO move
+    # ours, and which ones was only discoverable by reading status_for_stage(). Baskoro
+    # asked for the mapping to be visible (2026-08-14), so it is served from the same
+    # constants the sync applies.
+    stage_rules: list[StageRule]
     # Only these can be chosen by naming a status; everything else is a consequence of
     # doing something. The screen says so, so nobody looks for a missing button.
     manual: dict[str, list[str]]
@@ -5340,11 +5484,14 @@ async def fields_reference(u: User = Depends(current_user)):
     tickets = []
     for key, label, who, when, blocks in TICKET_FIELDS:
         # The same provenance the sync applies to ticket columns, stated in its terms.
+        # All three of revenue, service and tier became "overwritten" on 2026-08-14 when
+        # Sales CRM was made to always take priority. If this drifts back to "never" the
+        # page will quietly promise a durability the sync no longer provides.
         sync = {
             "opportunity_id": "never",
-            "potential_rev": "gap-fill",
-            "service_type": "never",
-            "acct_type": "never",
+            "potential_rev": "overwritten",
+            "service_type": "overwritten",
+            "acct_type": "overwritten",
             "must_win": "overwritten",
             "region": "never",
             "sales_name": "overwritten",
@@ -5363,7 +5510,8 @@ async def fields_reference(u: User = Depends(current_user)):
         "gates": [Gate(what=a, stops=b, fix=c) for a, b, c in HARD_GATES],
         "crm_owned_columns": ["Sales CRM stage", "Deal name", "Sales PIC",
                               "Submitted date", "Must Win", "Committed revenue",
-                              "Close date", "Lead source"],
+                              "Close date", "Lead source", "Potential revenue",
+                              "Service line", "Account tier"],
     }
 
 
@@ -5378,6 +5526,27 @@ async def status_flow(u: User = Depends(current_user)):
         "moves": [Move(frm=f or "New ticket", to=t, trigger=w, who=o, via=v)
                   for f, t, w, o, v in TRANSITIONS],
         "manual": {k: sorted(v) for k, v in sorted(MANUAL_MOVES.items())},
+        "stage_rules": [
+            StageRule(
+                stages=list(CLOSED_LOST_STAGES), becomes="Lost",
+                why="The shipper walked away or the deal was parked as a future "
+                    "opportunity. Solutioning it further is wasted effort, and a priced "
+                    "proposal would be misleading. Recorded with loss reason "
+                    "“Closed in Sales CRM”."),
+            StageRule(
+                stages=list(ACCEPTED_STAGES), becomes="Proposal Accepted / Ready to Ship",
+                why="The shipper accepted. If the onboarding fields are still blank when "
+                    "this lands, PNS and Sales are told exactly which ones, because Ops "
+                    "cannot onboard a shipper the account systems cannot find."),
+            StageRule(
+                stages=["New", "Negotiation", "Proposal Submitted", "EKYC Approval",
+                        "Contract Sent", "and every other stage"],
+                becomes=None,
+                why="Left alone on purpose. Sales CRM owns the COMMERCIAL stage; this app "
+                    "owns the SOLUTIONING status, and they answer different questions. A "
+                    "deal can sit at Negotiation there while PNS is still pricing here, "
+                    "and neither is wrong. Only the terminal stages override ours."),
+        ],
     }
 
 

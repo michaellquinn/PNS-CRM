@@ -121,6 +121,45 @@ check("the refresh re-derives routing when it fills revenue",
       "route" in calls_in("_refresh_from_salescrm"),
       "who prices it was decided on the missing number")
 
+print()
+print("Sales CRM always takes priority (Baskoro, 2026-08-14)")
+# The rule is carried by the `owned` flag on the two field maps: True means the sync
+# overwrites ours. It drives BOTH merge_crm_payload and the Reference / Fields page, so a
+# flag flipped back to False would quietly promise a durability the sync does not give.
+_maps = {}
+_keep = [n for n in ast.parse(SRC).body
+         if isinstance(n, ast.Assign)
+         and getattr(n.targets[0], "id", "") in ("CRM_OPP_PAYLOAD", "CRM_ACCOUNT_PAYLOAD")]
+exec(compile(ast.Module(body=_keep, type_ignores=[]), "<maps>", "exec"), _maps)
+_not_owned = [k for m in ("CRM_OPP_PAYLOAD", "CRM_ACCOUNT_PAYLOAD")
+              for k, _n, _l, owned in _maps[m] if not owned]
+# golive is the ONE deliberate exception: Sales CRM's expected CLOSE date is not a
+# go-live date, so letting it overwrite one would corrupt the field rather than honour
+# the rule. Any other name here is a regression, not a decision.
+check("every mapped field is Sales CRM's, bar the stated exception",
+      _not_owned == ["golive"],
+      "not owned: %s -- expected only ['golive']" % _not_owned)
+
+_ref = body_of("_refresh_from_salescrm")
+check("the refresh overwrites the service line", "service_type=%s" in _ref,
+      "service was left alone before 2026-08-14; the rule now says Sales CRM wins")
+check("the refresh overwrites the account tier", "UPDATE shippers SET acct_type" in _ref,
+      "the tier is an account fact and lives on the shipper, not the ticket")
+check("the refresh records what it overwrote", "overwritten" in _ref,
+      "a value changing under somebody with no trace is how trust in the sync goes")
+
+print()
+print("the automatic sync fails loudly rather than silently")
+check("there is an auto-sync loop", fn("_auto_sync_loop") is not None)
+check("its failures are recorded, not just raised",
+      "last_error" in body_of("_auto_sync_loop"),
+      "an unattended sync that dies quietly leaves the book stale with nobody told")
+# body_of() returns an ast.dump, so the lock reads as a Name + an attr, not as source.
+_loop = body_of("_auto_sync_loop")
+check("it skips rather than queues when a sync is already running",
+      "'_sync_lock'" in _loop and "'locked'" in _loop,
+      "a queued sync is only a slower duplicate of the one that just ran")
+
 print("\nunmapped fields are reported rather than assumed")
 check("crm_unmapped exists", fn("crm_unmapped") is not None)
 check("the sync counts unmapped fields", "crm_unmapped" in calls_in("sync_salescrm"),

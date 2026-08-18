@@ -41,14 +41,10 @@ for t, exp in gate_cases:
     print("   %-16s signed=%s -> %-22s %s"
           % (t["acct_type"], t["exec_signoff"], got, "" if ok else "<-- MISMATCH"))
 
-# ---------------------------------------------------------------- head_for
-print("\n=== head_for (margin breach always Sales Head)")
-for resp in ("PNS", "Sales"):
-    got = ns['head_for']({"resp": resp})
-    ok = got == "Commercial"
-    if not ok:
-        fails.append("head_for(resp=%s) -> %s" % (resp, got))
-    print("   priced by %-6s -> %-12s %s" % (resp, got, "" if ok else "<-- MISMATCH"))
+# head_for() was checked here: which Head acknowledges a below-floor price. Both it and
+# the gate it served were retired on 2026-08-14 -- the Head of Sales accepts the
+# commercial concession in Sales CRM. Nothing replaced it, so there is nothing to assert;
+# verify_review_level pins the chains that no longer contain it.
 
 # ---------------------------------------------------------------- charter render
 print("\n=== render_charter")

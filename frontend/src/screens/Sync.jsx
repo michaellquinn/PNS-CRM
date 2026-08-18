@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api, rp } from "../api";
 import { Btn, Card, Head, Pill, inputCls } from "../ui";
 
@@ -29,6 +29,12 @@ export default function Sync({ notify }) {
   const [res, setRes] = useState(null);
   const [mode, setMode] = useState("both");   // both | new | refresh | ids
   const [ids, setIds] = useState("");
+  const [auto, setAuto] = useState(null);
+
+  // The timer is the thing most likely to be quietly broken — the Sales CRM key expires
+  // about every 30 days and an automatic run has nobody watching it. So its last result
+  // is read on load and shown at the top, failure first.
+  useEffect(() => { api.autoSync().then(setAuto).catch(() => setAuto(null)); }, []);
 
   // Accept anything paste-shaped: commas, spaces, newlines, one per line from a sheet.
   const idList = ids.split(/[\s,;]+/).map((s) => s.trim()).filter(Boolean);
@@ -146,6 +152,52 @@ export default function Sync({ notify }) {
         </details>
       </Card>
 
+      {auto && (
+        <Card className={`mb-4 border-l-4 p-4 ${
+          !auto.enabled ? "border-l-slate-300"
+            : auto.last_ok === false ? "border-l-rose-500 bg-rose-50/60"
+            : "border-l-emerald-400"}`}>
+          <div className="flex flex-wrap items-center gap-2.5">
+            <span className="text-[10.5px] font-bold uppercase tracking-wider text-slate-500">
+              Automatic sync
+            </span>
+            {auto.enabled
+              ? <Pill tone="bg-emerald-50 text-emerald-700">
+                  on · every {auto.every_minutes} min
+                </Pill>
+              : <Pill tone="bg-slate-100 text-slate-600">off</Pill>}
+            {auto.last_ok === false && (
+              <Pill tone="bg-rose-100 text-rose-800">last run FAILED</Pill>
+            )}
+          </div>
+          <p className="mt-1.5 text-[13px] leading-relaxed text-slate-700">
+            {!auto.enabled ? (
+              <>Nothing runs on its own. Set <code className="font-mono">AUTO_SYNC_MINUTES</code>{" "}
+              in the portal to switch it on.</>
+            ) : auto.last_at ? (
+              <>
+                Last run <b>{auto.last_at}</b>
+                {auto.last_ok
+                  ? <> — {auto.last_counts
+                      ? `${auto.last_counts.created} created, ${auto.last_counts.refreshed} refreshed`
+                      : "no changes"}. {auto.runs} run{auto.runs === 1 ? "" : "s"} since restart.</>
+                  : <> — <b className="text-rose-700">{auto.last_error}</b></>}
+              </>
+            ) : (
+              <>On, but it has not run yet since this deployment. The first run is 30 seconds after start-up.</>
+            )}
+          </p>
+          {auto.last_ok === false && (
+            <p className="mt-1.5 text-[12.5px] text-rose-800">
+              The commonest cause is the Sales CRM API key expiring — they last about 30
+              days and are issued per person. Reissue it and update{" "}
+              <code className="font-mono">SALESCRM_API_KEY</code> in the portal. Until
+              then nothing is arriving automatically and the book is going stale.
+            </p>
+          )}
+        </Card>
+      )}
+
       {res && (
         <>
           <div className="mb-4 flex flex-wrap gap-2">
@@ -217,21 +269,23 @@ export default function Sync({ notify }) {
                 Already imported &mdash; {res.dry_run ? "would refresh" : "refreshed"} from Sales CRM
               </h2>
               <p className="text-[12px] text-slate-500">
-                Every mapped field is re-read, not just a couple: Sales CRM's own facts
-                (stage, committed revenue, close date, lead source) overwrite ours, and
-                everything else — volume, destination, contact, go-live — fills a blank
-                only, because PNS corrects those here deliberately. A <b>closed</b> stage
+                <b>Sales CRM always takes priority</b> (Baskoro, 2026-08-14). Every field
+                it carries is overwritten here — including potential revenue, service line
+                and account tier, which used to be left alone. A correction made in this
+                app to any of them survives only until the next run; if it is wrong, fix
+                it in Sales CRM. The one exception is the go-live date, which fills a
+                blank only: Sales CRM's <i>expected close date</i> is when the deal closes,
+                not when the shipper starts shipping. A <b>closed</b> stage
                 also moves our status: Closed-Lost and Future Opportunity become Lost;
                 the accepted stages become Ready to Ship, and if the onboarding fields are
                 still blank, PNS and Sales are told which ones. Service and account tier
-                are still left alone.
                 <br />
-                <b>Potential revenue</b> is filled in when ours is still 0 and Sales CRM
-                now has a figure — that is filling a gap, not overwriting a correction —
-                and the routing is re-derived with it.
+                Whenever revenue, service or tier changes, the <b>routing is re-derived</b>
+                on the corrected facts and the change is written to the ticket history,
+                so nobody has to work out why a deal moved sides.
               </p>
             </div>
-            <Table head={["Opportunity", "Name", "Sales CRM stage", "Our status"]}
+            <Table head={["Opportunity", "Name", "Sales CRM stage", "Our status", "Overwritten"]}
               rows={res.refreshed || []}
               empty="No held tickets were re-read in this run."
               render={(r, idx) => (
@@ -258,6 +312,11 @@ export default function Sync({ notify }) {
                         )}
                       </>
                     ) : <span className="text-slate-400">unchanged</span>}
+                  </td>
+                  <td className="px-4 py-2.5 text-[12px] text-slate-600">
+                    {r.overwritten?.length
+                      ? r.overwritten.join("; ")
+                      : <span className="text-slate-400">nothing</span>}
                   </td>
                 </tr>
               )} />

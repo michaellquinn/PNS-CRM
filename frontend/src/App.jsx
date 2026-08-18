@@ -20,7 +20,7 @@ import { ReviewMeeting } from "./screens/Meetings";
 import StatusFlow from "./screens/StatusFlow";
 import DataChecks from "./screens/DataChecks";
 import {
-  AwaitingPrice, Open, PendingCrmId, ToReview, HeadReview, PspPending, ExecSignoff,
+  AwaitingPrice, Open, PendingCrmId, ToReview, PspPending, ExecSignoff,
   Proposals, ReadyToShip, RecycleBin, Watched,
 } from "./screens/Queues";
 
@@ -54,9 +54,6 @@ const NAV = [
     { id: "awaiting", label: "Awaiting price", icon: "◷", count: "awaiting", keywords: "pricing" },
     { id: "review", label: "Review - Head PNS", icon: "◎", count: "Pending Review - Head PNS",
       keywords: "pns view pns review" },
-    // Named for the head who actually owes it — "Need review" told nobody whose it was.
-    { id: "head", label: "Review - Head Sales", icon: "⚑", count: "Pending Review - Head Sales",
-      keywords: "sales view head review below bottom floor" },
     { id: "psp-pending", label: "Review - PSP", icon: "✓", count: "Pending Review - PSP",
       tag: "PSP", keywords: "psp pending margin approval decided finished history" },
     { id: "signoff", label: "Review - C-level", icon: "★", count: "Pending Review - C-level",
@@ -416,7 +413,6 @@ export default function App() {
     crmid: <PendingCrmId me={me} notify={notify} onOpen={open} />,
     awaiting: <AwaitingPrice me={me} notify={notify} onOpen={open} />,
     review: <ToReview me={me} notify={notify} onOpen={open} />,
-    head: <HeadReview me={me} notify={notify} onOpen={open} />,
     signoff: <ExecSignoff me={me} notify={notify} onOpen={open} />,
     "psp-pending": <PspPending me={me} notify={notify} onOpen={open} />,
     proposals: <Proposals me={me} notify={notify} onOpen={open} />,

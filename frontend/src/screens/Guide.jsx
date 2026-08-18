@@ -45,7 +45,7 @@ const TASKS = [
     who: "Anyone",
     go: "matrix",
     steps: [
-      "Below the tier floor → Pending Review - PSP first, then Pending Review - Head Sales. PSP settles whether the margin is survivable; the Sales Head then decides whether Sales will wear the concession. Where PSP does not take the ticket, it goes straight to the Sales Head and they are the only gate.",
+      "Below the tier floor → Pending Review - PSP. PSP settles whether the margin is survivable, and the Head of Sales accepts the commercial concession in Sales CRM rather than here. Where PSP does not take the ticket, the Head of PNS is the remaining gate.",
       "Sales priced a Hypercare, Strategic or Must Win deal → Pending Review - Head PNS. That queue is the Head of PNS’s own oversight of the three watched groups, and nothing else lands in it.",
       "Sales priced anything else at or above Rp 30 Mio → Pending PNS, assigned like ordinary PNS work. It is still checked, just not by the Head.",
       "Managed account, Sameday discount over 20%, FTL at or above Rp 30 Mio, or an escalation → Pending Review - PSP.",
@@ -54,13 +54,14 @@ const TASKS = [
     ],
   },
   {
-    q: "I want to approve a price below the floor",
-    who: "Sales Head (PNS Head during the pilot)",
-    go: "head",
+    q: "The price is below the floor — who approves that?",
+    who: "PSP on the margin; the Head of Sales in SALES CRM, not here",
+    go: "psp-pending",
     steps: [
-      "Open Review - Head Sales. Each card shows the submitted margin and the attached spreadsheet. If the ticket went through PSP, they have already approved the margin — what is left is the commercial concession.",
-      "Acknowledge to release it. This is the last gate on that path, so the proposal goes out (or to C-level sign-off on a managed account).",
-      "Or type a note and Send back, which returns it to whoever priced it with your reason attached.",
+      "First: a Standard deal can never be below the floor. Attaching one is refused outright, with the two real options — reprice inside the ceiling, or ask the Head of PNS to tag the deal Must Win if it genuinely warrants the exception.",
+      "On a watched group (Hypercare, Strategic, Must Win), PSP rules on whether the margin is survivable, then the Head of PNS finalises the solution, then C-level sign it.",
+      "The commercial concession itself — whether Sales will wear the discount — is the Head of Sales's call, and they make it in SALES CRM (Baskoro, 2026-08-14). This app no longer holds a queue for it, because a gate nobody opens just leaves the ticket waiting.",
+      "Where PSP does not take the ticket at all (a Must Win on a Standard account with no exception recorded), the Head of PNS is the remaining gate here.",
     ],
   },
   {
@@ -285,9 +286,9 @@ export default function Guide({ onGo }) {
         </div>
         <p className="text-[13px] leading-relaxed text-slate-600">
           Intake → the responsible side prices it → the gates that its rule triggered clear
-          in order (<b>Head PNS</b> for the three watched groups, <b>Head Sales</b> for a price
-          below the floor, <b>PSP</b> for the margin, <b>C-level</b> for managed accounts,
-          always last) → the proposal goes out → Sales records won or lost → the charter is
+          in order (<b>Head PNS</b> for the three watched groups, <b>PSP</b> for the margin,
+          <b>C-level</b> for managed accounts, always last — the Head of Sales approves in
+          Sales CRM, not here) → the proposal goes out → Sales records won or lost → the charter is
           published and Ops onboard. Everything else in this app is a way of seeing where a
           ticket currently sits in that line.
         </p>

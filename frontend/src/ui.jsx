@@ -58,7 +58,6 @@ const TONE = {
   "Pending Sales": "bg-sky-50 text-sky-700",
   "Pending PNS": "bg-violet-50 text-violet-700",
   "Pending Review - Head PNS": "bg-violet-50 text-violet-700",
-  "Pending Review - Head Sales": "bg-amber-50 text-amber-700",
   "Pending Review - PSP": "bg-amber-50 text-amber-700",
   "Pending Review - Head PSP": "bg-amber-100 text-amber-900",
   "Pending Vendor": "bg-slate-100 text-slate-600",
@@ -80,6 +79,21 @@ export function Pill({ children, dot = false, tone }) {
   return (
     <span className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1 text-xs font-semibold ${cls}`}>
       {dot && <span className="h-1.5 w-1.5 rounded-full bg-current" />}
+      {children}
+    </span>
+  );
+}
+
+// Sales CRM's commercial stage, styled to match our status pill in shape and weight but
+// deliberately not in colour (Baskoro, 2026-08-14: "similar design ... important to
+// show"). Both are states and both matter at a glance, so a coloured pill next to bare
+// grey text made one look like data and the other like a footnote. Outlined slate says
+// "a state, from the other system" without competing with the status palette.
+export function StagePill({ children }) {
+  if (!children) return <span className="text-slate-300">—</span>;
+  return (
+    <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-600">
+      <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
       {children}
     </span>
   );

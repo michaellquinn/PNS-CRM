@@ -25,7 +25,7 @@ const SYNC = {
   overwritten: ["Sales CRM owns it", "bg-sky-50 text-sky-700",
     "Re-copied on every sync. A correction made here is overwritten — fix it in Sales CRM."],
   "gap-fill": ["Fills a blank only", "bg-emerald-50 text-emerald-700",
-    "The sync fills it while ours is empty and never overwrites it, so a correction here survives."],
+    "The sync fills it while ours is empty and never overwrites it, so a correction here survives. Only the go-live date works this way now."],
   never: ["Never synced", "bg-slate-100 text-slate-500",
     "Sales CRM does not carry it. It is only ever what somebody typed here."],
 };
@@ -150,10 +150,15 @@ export default function Fields() {
           Corrections that will not survive the next sync
         </div>
         <p className="mt-1 text-[13px] leading-relaxed text-slate-700">
-          Sales CRM is the system of record for {d.crm_owned_columns.join(", ")}. Those
-          are re-copied on every run, so correcting one here lasts until the morning.
-          Fix them in Sales CRM. Everything else is either filled only while ours is
-          blank, or never touched at all.
+          <b>Sales CRM always takes priority</b> (Baskoro, 2026-08-14). Every field it
+          carries is re-copied on every run — including <b>potential revenue, service line
+          and account tier</b>, which used to be left alone. Correcting any of them here
+          lasts until the next sync; if the value is wrong, fix it in Sales CRM.
+          <br />
+          Two exceptions, both deliberate. The <b>go-live date</b> fills a blank only —
+          Sales CRM's expected <i>close</i> date is when the deal closes, not when the
+          shipper starts shipping. And a field Sales CRM does not send is never treated as
+          an instruction to blank ours.
         </p>
       </Card>
 

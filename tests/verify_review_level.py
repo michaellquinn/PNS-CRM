@@ -97,29 +97,39 @@ print(f"verify_review_level.py  {len(CASES)} review cases + 5 group cases PASSED
 S = lambda x: x.replace("Pending Review - ", "").replace("Pending ", "")
 CHAINS = [
     ("Hypercare below floor", {"acct_type": "Hypercare", "must_win": 0, "exec_signoff": 0}, True,
-     ["PSP", "Head PSP", "Head PNS", "Head Sales", "C-level"]),
+     ["PSP", "Head PSP", "Head PNS", "C-level"]),
     ("Strategic below floor", {"acct_type": "Strategic", "must_win": 0, "exec_signoff": 0}, True,
-     ["PSP", "Head PSP", "Head PNS", "Head Sales", "C-level"]),
+     ["PSP", "Head PSP", "Head PNS", "C-level"]),
     # Must Win ends at C-level like the other two: a deal the business has declared it
     # must win is one the executives want to see, whatever the account tier says.
     ("Must Win below floor", {"acct_type": "Standard", "must_win": 1, "exec_signoff": 0}, True,
-     ["PSP", "Head PSP", "Head PNS", "Head Sales", "C-level"]),
+     ["PSP", "Head PSP", "Head PNS", "C-level"]),
     ("Hypercare clean", {"acct_type": "Hypercare", "must_win": 0, "exec_signoff": 0}, False,
-     ["Head PNS", "Head Sales", "C-level"]),
+     ["Head PNS", "C-level"]),
     ("Must Win clean", {"acct_type": "Standard", "must_win": 1, "exec_signoff": 0}, False,
-     ["Head PNS", "Head Sales", "C-level"]),
+     ["Head PNS", "C-level"]),
     ("Standard >= 30 Mio", {"acct_type": "Standard", "must_win": 0, "needs_review": 1}, False,
      ["PNS"]),
+    # The Head of Sales gate was retired on 2026-08-14 -- they approve in Sales CRM. A
+    # Standard deal under 30 Mio now has NOTHING left to clear here, so its chain is
+    # empty and the proposal goes straight out. An empty chain is the assertion, not an
+    # oversight: if a gate ever reappears here it should fail this line loudly.
     ("Standard < 30 Mio", {"acct_type": "Standard", "must_win": 0, "needs_review": 0}, False,
-     ["Head Sales"]),
+     []),
 ]
 chain_fails = []
 for name, t, below, want in CHAINS:
     got = [S(x) for x in approval_chain(t, below)]
     if got != want:
         chain_fails.append(f"{name}: {' -> '.join(got)}  != expected  {' -> '.join(want)}")
-    # Walking the chain must end at the proposal, never loop or stall.
-    cur, seen = approval_chain(t, below)[0], []
+    # Walking the chain must end at the proposal, never loop or stall. An empty chain
+    # is already at the end -- next_gate() answers Proposal Submitted from anywhere.
+    chain = approval_chain(t, below)
+    if not chain:
+        if next_gate({**t, "below_bottom": int(below)}, None) != "Proposal Submitted":
+            chain_fails.append(f"{name}: empty chain must go straight to the proposal")
+        continue
+    cur, seen = chain[0], []
     for _ in range(10):
         seen.append(cur)
         nxt = next_gate({**t, "below_bottom": int(below)}, cur)

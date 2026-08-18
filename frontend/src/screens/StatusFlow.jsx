@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
-import { Card, Head, Pill } from "../ui";
+import { Card, Head, Pill, StagePill } from "../ui";
 
 // "Is there a clear trigger for how each status moves?" — Baskoro, 2026-08-14. There
 // was one for every move, but it was spread across nine endpoints and could only be
@@ -88,6 +88,41 @@ export default function StatusFlow() {
               <b>{m.to}</b>
               <span className="text-slate-600"> — {m.trigger}</span>
               <span className="text-slate-400"> ({m.who})</span>
+            </div>
+          ))}
+        </div>
+      </Card>
+
+      {/* Sales CRM's stage is not our status — but some stages DO move ours, and which
+          ones was only discoverable by reading the backend. Served from the same
+          constants the sync applies, so it cannot drift from what actually happens. */}
+      <Card className="mb-4">
+        <div className="border-b border-slate-200 px-4 py-3">
+          <h2 className="text-[13.5px] font-semibold">
+            What a Sales CRM stage does to our status
+          </h2>
+          <p className="text-[12px] text-slate-500">
+            The two are different questions: Sales CRM owns the <b>commercial stage</b>,
+            this app owns the <b>solutioning status</b>. Only the terminal stages override
+            ours — everything else leaves it alone, which is why a deal can sit at
+            Negotiation there while PNS is still pricing here.
+          </p>
+        </div>
+        <div className="divide-y divide-slate-100">
+          {d.stage_rules.map((r, i) => (
+            <div key={i} className="grid gap-2 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)]">
+              <div>
+                <div className="flex flex-wrap gap-1.5">
+                  {r.stages.map((st) => <StagePill key={st}>{st}</StagePill>)}
+                </div>
+                <div className="mt-1.5 text-[12px]">
+                  <span className="text-slate-400">becomes </span>
+                  {r.becomes
+                    ? <Pill dot>{r.becomes}</Pill>
+                    : <b className="text-slate-600">nothing — our status is untouched</b>}
+                </div>
+              </div>
+              <p className="text-[12.5px] leading-relaxed text-slate-600">{r.why}</p>
             </div>
           ))}
         </div>

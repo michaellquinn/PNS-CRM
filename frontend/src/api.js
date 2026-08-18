@@ -80,7 +80,6 @@ export const api = {
   // The Head of PNS finalises the solution; the server decides what comes next, so the
   // caller cannot accidentally skip PSP or C-level by naming a status.
   pnsFinal: (ref) => call(`/tickets/${ref}/pns-final`, { method: "POST" }),
-  headAck: (ref) => call(`/tickets/${ref}/head-ack`, { method: "POST" }),
   psp: (ref, body) => call(`/tickets/${ref}/psp`, { method: "POST", body: JSON.stringify(body) }),
   execSignoff: (ref, body) =>
     call(`/tickets/${ref}/exec-signoff`, { method: "POST", body: JSON.stringify(body) }),
@@ -94,6 +93,9 @@ export const api = {
     call(`/tickets/${encodeURIComponent(ref)}/kickoff/send`,
       { method: "POST", body: JSON.stringify(body || {}) }),
   workload: () => call("/workload"),
+  // Whether the 5-minute timer is on, and what it did last. A failing timer is silent
+  // by nature, so the Sync screen reads this and says so.
+  autoSync: () => call("/sync/auto"),
   syncSalesCrm: (body) =>
     call("/sync/salescrm", { method: "POST", body: JSON.stringify(body || {}) }),
   pspAssign: (ref, assignee) =>
@@ -177,7 +179,7 @@ export const SERVICES = ["LTL", "B2BR", "B2C", "FTL on-call", "FTL monthly", "Sa
 export const FTL = ["FTL on-call", "FTL monthly"];
 
 export const STATUSES = [
-  "Pending CRM ID", "Open", "Pending Sales", "Pending Review - Head Sales", "Pending PNS", "Pending Review - Head PNS",
+  "Pending CRM ID", "Open", "Pending Sales", "Pending PNS", "Pending Review - Head PNS",
   "Pending Review - PSP", "Pending Review - Head PSP", "Pending Vendor", "Pending Review - C-level", "Proposal Submitted",
   "Proposal Accepted / Ready to Ship", "Lost", "Cancel",
 ];

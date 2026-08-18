@@ -3,6 +3,27 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-08-14",
+    title: "Head of Sales approves in Sales CRM; Sales CRM wins; the sync runs itself",
+    by: "Baskoro + Claude",
+    changes: [
+      "The Head of Sales gate is removed from the approval chain. They approve in Sales CRM, where they already work — a queue here that nobody opens does not gate anything, it just leaves the ticket waiting. Checked first: zero tickets were sitting at that status, so nothing was stranded. A watched deal below the floor now goes PSP → Head of PNS → C-level, and a Standard deal under Rp 30 Mio has nothing left to clear here at all: Sales priced it, Sales owns it, the proposal goes straight out.",
+      "Sales CRM always takes priority. Every field it carries is now overwritten on every run — including potential revenue, service line and account tier, which used to be left alone on the reasoning that PNS corrects them deliberately. That reasoning is overruled: a copy that disagrees with its source is worse than no copy, because people believe it. The consequence is intended and worth saying plainly — a correction made here to any of those three survives only until the next run. If the value is wrong, fix it in Sales CRM.",
+      "One deliberate exception: the go-live date still only fills a blank. Sales CRM's expected CLOSE date is when the deal closes, not when the shipper starts shipping — letting one overwrite the other would not be honouring the rule, it would be filling a field with the answer to a different question.",
+      "Whenever revenue, service or tier changes, the routing is re-derived on the corrected facts and the change is written to the ticket history, so nobody has to work out why a deal changed sides overnight. The sync screen lists exactly what each refresh overwrote.",
+      "The sync now runs itself every 5 minutes. Sales CRM has no webhooks, so the app was only ever as fresh as the last person who remembered to press the button. It skips a tick rather than queueing when a manual run is in progress, and — because an unattended sync that dies is silent by nature — its last result is kept and shown at the top of the Sync screen. A failed run gets a red banner naming the likeliest cause, the API key expiring, which it does roughly every 30 days.",
+      "The account group is a real link now. Hypercare and Strategic are inherited from the parent account, so an account whose parent you could not open was one whose tier the screen could not explain. Accounts shows the parent by name, links into Sales CRM, and says how many other shippers sit in the same group.",
+      "Our status and the Sales CRM stage now read as the same kind of thing in the table. Ours was a coloured pill and theirs was bare grey text, which made one look like data and the other like a footnote — both are states and both matter at a glance. The stage gets a matching pill shape in a deliberately different palette, so they can never be mistaken for each other either.",
+      "Reference / Status flow gains the stage mapping: which Sales CRM stages move our status, which is all of them and none. Only the terminal ones override ours — Closed-Lost and Future Opportunity become Lost, the accepted stages become Ready to Ship — and everything else is left alone, which is why a deal can sit at Negotiation there while PNS is still pricing here. Served from the same constants the sync applies.",
+      "verify_sync_guards grew checks for both new rules: that every mapped field is Sales CRM's bar the stated go-live exception, that the refresh overwrites service and tier and records what it changed, and that the auto-sync loop records its failures rather than dying quietly.",
+    ],
+    overruled: [
+      "Pending Review - Head Sales is gone as a status, a queue, a nav entry and a permission. head_ack, headAck and head_for went with it. Approvals already recorded against it are kept — they are a record of what happened.",
+      "Potential revenue, service line and account tier were never overwritten by the sync. All three are now. This reverses the rule stated on 2026-08-14 morning that PNS corrections to those fields survive.",
+      "The sync only ran when somebody pressed the button.",
+    ],
+  },
+  {
+    date: "2026-08-14",
     title: "Dashboard PNS: the same board, cut to the work PNS actually owns",
     by: "Michael + Claude",
     changes: [

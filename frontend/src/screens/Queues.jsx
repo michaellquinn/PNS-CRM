@@ -587,56 +587,10 @@ export function ToReview({ me, onOpen, notify }) {
   );
 }
 
-/* ---------------------------------------------------------------- head review */
-export function HeadReview({ me, onOpen, notify }) {
-  const [rows, err, reload] = useTickets({ status: "Pending Review - Head Sales" });
-  const [note, setNote] = useState({});
-  const [list, f, set, clear, patch] = useFilter(rows);
-  const act = async (fn) => { try { await fn(); notify("Done"); await reload(); } catch (e) { notify(e.message); } };
-
-  // Everyone may watch this queue; only the Sales Head (or Admin) holds the pen.
-  const mayAck = me.permissions.headAck;
-
-  return (
-    <Shell title="Review - Head Sales"
-      sub="Prices below the tier floor, checked automatically or flagged by hand. The Sales Head acknowledges, then PSP signs off on the margin before it goes out."
-      right={<span className="text-[12px] text-slate-500">
-        {mayAck ? "You can acknowledge" : "View only — the Sales Head decides"}
-      </span>}
-      rows={rows} err={err} empty="Nothing needs the Sales Head."
-      bar={<FilterBar f={f} set={set} clear={clear} patch={patch} me={me}
-        shown={list.length} total={(rows || []).length} rows={rows} />}
-      filtered={list}>
-      {(list) => list.map((t) => (
-        <TicketCard key={t.ref} t={t} onOpen={onOpen}
-          badges={[<Pill key="b" tone="bg-amber-50 text-amber-700">Below bottom rate</Pill>]}>
-          {(t.price_file || t.price_url) && <p className="mb-2 text-[13px]"><PriceChip file={t.price_file} url={t.price_url} /></p>}
-          {t.margin != null && (
-            <p className="mb-3 text-[13px]">Margin submitted: <b className="font-mono">{t.margin}%</b></p>
-          )}
-          {mayAck ? (
-            <div className="flex flex-wrap items-center gap-2">
-              <input className={`${inputCls} max-w-[320px]`} placeholder="Note (required to send back)"
-                value={note[t.ref] || ""} onChange={(e) => setNote({ ...note, [t.ref]: e.target.value })} />
-              <Btn onClick={() => act(() => api.status(t.ref, {
-                status: t.priced_by === "PNS" ? "Pending PNS" : "Pending Sales", reason: note[t.ref],
-              }))}>
-                Send back to {t.priced_by === "PNS" ? "PNS" : "Sales"}
-              </Btn>
-              <Btn kind="primary" className="ml-auto" onClick={() => act(() => api.headAck(t.ref))}>
-                Acknowledge — send to PSP
-              </Btn>
-            </div>
-          ) : (
-            <p className="text-[12.5px] text-slate-500">
-              Waiting on the Sales Head to acknowledge or send back.
-            </p>
-          )}
-        </TicketCard>
-      ))}
-    </Shell>
-  );
-}
+/* The "Review - Head Sales" screen lived here. Retired 2026-08-14: the Head of Sales
+   accepts a below-floor concession in Sales CRM, where they already work, so this app no
+   longer holds a queue for them. A gate nobody opens is worse than no gate — the ticket
+   just waits. Zero tickets held that status when it went, so nothing was stranded. */
 
 /* ---------------------------------------------------------------- PSP */
 export function PspPending({ me, onOpen, notify }) {

@@ -48,17 +48,33 @@ function Row({ a, onOpen }) {
 
       {open && (
         <div className="border-t border-slate-100 px-4 py-3">
-          {a.account_url && (
-            <p className="mb-2.5 text-[12px]">
+          <p className="mb-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px]">
+            {a.account_url && (
               <a href={a.account_url} target="_blank" rel="noopener noreferrer"
                 className="text-sky-700 hover:underline">
-                Open account {a.account_id} in Sales CRM
+                Open account {a.account_id} in Sales CRM ↗
               </a>
-              {a.parent_account_id && (
-                <span className="text-slate-400"> · parent {a.parent_account_id}</span>
-              )}
-            </p>
-          )}
+            )}
+            {/* The account GROUP. Hypercare and Strategic are inherited from the parent,
+                so an account whose parent you cannot open is one whose tier this screen
+                cannot explain. It was a bare grey id until 2026-08-14. */}
+            {a.parent_account_id && (
+              <span className="text-slate-500">
+                Part of{" "}
+                {a.parent_account_url ? (
+                  <a href={a.parent_account_url} target="_blank" rel="noopener noreferrer"
+                    className="font-medium text-sky-700 hover:underline">
+                    {a.parent_account_name || `account group ${a.parent_account_id}`} ↗
+                  </a>
+                ) : (
+                  <b>{a.parent_account_name || a.parent_account_id}</b>
+                )}
+                {a.siblings_in_group > 0 && (
+                  <> · {a.siblings_in_group} other{a.siblings_in_group === 1 ? "" : "s"} in the group</>
+                )}
+              </span>
+            )}
+          </p>
           {a.tickets.map((t) => (
             <div key={t.ref}
               className="flex flex-wrap items-center gap-3 border-b border-slate-100 py-2 last:border-0">

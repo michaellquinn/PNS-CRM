@@ -90,7 +90,6 @@ CASES = [
     ("Pending Review - Head PNS", "Pending Review - PSP", True),
     # A reviewer sending it back for rework, from any gate.
     ("Pending Review - C-level", "Pending PNS", True),
-    ("Pending Review - Head Sales", "Pending Sales", True),
     ("Pending Review - Head PSP", "Pending PNS", True),
     # Sales recording the outcome.
     ("Proposal Submitted", "Proposal Accepted / Ready to Ship", True),
