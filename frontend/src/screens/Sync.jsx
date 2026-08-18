@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, rp } from "../api";
+import { api, WATCHED_GROUPS, rp } from "../api";
 import { Btn, Card, Head, Pill, inputCls } from "../ui";
 
 // Manual sync. Dry run is the default and the destructive button is deliberately the
@@ -30,6 +30,7 @@ export default function Sync({ notify }) {
   const [mode, setMode] = useState("both");   // both | new | refresh | ids
   const [ids, setIds] = useState("");
   const [auto, setAuto] = useState(null);
+  const [groups, setGroups] = useState([]);   // [] = every group
 
   // The timer is the thing most likely to be quietly broken — the Sales CRM key expires
   // about every 30 days and an automatic run has nobody watching it. So its last result
@@ -45,6 +46,7 @@ export default function Sync({ notify }) {
       pages: mode === "refresh" || mode === "ids" ? 0 : Number(pages) || 0,
       refresh: mode !== "new" && mode !== "ids",
       ids: mode === "ids" ? idList : [],
+      groups,
       dry_run: dry,
       ...override,
     };
@@ -88,6 +90,39 @@ export default function Sync({ notify }) {
             </button>
           ))}
           <p className="w-full text-[11.5px] text-slate-500">{modeHint}</p>
+          {/* Narrow a run to the deals somebody is actually asked about in a meeting.
+              Sales CRM has no field for any of the three — the account tier is resolved
+              by walking up to the parent group, Must Win is a Lead Source Detail value —
+              so this is applied after each account is read, not sent as a query. That
+              makes a scoped run cheaper in tickets touched, not in API calls. */}
+          {mode !== "ids" && (
+            <div className="flex w-full flex-wrap items-center gap-2 border-t border-slate-100 pt-2.5">
+              <span className="text-[10.5px] font-bold uppercase tracking-wider text-slate-400">
+                Limit to
+              </span>
+              {WATCHED_GROUPS.map((g) => {
+                const on = groups.includes(g.id);
+                return (
+                  <button key={g.id} type="button" aria-pressed={on}
+                    onClick={() => setGroups(on ? groups.filter((x) => x !== g.id)
+                                                 : [...groups, g.id])}
+                    className={`whitespace-nowrap rounded-full border px-3 py-1.5 text-[12.5px] font-semibold ${
+                      on ? "border-transparent " + g.tone + " ring-2 ring-slate-900/20"
+                         : "border-slate-300 bg-white text-slate-600 hover:border-slate-400"}`}>
+                    {g.label}
+                  </button>
+                );
+              })}
+              <span className="text-[11.5px] text-slate-500">
+                {groups.length === 0
+                  ? "Every group, including Standard — the routine run."
+                  : `Only ${groups.join(", ")}. Everything else is skipped with that reason, and held tickets outside these groups are not re-read either.`}
+              </span>
+              {groups.length > 0 && (
+                <Btn onClick={() => setGroups([])}>All groups</Btn>
+              )}
+            </div>
+          )}
           {mode === "ids" && (
             <div className="w-full">
               <textarea className={`${inputCls} min-h-[84px] font-mono text-[12.5px]`}
@@ -273,9 +308,9 @@ export default function Sync({ notify }) {
                 it carries is overwritten here — including potential revenue, service line
                 and account tier, which used to be left alone. A correction made in this
                 app to any of them survives only until the next run; if it is wrong, fix
-                it in Sales CRM. The one exception is the go-live date, which fills a
-                blank only: Sales CRM's <i>expected close date</i> is when the deal closes,
-                not when the shipper starts shipping. A <b>closed</b> stage
+                it in Sales CRM. Since 18 August the go-live date comes from Sales CRM's
+                <i>target start date</i> rather than its close date — the field that
+                actually answers the question. A <b>closed</b> stage
                 also moves our status: Closed-Lost and Future Opportunity become Lost;
                 the accepted stages become Ready to Ship, and if the onboarding fields are
                 still blank, PNS and Sales are told which ones. Service and account tier

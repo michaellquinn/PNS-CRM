@@ -133,12 +133,27 @@ _keep = [n for n in ast.parse(SRC).body
 exec(compile(ast.Module(body=_keep, type_ignores=[]), "<maps>", "exec"), _maps)
 _not_owned = [k for m in ("CRM_OPP_PAYLOAD", "CRM_ACCOUNT_PAYLOAD")
               for k, _n, _l, owned in _maps[m] if not owned]
-# golive is the ONE deliberate exception: Sales CRM's expected CLOSE date is not a
-# go-live date, so letting it overwrite one would corrupt the field rather than honour
-# the rule. Any other name here is a regression, not a decision.
-check("every mapped field is Sales CRM's, bar the stated exception",
-      _not_owned == ["golive"],
-      "not owned: %s -- expected only ['golive']" % _not_owned)
+# There is no exception any more. golive was one until 2026-08-18, because it read
+# expected_close_date -- when the DEAL closes, not when the shipper starts shipping.
+# Baskoro's field list showed Sales CRM has target_start_date, so it reads the right
+# field now and the rule applies everywhere without carve-outs. Anything appearing here
+# is a field somebody quietly decided the sync should not own; that is a decision worth
+# making out loud, not in a flag.
+check("every mapped field is Sales CRM's, with no exceptions",
+      _not_owned == [],
+      "not owned: %s -- expected none" % _not_owned)
+
+# The intake questions Sales CRM already answers. Each of these was being asked of a
+# salesperson who had just typed the answer into Sales CRM, which is how intake ends up
+# half empty. Named individually so removing one is a deliberate act.
+_opp = {k: names for k, names, _l, _o in _maps["CRM_OPP_PAYLOAD"]}
+for _key, _src in (("golive", "target_start_date"), ("cod", "cash_on_delivery_cod"),
+                   ("ins", "insurance"), ("wt", "weight_per_shipment"),
+                   ("sla", "service_level"), ("freq", "frequency_of_shipment"),
+                   ("delSlot", "delivery_slas"), ("dim", "size_paket"),
+                   ("handling", "shipping_requirements")):
+    check(f"{_key} is filled from {_src}", _src in _opp.get(_key, []),
+          "Sales CRM holds this answer already")
 
 _ref = body_of("_refresh_from_salescrm")
 check("the refresh overwrites the service line", "service_type=%s" in _ref,

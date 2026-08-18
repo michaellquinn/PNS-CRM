@@ -25,7 +25,7 @@ const SYNC = {
   overwritten: ["Sales CRM owns it", "bg-sky-50 text-sky-700",
     "Re-copied on every sync. A correction made here is overwritten — fix it in Sales CRM."],
   "gap-fill": ["Fills a blank only", "bg-emerald-50 text-emerald-700",
-    "The sync fills it while ours is empty and never overwrites it, so a correction here survives. Only the go-live date works this way now."],
+    "The sync fills it while ours is empty and never overwrites it, so a correction here survives. Nothing works this way any more — kept because a future mapping might need it."],
   never: ["Never synced", "bg-slate-100 text-slate-500",
     "Sales CRM does not carry it. It is only ever what somebody typed here."],
 };
@@ -155,10 +155,9 @@ export default function Fields() {
           and account tier</b>, which used to be left alone. Correcting any of them here
           lasts until the next sync; if the value is wrong, fix it in Sales CRM.
           <br />
-          Two exceptions, both deliberate. The <b>go-live date</b> fills a blank only —
-          Sales CRM's expected <i>close</i> date is when the deal closes, not when the
-          shipper starts shipping. And a field Sales CRM does not send is never treated as
-          an instruction to blank ours.
+          One exception, and it is not a carve-out: a field Sales CRM does not send is
+          never treated as an instruction to blank ours. It returns only populated
+          fields, so absent means “no answer”, not “make it empty”.
         </p>
       </Card>
 

@@ -49,6 +49,13 @@ const NAV = [
       keywords: "pns overview clean filtered my team work review" },
     { id: "mine", label: "My requests", icon: "◐", when: works, keywords: "my tickets assignment" },
     { id: "new", label: "New request", icon: "＋", when: (m) => m.permissions.createTicket },
+    // Baskoro's call, 2026-08-18: back in Solutioning. Michael grouped it under Sales
+    // CRM in .42 with the other opportunity-shaped screens, which is a fair reading —
+    // but this is not a Sales CRM screen, it is the FIRST STOP of the pipeline. A ticket
+    // sitting here is a solutioning ticket that cannot start, and the people who clear
+    // it are working the queues above and below it, not the sync.
+    { id: "crmid", label: "Pending CRM ID", icon: "⚠", count: "Pending CRM ID",
+      keywords: "crm id missing blocked salesforce opportunity" },
     { id: "open", label: "Open", icon: "○", count: "Open",
       keywords: "open ready unclaimed available not started" },
     { id: "awaiting", label: "Awaiting price", icon: "◷", count: "awaiting", keywords: "pricing" },
@@ -73,8 +80,6 @@ const NAV = [
   // Everything that traces back to a Sales CRM opportunity, together: what is blocked
   // on a CRM id, the accounts those opportunities roll up to, and the sync itself.
   ["Sales CRM", [
-    { id: "crmid", label: "Pending CRM ID", icon: "⚠", count: "Pending CRM ID",
-      keywords: "crm id missing blocked salesforce opportunity" },
     // A ticket is per opportunity; an account normally runs several at once. Without
     // this the flat queues make one shipper look like four, which is what "why are
     // there duplicates?" turned out to mean most of the time.

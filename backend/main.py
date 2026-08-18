@@ -1647,22 +1647,30 @@ CRM_OPP_PAYLOAD = [
      "Destination", True),
     ("pickup",       ["pickup_areas", "pickup_area", "pickup_address"],
      "Pickup address", True),
-    ("pickSlot",     ["pickup_timing"], "Pickup time slot", True),
-    ("delSlot",      ["delivery_timing"], "Delivery time slot", True),
-    ("freq",         ["delivery_frequency", "shipment_frequency"],
+    ("pickSlot",     ["pickup_timing", "jadwal_pick_up"], "Pickup time slot", True),
+    ("delSlot",      ["delivery_slas", "delivery_timing"], "Delivery time slot", True),
+    ("freq",         ["frequency_of_shipment", "delivery_frequency", "shipment_frequency"],
      "Delivery frequency", True),
-    # THE ONE DELIBERATE EXCEPTION to "Sales CRM always wins", flagged to Baskoro on
-    # 2026-08-14: `expected_close_date` is when the DEAL is expected to close, and
-    # `golive` is when the shipper starts shipping. They are different facts that happen
-    # to be dates, so letting the close date overwrite a go-live Ops has committed to
-    # would not be honouring the rule, it would be corrupting a field with a value from
-    # a different question. It still fills a blank, which is where the mapping earns its
-    # place. Say so if this is revisited.
-    ("golive",       ["expected_close_date"], "Go-live date", False),
+    # Was the one exception to "Sales CRM always wins", because `expected_close_date` is
+    # when the DEAL closes and go-live is when the shipper starts shipping. Baskoro's
+    # field list (2026-08-18) shows Sales CRM has **target_start_date**, which is the
+    # field this should have been reading all along — so the exception is gone and the
+    # rule applies here like everywhere else. expected_close_date is kept as a fallback
+    # for opportunities raised before anyone filled the right one in.
+    ("golive",       ["target_start_date", "expected_close_date"], "Go-live date", True),
     ("shipperPic",   ["contact_name", "primary_contact_name"], "Shipper PIC", True),
     ("shipperContact", ["contact_phone", "primary_contact_phone", "contact_mobile"],
      "Contact shipper PIC", True),
     ("notes",        ["description", "next_step"], "Notes", True),
+    # Every one of these is a question the intake form ALREADY asks and Sales CRM already
+    # holds the answer to (Baskoro's field list, 2026-08-18). Asking a salesperson to
+    # retype what they typed in Sales CRM an hour ago is how intake ends up half empty.
+    ("wt",           ["weight_per_shipment"], "Parcel weight (kg)", True),
+    ("dim",          ["size_paket"], "Parcel dimension / size", True),
+    ("sla",          ["service_level"], "SLA", True),
+    ("cod",          ["cash_on_delivery_cod"], "COD", True),
+    ("ins",          ["insurance"], "Insurance", True),
+    ("handling",     ["shipping_requirements"], "Custom handling request", True),
     # Sales CRM's own numbers. Reported on alongside potential revenue, and both change
     # as a deal is negotiated, so these are re-read every time.
     ("committedRev", ["committed_revenue_mth"], "Committed revenue / month", True),
@@ -1672,6 +1680,56 @@ CRM_OPP_PAYLOAD = [
      "Lead source detail", True),
     ("crmProbability", ["probability"], "Probability", True),
     ("sfid",         ["salesforce_opportunity_id"], "Legacy Salesforce id", True),
+
+    # ---------------------------------------------------------------- reference only
+    # Carried onto the ticket but not onto the intake form: these are facts PNS reads
+    # while pricing rather than fields anybody fills in here. They show up under
+    # "Carried from Sales CRM" on Reference / Fields and in the Sales CRM record panel.
+    #
+    # The pricing ones matter most — a discount and a credit term that Sales has already
+    # promised the shipper are exactly the numbers a pricer needs before quoting, and
+    # until now they were only visible by opening Sales CRM in another tab.
+    ("crmDiscount",      ["shipper_discount_n"], "Shipper discount % (Sales CRM)", True),
+    ("crmCreditTerms",   ["Credit_Terms_days_n"], "Credit terms, days", True),
+    ("crmRateCard",      ["rate_card"], "Rate card named in Sales CRM", True),
+    ("crmBillingWeight", ["billing_weight_logic"], "Billing weight logic", True),
+    ("crmTotalWeightMth", ["total_weight_per_month"], "Total weight / month", True),
+    ("crmDropOffPoints", ["No_of_Drop_off_Points"], "Drop-off points", True),
+    ("crmRestockFreq",   ["Frequency_of_Restocks"], "Restock frequency", True),
+    ("crmBulky",         ["bulky_potential"], "Bulky potential", True),
+    ("crmBulkyRange",    ["bulky_weight_range"], "Bulky weight range", True),
+    # COD and insurance economics. Both are levers with fees attached, and both were
+    # yes/no questions here while Sales CRM held the actual numbers.
+    ("crmCodFee",        ["COD_Fee_n"], "COD fee", True),
+    ("crmCodMinFee",     ["cod_minimum_fee_n"], "COD minimum fee", True),
+    ("crmInsuranceFee",  ["insurance_fee"], "Insurance fee %", True),
+    ("crmInsuranceMin",  ["insurance_minimum_fee"], "Insurance minimum fee", True),
+    ("crmMaxLiability",  ["Max_Insurance_Liability_n"], "Max insurance liability", True),
+    # Why the deal was lost, in Sales CRM's own words. Our loss_reason stays our own
+    # short enum — the sync sets it to "Closed in Sales CRM" — but the real reason is
+    # worth carrying, because "salescrm" answers nothing in a win/loss review.
+    ("crmLossReason",    ["loss_reason"], "Loss reason (Sales CRM)", True),
+    ("crmLossDetail",    ["detailed_lost_reason"], "Detailed lost reason", True),
+    ("crmCompetitor",    ["competitor"], "Competitor", True),
+    # Onboarding and billing. Ops and Finance chase these by hand today.
+    ("crmShipperEmail",  ["shipper_email"], "Shipper email", True),
+    ("crmTaxId",         ["shipper_tax_id"], "Shipper tax ID", True),
+    ("crmBankName",      ["bank_name"], "Bank name", True),
+    ("crmBankAccount",   ["bank_account_number"], "Bank account number", True),
+    ("crmBankOwner",     ["bank_account_owner"], "Bank account owner", True),
+    ("crmCodReconAcct",  ["rekening_rekonsiliasi_cod"], "COD reconciliation account", True),
+    ("crmEmailClaim",    ["email_claim"], "Claims email", True),
+    ("crmEmailOnHold",   ["email_on_hold"], "On-hold email", True),
+    ("crmEmailCodRecon", ["email_rekonsiliasi_cod"], "COD reconciliation email", True),
+    # The four named contacts. Contact Lookups, so the value may arrive as an id rather
+    # than a name — carried verbatim either way, and the raw record on the ticket shows
+    # what actually came back.
+    ("crmBillingPic",    ["billing_person_lookup"], "Billing PIC (Sales CRM)", True),
+    ("crmLiaisonPic",    ["liaison_person_lookup"], "Liaison PIC (Sales CRM)", True),
+    ("crmReturnsPic",    ["returns_person_lookup"], "Returns PIC (Sales CRM)", True),
+    ("crmReservationPic", ["reservation_person_lookup"], "Reservation PIC (Sales CRM)", True),
+    ("crmDataEntry",     ["data_entry"], "Data entry required", True),
+    ("crmBreachClaim",   ["breach_claim"], "Breach claim", True),
 ]
 
 CRM_ACCOUNT_PAYLOAD = [
@@ -2004,6 +2062,16 @@ class SyncIn(BaseModel):
     # inclusive, YYYY-MM-DD. When set, `days` is ignored.
     since: str | None = None
     until: str | None = None
+    # Restrict the run to the watched groups (Baskoro, 2026-08-18). Empty = everything,
+    # which stays the default: this narrows a run, it does not change what the routine
+    # sync does.
+    #
+    # Sales CRM has no field for any of these. Hypercare and Strategic are resolved by
+    # walking the ACCOUNT group up to its parent, and Must Win is the Lead Source Detail
+    # value on the opportunity — so the filter can only be applied after the account has
+    # been fetched, not as a query parameter. That is why it lives here and not in the
+    # request to Sales CRM.
+    groups: list[str] = []
 
 
 # ------------------------------------------------------------------ automatic sync
@@ -2112,8 +2180,27 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
     truncated = False
 
     async with _sync_lock:
+        # Only these watched groups, when asked for. Validated rather than trusted: a
+        # typo would otherwise silently filter everything out and read as "nothing new".
+        wanted_groups = {g.strip() for g in body.groups if g and g.strip()}
+        bad = wanted_groups - {"Hypercare", "Strategic", "Must Win"}
+        if bad:
+            raise HTTPException(400, f"unknown group(s): {', '.join(sorted(bad))}. "
+                                     f"Choose from Hypercare, Strategic, Must Win.")
+
         known = {str(r["opportunity_id"]) for r in
                  await q("SELECT opportunity_id FROM tickets WHERE opportunity_id IS NOT NULL")}
+        # When a run is scoped to the watched groups, the refresh half is scoped with it:
+        # re-reading every held Standard ticket would make "Hypercare only" a lie about
+        # what the run touched.
+        if wanted_groups:
+            marks = ",".join(["%s"] * len(MANAGED_ACCTS))
+            held = await q(
+                f"SELECT t.opportunity_id AS oid FROM tickets t "
+                f"JOIN shippers s ON s.id=t.shipper_id "
+                f"WHERE t.opportunity_id IS NOT NULL AND t.deleted_at IS NULL "
+                f"AND (s.acct_type IN ({marks}) OR t.must_win=1)", tuple(MANAGED_ACCTS))
+            in_scope = {str(r["oid"]) for r in held}
         # Names this app already knows. A salesperson Sales CRM names but we have never
         # registered gets flagged rather than silently written onto a ticket as its PIC.
         known_people = {r["name"] for r in await q("SELECT name FROM users WHERE active=1")}
@@ -2207,7 +2294,7 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
             # 2. Opportunities behind tickets we already hold, read directly by id so
             #    their stage and revenue stay current. Bounded by our own ticket count.
             if body.refresh and not truncated and known and not body.ids:
-                ids = sorted(known)[:SYNC_REFRESH_MAX]
+                ids = sorted(in_scope if wanted_groups else known)[:SYNC_REFRESH_MAX]
                 sem = asyncio.Semaphore(SYNC_CONCURRENCY)
 
                 async def one(oid: str):
@@ -2298,6 +2385,8 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
                                         "why": f"on the ignore list: {ignored[oid]}"})
                         continue
                     if oid in known:
+                        if wanted_groups and oid not in in_scope:
+                            continue
                         # Already imported, so refresh the fields Sales CRM owns rather
                         # than skipping it. Stage, committed revenue and the close date
                         # are theirs, ours are only ever a copy, so theirs wins.
@@ -2384,6 +2473,19 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
                         }
                         mw, mw_field = read_must_win(o)
                         plan["must_win"] = mw
+                        # big_group() in the backend's own terms: the account tier wins,
+                        # else Must Win, else Standard. Kept identical to the rule the
+                        # rest of the app uses so a "Hypercare only" run means exactly
+                        # what the Hypercare screen means.
+                        plan["group"] = (acct_type if acct_type in MANAGED_ACCTS
+                                         else ("Must Win" if mw else None))
+                        if wanted_groups and plan["group"] not in wanted_groups:
+                            skipped.append({
+                                "id": oid, "name": o.get("name"),
+                                "why": f"not in the groups this run asked for "
+                                       f"({', '.join(sorted(wanted_groups))}) — it is "
+                                       f"{plan['group'] or 'Standard'}"})
+                            continue
                         if mw_field:
                             mustwin_fields.add(mw_field)
                         plan["crm_date"] = _crm_date(o)
