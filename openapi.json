@@ -454,6 +454,40 @@
         }
       }
     },
+    "/api/tickets/{ref}/pns-review": {
+      "post": {
+        "summary": "Accept the price Sales built, as an ordinary PNS reviewer",
+        "description": "Any PNS member (markReviewed). The gate a Standard deal reaches when Sales priced it at or above Rp 30 Mio: PNS reads the number before it goes to the shipper. Refuses with 409 unless the ticket is in 'Pending Review - PNS'. This endpoint is only the yes — disagreeing is POST .../status back to Pending Sales with a reason, and 'there is no rate to price against' is POST .../status to Pending Review - PSP, still gated on may_go_to_psp. Distinct from /pns-final, which is the Head finalising a whole watched solution; the two are different acts by different people and deliberately do not share an endpoint.",
+        "operationId": "pnsReview",
+        "parameters": [ { "$ref": "#/components/parameters/TicketRef" } ],
+        "responses": {
+          "200": {
+            "description": "Review recorded; the ticket moves to the next gate, normally Proposal Submitted",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Ok" } } }
+          },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "$ref": "#/components/responses/BadRequest" }
+        }
+      }
+    },
+    "/api/tickets/{ref}/pns-final": {
+      "post": {
+        "summary": "Finalise a watched solution and its pricing, as the Head of PNS",
+        "description": "Head of PNS (markReviewed). The FIRST gate on a Hypercare, Strategic or Must Win deal, whoever priced it: the solution is finished here before PSP or C-level are asked to sign anything. Refuses with 409 unless the ticket is in 'Pending Review - Head PNS'. The next status is decided by the approval chain recorded when the price was attached, not named by the caller, so the call cannot skip a later gate.",
+        "operationId": "pnsFinal",
+        "parameters": [ { "$ref": "#/components/parameters/TicketRef" } ],
+        "responses": {
+          "200": {
+            "description": "Finalised; the ticket moves to the next gate in its chain",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Ok" } } }
+          },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "$ref": "#/components/responses/BadRequest" }
+        }
+      }
+    },
     "/api/tickets/deleted": {
       "get": {
         "summary": "List the recycle bin — tickets that were soft-deleted",

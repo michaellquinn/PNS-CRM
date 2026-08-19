@@ -2,6 +2,22 @@ import { Card, Head, Pill } from "../ui";
 
 const ENTRIES = [
   {
+    date: "2026-08-18",
+    title: "Review - PNS is its own gate: Sales prices, PNS checks, and PSP stops jumping the queue",
+    by: "Michael + Claude",
+    changes: [
+      "FIXED: a Sales-priced deal at or above Rp 30 Mio could skip the PNS review entirely and land in PSP. Reported by Michael on Tanamera Coffee Indonesia (FTL on-call): the ticket said \"PNS review\" on every screen, route() had marked it for review, and it went to PSP anyway. The cause was branch order at price-attach — a band with no published ceiling was tested BEFORE the review, so it won. FTL on-call, Fulfillment and Complex Logistics all go \"manual\" above 30 Mio, so all three were affected.",
+      "PSP is where you go when there is no rate to price against — it is not an automatic stop on the way past. A manual band now changes nothing about who reads the price first. Where the reviewer genuinely needs PSP, there is an Escalate to PSP button on the review screen, which is the gated and recorded route (a Standard deal still needs the Head of PNS to open it on Alex's exception).",
+      "New status and screen: Review - PNS, separate from Review - Head PNS. Two PNS gates, deliberately not one. An ordinary member checks one number Sales put on a big Standard deal; the Head finalises a whole watched solution before the executives see it. They are different decisions held by different people, and they now have separate queues, separate buttons and separate endpoints.",
+      "The review used to land in plain Pending PNS, which meant it was indistinguishable from ordinary pricing work in the queue, and the only way to finish it was to attach a price over the top of Sales'. There is now an explicit \"Price is sound\" that records who checked it, and \"Send back to Sales\" with a reason beside it.",
+      "The chain test was collapsing \"Pending PNS\" and \"Pending Review - PNS\" to the same string, so it would have passed either way. It now distinguishes them, and pins the Tanamera case by name: Standard, 30 Mio or above, manual band, still reviewed by PNS first.",
+    ],
+    overruled: [
+      "A manual-review 5A band no longer sends a Standard deal straight to PSP at price-attach. It goes to PNS review, and PSP is reached by escalation from there. Watched deals are untouched — they still go to the Head of PNS first, exactly as before.",
+      "The ordinary PNS review no longer shares the \"Pending PNS\" status with pricing work.",
+    ],
+  },
+  {
     date: "2026-08-14",
     title: "Head of Sales approves in Sales CRM; Sales CRM wins; the sync runs itself",
     by: "Baskoro + Claude",

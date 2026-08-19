@@ -5,7 +5,7 @@ confusion this pins down:
 
   head  Hypercare, Strategic, Must Win -> "Pending Review - Head PNS". The Head of PNS's
         own oversight of the groups the business watches.
-  pns   anything else Sales priced at or above 30 Mio -> "Pending PNS". Ordinary PNS
+  pns   anything else Sales priced at or above 30 Mio -> "Pending Review - PNS". Ordinary PNS
         work, assigned like any other job, with the Head nowhere near it.
   None  everything else goes straight to the shipper.
 
@@ -94,22 +94,32 @@ print(f"verify_review_level.py  {len(CASES)} review cases + 5 group cases PASSED
 # The exact order Baskoro set out on 2026-08-13. Written as whole sequences rather than
 # per-step assertions: the bug this guards against is a gate quietly dropping out of the
 # middle, which a step-by-step test would pass right through.
-S = lambda x: x.replace("Pending Review - ", "").replace("Pending ", "")
+# Only the "Pending " prefix is stripped, so "Review - PNS" and "PNS" stay different
+# strings. Collapsing both to "PNS" is what let the old chain pass this test either way:
+# a Standard deal's gate could silently be the pricing queue OR the review gate and the
+# expectation read the same.
+S = lambda x: x.replace("Pending ", "")
 CHAINS = [
     ("Hypercare below floor", {"acct_type": "Hypercare", "must_win": 0, "exec_signoff": 0}, True,
-     ["PSP", "Head PSP", "Head PNS", "C-level"]),
+     ["Review - PSP", "Review - Head PSP", "Review - Head PNS", "Review - C-level"]),
     ("Strategic below floor", {"acct_type": "Strategic", "must_win": 0, "exec_signoff": 0}, True,
-     ["PSP", "Head PSP", "Head PNS", "C-level"]),
+     ["Review - PSP", "Review - Head PSP", "Review - Head PNS", "Review - C-level"]),
     # Must Win ends at C-level like the other two: a deal the business has declared it
     # must win is one the executives want to see, whatever the account tier says.
     ("Must Win below floor", {"acct_type": "Standard", "must_win": 1, "exec_signoff": 0}, True,
-     ["PSP", "Head PSP", "Head PNS", "C-level"]),
+     ["Review - PSP", "Review - Head PSP", "Review - Head PNS", "Review - C-level"]),
     ("Hypercare clean", {"acct_type": "Hypercare", "must_win": 0, "exec_signoff": 0}, False,
-     ["Head PNS", "C-level"]),
+     ["Review - Head PNS", "Review - C-level"]),
     ("Must Win clean", {"acct_type": "Standard", "must_win": 1, "exec_signoff": 0}, False,
-     ["Head PNS", "C-level"]),
+     ["Review - Head PNS", "Review - C-level"]),
+    # PNS's own review is the one gate. Both rows matter: the second is the Tanamera case
+    # (FTL on-call at or above 30 Mio, a band with no published ceiling, so manual_review
+    # is set). It used to skip the review entirely and land in PSP, so the assertion is
+    # that a manual band changes NOTHING about who checks it first.
     ("Standard >= 30 Mio", {"acct_type": "Standard", "must_win": 0, "needs_review": 1}, False,
-     ["PNS"]),
+     ["Review - PNS"]),
+    ("Standard >= 30 Mio, manual band", {"acct_type": "Standard", "must_win": 0, "needs_review": 1}, True,
+     ["Review - PNS"]),
     # The Head of Sales gate was retired on 2026-08-14 -- they approve in Sales CRM. A
     # Standard deal under 30 Mio now has NOTHING left to clear here, so its chain is
     # empty and the proposal goes straight out. An empty chain is the assertion, not an

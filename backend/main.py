@@ -128,7 +128,8 @@ LOSS_REASONS = ["pricing", "shipper", "solution", "ops", "no_vendor", "billing",
 # nobody's yet. Keeping it out would have hidden every unstarted ticket from the one
 # screen people go to when they are looking for something to do.
 AWAIT_STATUSES = ("Open", "Pending Sales", "Pending PNS", "Pending Vendor")
-PENDING_STATUSES = ["Open", "Pending Sales", "Pending PNS", "Pending Review - Head PNS",
+PENDING_STATUSES = ["Open", "Pending Sales", "Pending PNS", "Pending Review - PNS",
+                    "Pending Review - Head PNS",
                     "Pending Review - PSP",
                     "Pending Review - Head PSP", "Pending Vendor",
                     "Pending Review - C-level"]
@@ -139,7 +140,7 @@ NO_CRM_STATUS = "Pending CRM ID"
 # Statuses that mean somebody is actually working the deal. Reaching any of them needs
 # the facts the work depends on — today that is potential revenue, see change_status.
 WORK_STATUSES = ("Pending Sales", "Pending PNS", "Pending Vendor",
-                 "Pending Review - Head PNS",
+                 "Pending Review - PNS", "Pending Review - Head PNS",
                  "Pending Review - PSP", "Pending Review - Head PSP",
                  "Pending Review - C-level")
 # Fields the intake keeps as free text but remembers: the dropdown would otherwise have
@@ -151,6 +152,7 @@ REMEMBERED_FIELDS = ["commodity", "product", "pallet", "destType", "truck", "fre
 # Checked first: zero tickets held it, so nothing needed migrating and the
 # orphaned-status diagnostic stays at zero.
 ALL_STATUSES = [NO_CRM_STATUS, "Open", "Pending Sales", "Pending PNS", "Pending Vendor",
+                "Pending Review - PNS",
                 "Pending Review - Head PNS", "Pending Review - PSP",
                 "Pending Review - Head PSP",
                 "Pending Review - C-level", "Proposal Submitted",
@@ -206,6 +208,14 @@ TRANSITIONS = [
     ("Pending Sales", "the next gate in the approval chain", "The price is attached",
      "whoever owes the price", "POST /tickets/{ref}/price"),
 
+    # Two PNS reviews, deliberately separate gates with separate screens and separate
+    # endpoints (Michael, 2026-08-18). They answer different questions and are held by
+    # different people: an ordinary member checks a Sales price on a big Standard deal,
+    # the Head finalises a whole watched solution. Merging them put the Head's name on
+    # routine checks and hid the routine ones inside the pricing queue.
+    ("Pending Review - PNS", "the next gate in the approval chain",
+     "A PNS member checks the price Sales built",
+     "any PNS member", "POST /tickets/{ref}/pns-review"),
     ("Pending Review - Head PNS", "the next gate in the approval chain",
      "The Head of PNS finalises the solution and its pricing",
      "Head of PNS", "POST /tickets/{ref}/pns-final"),
@@ -236,6 +246,12 @@ TRANSITIONS = [
      "PNS or Sales, on a managed account or Alex's exception", "POST /status"),
     ("Pending Review - Head PNS", "Pending Review - PSP",
      "The Head of PNS sends it for a margin decision",
+     "PNS or Sales, on a managed account or Alex's exception", "POST /status"),
+    # The review's escalation: PNS read the price and there is no rate to price against.
+    # This is the route that replaced the automatic one — a manual-review band used to
+    # send the ticket to PSP at price-attach without PNS ever seeing it.
+    ("Pending Review - PNS", "Pending Review - PSP",
+     "The reviewer finds no rate to price against and sends it for a margin decision",
      "PNS or Sales, on a managed account or Alex's exception", "POST /status"),
 
     # A reviewer at any gate can put the ticket back on whoever owes the work. It needs
@@ -522,7 +538,10 @@ def review_level(t: dict) -> str | None:
               the path at all, which is exactly the gap this closes.
 
       "pns"   Anything else Sales priced at or above Rp 30 Mio. A second pair of PNS eyes
-              as ordinary work, in "Pending PNS", with the Head nowhere near it.
+              in "Pending Review - PNS", its own gate with its own screen, and the Head
+              nowhere near it. It used to land in plain "Pending PNS", which meant the
+              review was indistinguishable from ordinary pricing work in the queue and
+              the only way to finish it was to attach a price over the top of Sales'.
 
       None    everything else — it goes straight out.
     """
@@ -571,7 +590,14 @@ def approval_chain(t: dict, below_floor: bool) -> list[str]:
     # Head of Sales gate retired, a Standard deal under 30 Mio has nothing left to clear:
     # Sales priced it, Sales owns it, and the proposal goes straight out. An empty chain
     # means next_gate() answers "Proposal Submitted", which is the point.
-    return ["Pending PNS"] if t.get("needs_review") else []
+    #
+    # At or above 30 Mio the one gate is PNS's own review. PSP is deliberately NOT in
+    # this chain: a band with no published ceiling used to route here automatically,
+    # which skipped the review entirely (Michael, 2026-08-18 — a Tanamera FTL on-call
+    # deal went straight to PSP with PNS never seeing it). Where the reviewer genuinely
+    # needs PSP, they escalate from the review screen, which is the gated, recorded route
+    # rather than an automatic one.
+    return ["Pending Review - PNS"] if t.get("needs_review") else []
 
 
 def next_gate(t: dict, current: str | None = None) -> str:
@@ -1018,7 +1044,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-08-14.45"
+BUILD = "2026-08-18.46"
 
 
 class Me(BaseModel):
@@ -3076,6 +3102,29 @@ async def submit_price(ref: str, body: PriceIn, u: User = Depends(current_user))
         await notify(f"{ref}, {t['shipper']} ({big_group(t)}): priced by {u.name}, "
                      f"needs your sign-off on the solution before it goes further",
                      roles=["PNS - Head"], ticket_ref=ref)
+    elif review_level(t) == "pns":
+        # Sales priced a Standard deal at or above 30 Mio, so PNS checks it — and this is
+        # tested BEFORE to_psp on purpose, for the same reason the Head branch above is.
+        # A band with no published ceiling (FTL on-call, Fulfillment and Complex
+        # Logistics all go "manual" at this tier) used to satisfy to_psp first and send
+        # the ticket to PSP with PNS never seeing it, even though route() had already
+        # marked it for review and the ticket said "PNS review" on every screen.
+        # Michael, 2026-08-18: PSP is where you go when there is no rate to price
+        # against, and that is the escalation route from the review screen — it is not
+        # a substitute for PNS reading a price Sales built.
+        nxt, note = "Pending Review - PNS", "Sales priced at or above 30 Mio — PNS checks it"
+        who = t.get("owner_name") or await auto_assignee(
+            t["service_type"], t["id"], t.get("shipper_id"))
+        if who:
+            if not t.get("owner_name"):
+                await execute("UPDATE tickets SET owner_name=%s WHERE id=%s", (who, t["id"]))
+            await notify(f"{ref}, {t['shipper']}: Sales priced it at "
+                         f"Rp {int(t['potential_rev']):,} — yours to review",
+                         people=[who], ticket_ref=ref, subject=f"Review {t['shipper']}")
+        else:
+            await notify(f"{ref}, {t['shipper']}: Sales priced it at or above 30 Mio and "
+                         f"everyone eligible is at the cap — needs manual assignment",
+                         roles=["PNS - Head"], groups=["PNS"], ticket_ref=ref)
     elif to_psp:
         nxt, note = "Pending Review - PSP", g["why"]
         await execute("UPDATE tickets SET manual_review=1 WHERE id=%s", (t["id"],))
@@ -3103,25 +3152,6 @@ async def submit_price(ref: str, body: PriceIn, u: User = Depends(current_user))
             await notify(f"{ref}, {t['shipper']}: price attached by {u.name} and flagged "
                          f"BELOW BOTTOM RATE ({g['why']}); no PSP route, so it is yours to "
                          f"finalise", roles=["PNS - Head"], ticket_ref=ref)
-    elif review_level(t) == "pns":
-        # At or above 30 Mio but not a watched group. Still reviewed, but as ordinary PNS
-        # work: it becomes Pending PNS and is assigned like any other job. The Head is
-        # not in this path at all — putting them here made them a bottleneck on the
-        # highest-volume band and put their name on a decision they were not taking.
-        nxt, note = "Pending PNS", "Sales priced at or above 30 Mio — PNS checks it"
-        await execute("UPDATE tickets SET resp='PNS' WHERE id=%s", (t["id"],))
-        who = t.get("owner_name") or await auto_assignee(
-            t["service_type"], t["id"], t.get("shipper_id"))
-        if who:
-            if not t.get("owner_name"):
-                await execute("UPDATE tickets SET owner_name=%s WHERE id=%s", (who, t["id"]))
-            await notify(f"{ref}, {t['shipper']}: Sales priced it at "
-                         f"Rp {int(t['potential_rev']):,} — yours to check",
-                         people=[who], ticket_ref=ref, subject=f"Check {t['shipper']}")
-        else:
-            await notify(f"{ref}, {t['shipper']}: Sales priced it at or above 30 Mio and "
-                         f"everyone eligible is at the cap — needs manual assignment",
-                         roles=["PNS - Head"], groups=["PNS"], ticket_ref=ref)
     else:
         nxt, note = proposal_or_signoff(t), ""
         if nxt == "Pending Review - C-level":
@@ -3407,6 +3437,38 @@ async def change_sales(ref: str, body: SalesIn, u: User = Depends(current_user))
                  people=[name], ticket_ref=ref)
     await audit(u.email, "reassign", "ticket", ref, "sales", t["sales_name"], name)
     return {"ok": True, "ref": ref, "status": t["status"]}
+
+
+@app.post("/api/tickets/{ref}/pns-review", response_model=Ok)
+async def pns_review(ref: str, u: User = Depends(current_user)):
+    """A PNS member accepts the price Sales built, and it moves on.
+
+    The ordinary review, not the Head's. Kept as its own endpoint rather than a flag on
+    pns-final because they are different acts by different people: this one says "the
+    number Sales put on a big Standard deal is sound", the Head's says "this whole
+    watched solution is finished and the executives may be asked to sign it".
+
+    Disagreeing is not done here — the reviewer sends it back to Sales with a reason, or
+    escalates to PSP, both through POST /status. This endpoint is only the yes."""
+    require(u, "markReviewed")
+    t = await get_ticket(ref)
+    if t["status"] != "Pending Review - PNS":
+        raise HTTPException(409, f"{ref} is {t['status']}, not waiting on PNS review")
+
+    nxt = next_gate(t, "Pending Review - PNS")
+    await log_status(t["id"], nxt, u.name, "price checked by PNS")
+    await execute("INSERT INTO approvals (ticket_id, kind, decision, actor, actor_role) "
+                  "VALUES (%s,'pns_review','approved',%s,%s)", (t["id"], u.name, u.group))
+    # Normally "Proposal Submitted" — but say what actually happened rather than assume,
+    # the same way pns_finalise does. A watched ticket parked here by hand has a chain.
+    if nxt == "Proposal Submitted":
+        await notify(f"{ref}, {t['shipper']}: {u.name} checked the price — proposal is ready",
+                     groups=["Commercial"], ticket_ref=ref)
+    else:
+        await notify(f"{ref}, {t['shipper']}: price checked by {u.name} — now at {nxt}",
+                     groups=["PNS", "Commercial"], ticket_ref=ref)
+    await audit(u.email, "pns_review", "ticket", ref, "status", t["status"], nxt)
+    return {"ok": True, "ref": ref, "status": nxt}
 
 
 @app.post("/api/tickets/{ref}/pns-final", response_model=Ok)

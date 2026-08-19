@@ -587,6 +587,72 @@ export function ToReview({ me, onOpen, notify }) {
   );
 }
 
+/* ------------------------------------------------------- ordinary PNS review */
+/* Deliberately not the same screen as Review - Head PNS (Michael, 2026-08-18). Same team,
+   different job: here a member checks one number Sales put on a big Standard deal; there
+   the Head signs off a whole watched solution before the executives see it. Sharing one
+   screen put the Head's name on routine checks and buried the routine ones in the
+   pricing queue, where "review this price" looked identical to "price this ticket". */
+export function PnsReview({ me, onOpen, notify }) {
+  const [rows, err, reload] = useTickets({ status: "Pending Review - PNS" });
+  const [why, setWhy] = useState({});
+  const [list, f, set, clear, patch] = useFilter(rows);
+  const act = async (fn) => { try { await fn(); notify("Done"); await reload(); } catch (e) { notify(e.message); } };
+
+  return (
+    <Shell title="Review - PNS"
+      sub="Sales priced these at or above Rp 30 Mio on a Standard account, so PNS reads the number before it goes to the shipper. Agree and the proposal goes out. If the rate does not exist to price against, escalate to PSP rather than passing it."
+      rows={rows} err={err} empty="Nothing waiting on a PNS check."
+      bar={<FilterBar f={f} set={set} clear={clear} patch={patch} me={me}
+        shown={list.length} total={(rows || []).length} rows={rows} />}
+      filtered={list}>
+      {(list) => list.map((t) => (
+        <TicketCard key={t.ref} t={t} onOpen={onOpen}
+          badges={[<Pill key="r" tone="bg-violet-50 text-violet-700">Sales priced it</Pill>]}>
+          {(t.price_file || t.price_url) && <p className="mb-2 text-[13px]"><PriceChip file={t.price_file} url={t.price_url} /></p>}
+          {t.margin != null && (
+            <p className="mb-3 text-[13px]">Margin submitted: <b className="font-mono">{t.margin}%</b></p>
+          )}
+          <RateCard service={t.service} />
+          <div className="flex flex-wrap items-center gap-2">
+            <OwnerBar t={t} me={me} notify={notify} onDone={reload} />
+          </div>
+          {me.permissions.markReviewed && (
+            <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
+              <input className={`${inputCls} max-w-[300px]`}
+                placeholder="What is wrong with it? (sends it back to Sales)"
+                value={why[t.ref] || ""}
+                onChange={(e) => setWhy({ ...why, [t.ref]: e.target.value })} />
+              <Btn disabled={!((why[t.ref] || "").trim())}
+                onClick={() => act(() => api.status(t.ref, {
+                  status: "Pending Sales", reason: why[t.ref] }))}>
+                Send back to Sales
+              </Btn>
+              {/* The escalation Michael described: PSP is for when there is no rate to
+                  price against, not an automatic stop on the way past. Still gated on
+                  mayGoToPsp — a Standard deal needs the Head to open it on Alex's
+                  exception first, which is the same rule every other PSP route uses. */}
+              {me.permissions.sendToPsp && mayGoToPsp(t) && (
+                <Btn onClick={() => act(() => api.status(t.ref, {
+                  status: "Pending Review - PSP", reason: "no rate to price against" }))}>
+                  Escalate to PSP
+                </Btn>
+              )}
+              <Btn kind="primary" className="ml-auto"
+                onClick={() => act(async () => {
+                  const r = await api.pnsReview(t.ref);
+                  notify(`${t.ref} checked → ${r.status}`);
+                })}>
+                Price is sound
+              </Btn>
+            </div>
+          )}
+        </TicketCard>
+      ))}
+    </Shell>
+  );
+}
+
 /* The "Review - Head Sales" screen lived here. Retired 2026-08-14: the Head of Sales
    accepts a below-floor concession in Sales CRM, where they already work, so this app no
    longer holds a queue for them. A gate nobody opens is worse than no gate — the ticket

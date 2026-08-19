@@ -20,7 +20,7 @@ import { ReviewMeeting } from "./screens/Meetings";
 import StatusFlow from "./screens/StatusFlow";
 import DataChecks from "./screens/DataChecks";
 import {
-  AwaitingPrice, Open, PendingCrmId, ToReview, PspPending, ExecSignoff,
+  AwaitingPrice, Open, PendingCrmId, PnsReview, ToReview, PspPending, ExecSignoff,
   Proposals, ReadyToShip, RecycleBin, Watched,
 } from "./screens/Queues";
 
@@ -59,8 +59,12 @@ const NAV = [
     { id: "open", label: "Open", icon: "○", count: "Open",
       keywords: "open ready unclaimed available not started" },
     { id: "awaiting", label: "Awaiting price", icon: "◷", count: "awaiting", keywords: "pricing" },
+    // Two PNS gates, two entries. An ordinary member checks a Sales price here; the Head
+    // finalises a watched solution below. Same team, different decisions.
+    { id: "pns-review", label: "Review - PNS", icon: "◍", count: "Pending Review - PNS",
+      keywords: "pns check sales price 30 mio second pair of eyes review" },
     { id: "review", label: "Review - Head PNS", icon: "◎", count: "Pending Review - Head PNS",
-      keywords: "pns view pns review" },
+      keywords: "pns view pns review head finalise watched" },
     { id: "psp-pending", label: "Review - PSP", icon: "✓", count: "Pending Review - PSP",
       tag: "PSP", keywords: "psp pending margin approval decided finished history" },
     { id: "signoff", label: "Review - C-level", icon: "★", count: "Pending Review - C-level",
@@ -417,6 +421,7 @@ export default function App() {
     open: <Open me={me} notify={notify} onOpen={open} />,
     crmid: <PendingCrmId me={me} notify={notify} onOpen={open} />,
     awaiting: <AwaitingPrice me={me} notify={notify} onOpen={open} />,
+    "pns-review": <PnsReview me={me} notify={notify} onOpen={open} />,
     review: <ToReview me={me} notify={notify} onOpen={open} />,
     signoff: <ExecSignoff me={me} notify={notify} onOpen={open} />,
     "psp-pending": <PspPending me={me} notify={notify} onOpen={open} />,
