@@ -3,6 +3,17 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-08-18",
+    title: "Open carries a Priced by filter, and stays one queue",
+    by: "Michael + Claude",
+    changes: [
+      "Open now has the same Priced by filter Awaiting price carries, so PNS and Sales can each read their own half of it in one click.",
+      "Michael asked whether Open is a PNS screen or a Sales screen, and whether it should be split in two. It is deliberately both, and it stays one. A ticket in Open is unclaimed — the question it asks is \"will somebody take this\", which is not a question you want answered only inside the half of the app the other side never opens.",
+      "The stronger reason not to split: a ticket imported with no potential revenue lands in Open, and its Priced by was worked out FROM that missing revenue — route() read zero, fell through every band, and answered Sales. Splitting the screen on that value would file every revenue-less ticket under Sales as though it had been decided, when in truth nobody knows yet. The filter narrows the list without asserting the answer is right.",
+    ],
+    overruled: [],
+  },
+  {
+    date: "2026-08-18",
     title: "Every queue filter takes more than one value",
     by: "Michael + Claude",
     changes: [

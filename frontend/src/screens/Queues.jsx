@@ -490,7 +490,10 @@ export function PendingCrmId({ me, onOpen, notify }) {
 export function Open({ me, onOpen, notify }) {
   const [rows, err, reload] = useTickets({ status: "Open" });
   const [why, setWhy] = useState({});
-  const [list, f, set, clear, patch] = useFilter(rows);
+  // Priced by, same control Awaiting price carries. This is the answer to "is Open mine
+  // or Sales'?" (Michael, 2026-08-18): it is both, and the filter is how each side reads
+  // its own half without the other side's tickets being hidden from anybody.
+  const [list, f, set, clear, patch] = useFilter(rows, { resp: [] });
   const act = async (fn) => { try { await fn(); notify("Done"); await reload(); } catch (e) { notify(e.message); } };
 
   const mayTake = ["PNS", "Commercial", "Admin"].includes(me.group);
@@ -500,8 +503,14 @@ export function Open({ me, onOpen, notify }) {
       sub="Intake is complete and nothing is owed by Sales — these are ready to be picked up, and nobody has yet. Taking one moves it to whoever owes the price. If something is actually missing, ask Sales and it goes back to them."
       rows={rows} err={err}
       empty="Nothing sitting unclaimed. Every ready ticket has somebody on it."
-      bar={<FilterBar f={f} set={set} clear={clear} patch={patch} me={me}
-        shown={list.length} total={(rows || []).length} rows={rows} />}
+      bar={
+        <FilterBar f={f} set={set} clear={clear} patch={patch} me={me}
+          shown={list.length} total={(rows || []).length} rows={rows}>
+          <MultiSelect label="Priced by" picked={f.resp}
+            onClear={() => patch("resp", [])}
+            sections={pickList(["PNS", "Sales"], f.resp, (v) => patch("resp", v))} />
+        </FilterBar>
+      }
       filtered={list}>
       {(list) => list.map((t) => (
         <TicketCard key={t.ref} t={t} onOpen={onOpen}
