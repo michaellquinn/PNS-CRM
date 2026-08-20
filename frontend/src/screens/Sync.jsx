@@ -157,6 +157,12 @@ export default function Sync({ notify }) {
             </label>
           )}
           <p className="w-full text-[11.5px] text-slate-400">
+            <b>Nothing raised before 1 August 2026 is imported</b>, whatever window you
+            ask for — that floor holds even on a wide manual run or a backfill, so one
+            careless &ldquo;last 60 days&rdquo; cannot pull in the whole history of the
+            book. Tickets you already hold are still refreshed whatever their date, which
+            is how they learn their opportunity closed.
+            <br />
             <b>The day window is the opportunity&rsquo;s creation date, not its last edit.</b>{" "}
             Sales CRM has no filter on when a record was edited, so a deal created two
             months ago and moved to Closed-Won yesterday will never appear in
