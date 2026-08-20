@@ -467,7 +467,18 @@ ACCEPTED_STAGES = ("Agreed to Ship", "Onboarding", "Ready to Ship", "Closed-Won"
 # rather than a step in Sales' process. Holding the ticket at "Pending Review - PSP"
 # after that does not un-send the proposal, it just makes our queues describe work that
 # is already moot. Spelling variants included because the picklist has been edited.
-SUBMITTED_STAGES = ("Proposal Submitted", "Proposal submitted", "Proposal Sent")
+SUBMITTED_STAGES = ("Proposal Submitted", "Proposal Sent", "Quotation Sent")
+
+
+def _norm_stage(s: str | None) -> str:
+    """A stage name reduced to what actually identifies it: case-folded, whitespace
+    collapsed. Trailing spaces and a lower-case S are not different stages."""
+    return " ".join(str(s or "").split()).lower()
+
+
+_LOST_N = {_norm_stage(s) for s in CLOSED_LOST_STAGES}
+_ACCEPTED_N = {_norm_stage(s) for s in ACCEPTED_STAGES}
+_SUBMITTED_N = {_norm_stage(s) for s in SUBMITTED_STAGES}
 
 
 def stage_blocks_work(t: dict) -> str | None:
@@ -498,11 +509,17 @@ def status_for_stage(stage: str | None, resp: str) -> str | None:
     gates it bypassed rather than moving it quietly — see _refresh_from_salescrm()."""
     if not stage:
         return None
-    if stage in CLOSED_LOST_STAGES:
+    # Compared normalised — case-folded and inner whitespace collapsed. Sales CRM's
+    # picklist is edited by hand and these lists already carry "Closed Lost" beside
+    # "Closed-Lost" and the misspelt "Future Oppurtunity" to cope with it. An exact
+    # match means a stage renamed to "Proposal submitted " silently stops being
+    # recognised, and nothing anywhere says so — the ticket simply never moves.
+    s = _norm_stage(stage)
+    if s in _LOST_N:
         return "Lost"
-    if stage in ACCEPTED_STAGES:
+    if s in _ACCEPTED_N:
         return "Proposal Accepted / Ready to Ship"
-    if stage in SUBMITTED_STAGES:
+    if s in _SUBMITTED_N:
         return "Proposal Submitted"
     return None          # New, Negotiation, EKYC, Contract Sent...
 
@@ -1060,7 +1077,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-08-18.48"
+BUILD = "2026-08-18.49"
 
 
 class Me(BaseModel):

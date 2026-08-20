@@ -20,9 +20,10 @@ _REPO = os.path.dirname(_HERE)
 src = open(os.path.join(_REPO, "backend", "main.py"), encoding="utf-8").read()
 
 WANT_FN = {"big_group", "review_level", "needs_pns_review", "approval_chain",
-           "next_gate", "proposal_or_signoff", "status_for_stage"}
+           "next_gate", "proposal_or_signoff", "status_for_stage", "_norm_stage"}
 WANT_VAR = {"MANAGED_ACCTS", "CHAIN_WATCHED_BELOW", "CHAIN_WATCHED_CLEAN",
-            "CLOSED_LOST_STAGES", "ACCEPTED_STAGES", "SUBMITTED_STAGES"}
+            "CLOSED_LOST_STAGES", "ACCEPTED_STAGES", "SUBMITTED_STAGES",
+            "_LOST_N", "_ACCEPTED_N", "_SUBMITTED_N"}
 keep = []
 for node in ast.parse(src).body:
     if isinstance(node, ast.FunctionDef) and node.name in WANT_FN:
@@ -175,7 +176,13 @@ STAGES = [
     ("Agreed to Ship",     "Proposal Accepted / Ready to Ship"),
     ("Closed-Won",         "Proposal Accepted / Ready to Ship"),
     ("Proposal Submitted", "Proposal Submitted"),
-    ("Proposal submitted", "Proposal Submitted"),   # the picklist has been edited before
+    # Matching is normalised, so casing and stray whitespace are not different stages.
+    # The picklist is hand-edited -- these lists already carry "Closed Lost" beside
+    # "Closed-Lost" and the misspelt "Future Oppurtunity" because of it.
+    ("Proposal submitted", "Proposal Submitted"),
+    ("  PROPOSAL   SUBMITTED  ", "Proposal Submitted"),
+    ("closed-lost", "Lost"),
+    ("agreed to ship", "Proposal Accepted / Ready to Ship"),
     # Mid-funnel: ours wins.
     ("Negotiation",        None),
     ("New",                None),
