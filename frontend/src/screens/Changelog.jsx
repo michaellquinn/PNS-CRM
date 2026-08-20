@@ -3,6 +3,20 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-08-18",
+    title: "Every queue filter takes more than one value",
+    by: "Michael + Claude",
+    changes: [
+      "Service, PNS PIC, Priced by and the Watched chips all multi-select now, on every queue — Open and Awaiting price included. One value at a time was the wrong shape for the question people actually bring to a queue: \"LTL and B2BR\", \"Annisa's and Ramdhani's\", \"Hypercare and Must Win\".",
+      "Unassigned is a choice in the PNS PIC list rather than a separate mode, so it combines: \"unassigned, or mine\" is one filter now. Assigned to me toggles your own name in and out of the same list instead of replacing whatever was picked.",
+      "This lands on all the queues, not only the two asked for — they share one filter bar, and two bars that look identical but behave differently is worse than either behaviour applied consistently.",
+      "Fixed stale wording on the Watched screens: they still described a watched deal going \"to the Head of PNS first, then the Head of Sales, then C-level\". The Head of Sales gate was retired on 14 August.",
+    ],
+    overruled: [
+      "Queue filters were single-select. Same filters, same bar, arrays behind them.",
+    ],
+  },
+  {
+    date: "2026-08-18",
     title: "A submitted proposal in Sales CRM now moves our status too",
     by: "Michael + Claude",
     changes: [
