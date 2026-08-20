@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { api, BOTTOM_MARGIN, PENDING, PICKABLE_LOSS_REASONS, SERVICES, FTL,
          WATCHED_GROUPS, groupFilter, groupTone, mayGoToPsp, rp } from "../api";
 import {
-  Btn, Card, Confirm, Empty, Head, Pill, PriceChip, TicketCard, inputCls,
+  Btn, Card, Confirm, Empty, Head, MultiSelect, Pill, PriceChip, TicketCard, inputCls,
   usePnsTeam,
 } from "../ui";
 
@@ -19,8 +19,12 @@ function useTickets(filters, dep = []) {
 // a couple of dropdowns beat sending every keystroke back to the server. Every queue
 // carries the PNS PIC filter: PNS works by ticket assignment, so "just my tickets" has
 // to be one click away wherever a list appears.
+// Every filter except the search box holds an ARRAY (Michael, 2026-08-18). One value at
+// a time is the wrong shape for the question people bring to a queue: "show me LTL and
+// B2BR", "Annisa's and Ramdhani's", "Hypercare and Must Win". An empty array means no
+// filter, so the tests for it read the same as the old truthiness checks did.
 function useFilter(rows, extra = {}) {
-  const base = { q: "", service: "", owner: "", group: "", ...extra };
+  const base = { q: "", service: [], owner: [], group: [], ...extra };
   const [f, setF] = useState(base);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const patch = (k, v) => setF((p) => ({ ...p, [k]: v }));
@@ -28,18 +32,31 @@ function useFilter(rows, extra = {}) {
   const out = (rows || []).filter((t) => {
     const q = f.q.trim().toLowerCase();
     if (q && !`${t.ref} ${t.shipper}`.toLowerCase().includes(q)) return false;
-    if (f.service && t.service !== f.service) return false;
-    if (f.resp && t.priced_by !== f.resp) return false;
-    if (f.owner && (t.owner || "") !== (f.owner === "__none__" ? "" : f.owner)) return false;
+    if (f.service.length && !f.service.includes(t.service)) return false;
+    if (f.resp?.length && !f.resp.includes(t.priced_by)) return false;
+    // __none__ is a real choice, not the absence of one, so it lives in the array beside
+    // the names and can be combined with them: "unassigned, or Annisa's".
+    if (f.owner.length
+        && !f.owner.some((o) => (o === "__none__" ? !t.owner : t.owner === o))) return false;
     // t.group is the server's big_group(): the account tier where there is one, else
     // Must Win, else null. Filtering on it here rather than on acct_type is what makes
     // one control cover all three — Must Win is not an account tier and never appears
     // in acct_type at all.
-    if (f.group && (f.group === "__standard__" ? t.group : t.group !== f.group)) return false;
+    if (f.group.length
+        && !f.group.some((g) => (g === "__standard__" ? !t.group : t.group === g))) return false;
     return true;
   });
   return [out, f, set, clear, patch];
 }
+
+// sections for MultiSelect from a flat list of values, with the toggle wired to `patch`.
+const pickList = (values, chosen, apply, labelOf = (v) => v, countOf) => [{
+  label: null,
+  items: values.map((v) => ({
+    key: v, label: labelOf(v), on: chosen.includes(v), n: countOf?.(v),
+    toggle: () => apply(chosen.includes(v) ? chosen.filter((x) => x !== v) : [...chosen, v]),
+  })),
+}];
 
 // The watched groups as a row of toggles, on every queue. Baskoro asked for this as a
 // submenu (2026-08-14) and it is both: the sidebar has an entry per group that opens a
@@ -47,11 +64,11 @@ function useFilter(rows, extra = {}) {
 // list you are already looking at without navigating away.
 function GroupChips({ value, onPick, counts }) {
   const chip = (id, label, tone) => {
-    const on = value === id;
+    const on = value.includes(id);
     const n = counts?.[id];
     return (
       <button key={id} type="button" aria-pressed={on}
-        onClick={() => onPick(on ? "" : id)}
+        onClick={() => onPick(on ? value.filter((x) => x !== id) : [...value, id])}
         className={`whitespace-nowrap rounded-full border px-3 py-1.5 text-[12.5px] font-semibold ${
           on ? "border-transparent " + tone + " ring-2 ring-slate-900/20"
              : "border-slate-300 bg-white text-slate-600 hover:border-slate-400"}`}>
@@ -69,7 +86,7 @@ function GroupChips({ value, onPick, counts }) {
 
 function FilterBar({ f, set, clear, patch, me, shown, total, rows, groups = true, children }) {
   const team = usePnsTeam();
-  const mineOn = me && f.owner === me.name;
+  const mineOn = me && f.owner.includes(me.name);
   // Counted off the unfiltered list, so a chip reading 0 tells you the queue holds none
   // of that group rather than that your other filters hid them.
   const counts = {};
@@ -81,18 +98,18 @@ function FilterBar({ f, set, clear, patch, me, shown, total, rows, groups = true
     <Card className="mb-4 flex flex-wrap items-center gap-2.5 p-3">
       <input type="search" value={f.q} onChange={set("q")} placeholder="Search shipper or ID…"
         className="min-w-[190px] flex-1 rounded-lg border border-slate-300 px-3 py-1.5 text-[13px]" />
-      <select className={`${inputCls} max-w-[150px]`} value={f.service} onChange={set("service")}>
-        <option value="">Any service</option>
-        {SERVICES.map((s) => <option key={s}>{s}</option>)}
-      </select>
-      <select className={`${inputCls} max-w-[160px]`} value={f.owner} onChange={set("owner")}>
-        <option value="">Any PNS PIC</option>
-        <option value="__none__">Unassigned</option>
-        {team.map((n) => <option key={n}>{n}</option>)}
-      </select>
+      <MultiSelect label="Service" picked={f.service}
+        onClear={() => patch("service", [])}
+        sections={pickList(SERVICES, f.service, (v) => patch("service", v))} />
+      <MultiSelect label="PNS PIC" picked={f.owner}
+        onClear={() => patch("owner", [])}
+        sections={pickList(["__none__", ...team], f.owner, (v) => patch("owner", v),
+                           (v) => (v === "__none__" ? "Unassigned" : v))} />
       {me && team.includes(me.name) && patch && (
         <button type="button" aria-pressed={mineOn}
-          onClick={() => patch("owner", mineOn ? "" : me.name)}
+          onClick={() => patch("owner", mineOn
+            ? f.owner.filter((x) => x !== me.name)
+            : [...f.owner, me.name])}
           className={`rounded-full border px-3 py-1.5 text-[12.5px] font-semibold ${
             mineOn ? "border-[#EE1B2C] bg-[#EE1B2C] text-white"
                    : "border-slate-300 bg-white text-slate-600 hover:border-slate-400"}`}>
@@ -215,7 +232,7 @@ export function AwaitingPrice({ me, onOpen, notify }) {
   const [margin, setMargin] = useState({});
   const [disc, setDisc] = useState({});
   const [busy, setBusy] = useState(null);
-  const [list, f, set, clear, patch] = useFilter(rows, { resp: "" });
+  const [list, f, set, clear, patch] = useFilter(rows, { resp: [] });
 
   // Anyone may look at this queue; only the sides that owe prices get the form.
   const canAct = ["PNS", "Commercial", "Admin"].includes(me.group);
@@ -238,11 +255,9 @@ export function AwaitingPrice({ me, onOpen, notify }) {
       bar={
         <FilterBar f={f} set={set} clear={clear} patch={patch} me={me}
           shown={list.length} total={(rows || []).length} rows={rows}>
-          <select className={`${inputCls} max-w-[150px]`} value={f.resp} onChange={set("resp")}>
-            <option value="">Priced by anyone</option>
-            <option value="PNS">Priced by PNS</option>
-            <option value="Sales">Priced by Sales</option>
-          </select>
+          <MultiSelect label="Priced by" picked={f.resp}
+            onClear={() => patch("resp", [])}
+            sections={pickList(["PNS", "Sales"], f.resp, (v) => patch("resp", v))} />
         </FilterBar>
       }
       filtered={list}
@@ -395,7 +410,7 @@ export function Watched({ me, onOpen, notify, group }) {
     <Shell
       title={meta.label}
       sub={meta.level === "account"
-        ? `An account tier, inherited from the Sales CRM account group — it covers every deal this shipper brings. Once priced, ${meta.label} goes to the Head of PNS first, then the Head of Sales, then C-level.`
+        ? `An account tier, inherited from the Sales CRM account group — it covers every deal this shipper brings. Once priced, ${meta.label} goes to the Head of PNS first, then C-level. (The Head of Sales gate was retired on 14 August — they approve in Sales CRM.)`
         : "A tag on ONE opportunity, not on the account: the same shipper can have a Must Win deal and five ordinary ones. Sales CRM carries it as Lead Source Detail “Must Win”. It reaches C-level like the other two — Baskoro, 2026-08-13."}
       right={<Pill tone={meta.tone}>{(rows || []).length} live</Pill>}
       rows={rows} err={err}
