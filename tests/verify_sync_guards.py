@@ -49,6 +49,14 @@ def body_of(name):
     return ast.dump(node) if node else ""
 
 
+def source_of(name):
+    """The function's actual source text. body_of() gives an ast.dump, which cannot
+    answer "is this still written this way" -- two checks below were silently passing
+    against a dump that could never contain the string they looked for."""
+    node = fn(name)
+    return ast.get_source_segment(SRC, node) if node else ""
+
+
 def calls_in(name):
     """Names this function calls. ast.dump renders a call as Call(func=Name(id='x')),
     so a substring search for "x(" finds nothing — ask the tree instead."""
@@ -162,6 +170,27 @@ check("the refresh overwrites the account tier", "UPDATE shippers SET acct_type"
       "the tier is an account fact and lives on the shipper, not the ticket")
 check("the refresh records what it overwrote", "overwritten" in _ref,
       "a value changing under somebody with no trace is how trust in the sync goes")
+
+print()
+print("Sales CRM owns the watched groups in BOTH directions (Baskoro, 2026-08-18)")
+# Promote AND demote. Both were one-way at some point and each caused the same fault
+# from the other side: a deal stayed in a watched group after the business had stopped
+# treating it as one, or an account could never be tagged from Sales CRM at all.
+_refsrc = source_of("_refresh_from_salescrm")
+check("the tier is applied whatever Sales CRM says, not only when it says Hypercare",
+      "stated_tier = tier" in _refsrc and "tier in MANAGED_ACCTS" not in _refsrc,
+      "promote-only leaves a demoted account watched forever")
+check("Must Win is written on every refresh, not only when the field is present",
+      'sets.append("must_win=%s")' in _refsrc and "if mw_field:" not in _refsrc,
+      "clearing Lead Source Detail in Sales CRM must clear the flag here too")
+
+print()
+print("nothing before the floor date is imported")
+check("there is an import floor", "SYNC_MIN_DATE" in SRC,
+      "one careless wide window would import the whole history of the book")
+check("the floor applies to imports, not to refreshing held tickets",
+      "SYNC_MIN_DATE" not in _refsrc,
+      "a held pre-floor ticket must still learn when its opportunity closes")
 
 print()
 print("the automatic sync fails loudly rather than silently")

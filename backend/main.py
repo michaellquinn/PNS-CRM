@@ -2167,6 +2167,19 @@ AUTO_SYNC_MINUTES = int(os.getenv("AUTO_SYNC_MINUTES", "5") or 0)
 # two days costs two cheap exact-match queries.
 AUTO_SYNC_DAYS = int(os.getenv("AUTO_SYNC_DAYS", "2") or 2)
 
+# Nothing raised in Sales CRM before this date is ever imported (Baskoro, 2026-08-18).
+#
+# The routine run already only asks for the last couple of days, so this is not about
+# the normal case — it is the floor that holds when somebody back-dates an opportunity,
+# runs a wide manual window, or uses the pages backfill. Without it, one careless
+# "last 60 days" turns the board into the whole history of the book.
+#
+# It applies to IMPORTS ONLY. A ticket already held is still refreshed whatever its
+# date, because that is how it learns its opportunity was closed or won in Sales CRM —
+# stopping that would leave pre-August deals sitting open here forever with nobody told.
+# Set empty to remove the floor entirely.
+SYNC_MIN_DATE = os.getenv("SYNC_MIN_DATE", "2026-08-01").strip()
+
 # What the last automatic run did, for the Sync screen. In memory on purpose: it is
 # operational state about this process, not a fact about the business, and a restart
 # genuinely does mean "no automatic run has happened yet".
@@ -2503,6 +2516,14 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
                         continue
 
                     new_on_this_page += 1
+                    # The floor. Checked before anything else is done with the record so
+                    # an out-of-range opportunity costs nothing but the line that says so.
+                    raised = _crm_date(o)
+                    if SYNC_MIN_DATE and raised and str(raised) < SYNC_MIN_DATE:
+                        skipped.append({"id": oid, "name": o.get("name"),
+                                        "why": f"raised {raised}, before the {SYNC_MIN_DATE} "
+                                               f"floor this app imports from"})
+                        continue
                     stage = o.get("stage")
                     if stage in CLOSED_LOST_STAGES:
                         skipped.append({"id": oid, "name": o.get("name"),
@@ -2628,6 +2649,7 @@ async def _refresh_from_salescrm(o: dict, account: dict | None = None,
     when no ticket holds this opportunity."""
     oid = str(o.get("id"))
     t = await q("SELECT id, ticket_ref, status, resp, stage, potential_rev, service_type, "
+                "must_win, "
                 "(SELECT name FROM shippers s WHERE s.id=shipper_id) AS shipper, "
                 "(SELECT acct_type FROM shippers s WHERE s.id=shipper_id) AS acct_type, "
                 # pricing is keyed on ticket_id, so these are single-valued. Needed
@@ -2652,8 +2674,18 @@ async def _refresh_from_salescrm(o: dict, account: dict | None = None,
             "submitted_on=COALESCE(%s, submitted_on)"]
     args = [o.get("stage"), o.get("parent_stage"), o.get("name"), o.get("owner_name"),
             _crm_date(o)]
-    if mw_field:
-        sets.append("must_win=%s"); args.append(int(mw))
+    # Must Win rides the same rule as the tier now: Sales CRM decides, both ways. It
+    # used to be written only when the field was PRESENT, so clearing the Lead Source
+    # Detail value in Sales CRM left the flag standing here forever — a deal stayed in a
+    # watched group after the business had stopped treating it as one. Absence is now an
+    # answer, which is the whole point of "Sales CRM owns the watched groups".
+    #
+    # The by-hand endpoint (POST /must-win) still exists for tagging a deal before Sales
+    # CRM catches up; it says plainly that the next sync wins, and now it really does.
+    if mw != bool(t.get("must_win")):
+        changed.append(f"Must Win {'off' if not mw else 'on'}"
+                       + (f" (Sales CRM {mw_field})" if mw_field else " (not tagged in Sales CRM)"))
+    sets.append("must_win=%s"); args.append(int(mw))
 
     # The three that used to be left alone. Sales CRM wins on all of them now.
     #
@@ -2676,25 +2708,22 @@ async def _refresh_from_salescrm(o: dict, account: dict | None = None,
     if crm_service and crm_service != t["service_type"]:
         changed.append(f"service {t['service_type']} to {crm_service}")
 
-    # Sales CRM can PROMOTE an account but not silently demote it.
+    # Sales CRM owns the tier in BOTH directions — watched to non-watched and back
+    # (Baskoro, 2026-08-18). It was promote-only for a few hours on my reasoning that a
+    # blank customer_success_manager cannot be told apart from a real demotion, so a
+    # demotion would look like an accident. Overruled, and the reasoning stands but the
+    # trade-off is his: an account Sales CRM does not tag becomes Standard, full stop.
     #
-    # tier_for() returns "Standard" both when Sales CRM says an account is ordinary and
-    # when it says nothing at all — the source is Account.customer_success_manager, a
-    # free-text field that also holds legacy Salesforce ids and junk like "-", and which
-    # has no way to express "Standard" affirmatively. So a blank field and a real
-    # demotion are indistinguishable.
+    # What that means in practice: tier_for() answers "Standard" both when Sales CRM says
+    # ordinary and when it says nothing, so an account nobody has tagged there will be
+    # Standard here within five minutes, whatever it was set to by hand. The four
+    # accounts with no Sales CRM link at all are untouched — the sync never sees them.
     #
-    # Treating that as a demotion would reset a Hypercare account to Standard on every
-    # run, five minutes apart, silently — and the tier decides who prices the deal, PSP
-    # entry, the watched groups and C-level sign-off, so it is the most expensive field
-    # in the app to get wrong. Same principle already applied to revenue (only when > 0)
-    # and the service line (only when the product maps): absence is not an answer.
-    #
-    # A genuine demotion is done by hand here. Baskoro, ask if you want this reversed.
-    stated_tier = tier if tier in MANAGED_ACCTS else None
+    # The change is written to the ticket history with the before and after, so it is
+    # auditable after the fact. No notification: Baskoro does not want one.
+    stated_tier = tier
     new_tier = stated_tier or t.get("acct_type") or "Standard"
     if stated_tier and stated_tier != t.get("acct_type"):
-        tier = stated_tier
         changed.append(f"account tier {t.get('acct_type')} to {stated_tier}")
         # The tier lives on the shipper, not the ticket — it is an account fact and
         # applies to every deal that account brings.
@@ -5824,13 +5853,17 @@ async def status_flow(u: User = Depends(current_user)):
                     "price in this app at all, the history says so and PNS is notified: "
                     "the status follows Sales CRM, but a bypassed gate is not erased."),
             StageRule(
-                stages=["New", "Negotiation", "Proposal Submitted", "EKYC Approval",
-                        "Contract Sent", "and every other stage"],
+                # "Proposal Submitted" used to be listed here as left-alone. It moved to
+                # the rule above on 2026-08-18 and listing it in both places said two
+                # opposite things on one page.
+                stages=["New", "Negotiation", "EKYC Approval", "Contract Sent",
+                        "and every other stage"],
                 becomes=None,
                 why="Left alone on purpose. Sales CRM owns the COMMERCIAL stage; this app "
                     "owns the SOLUTIONING status, and they answer different questions. A "
                     "deal can sit at Negotiation there while PNS is still pricing here, "
-                    "and neither is wrong. Only the terminal stages override ours."),
+                    "and neither is wrong. What overrides ours is the two terminal stages "
+                    "plus Proposal Submitted, and nothing else."),
         ],
     }
 
