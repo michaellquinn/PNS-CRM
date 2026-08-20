@@ -541,20 +541,43 @@ export function Open({ me, onOpen, notify }) {
 
 /* ---------------------------------------------------------------- PNS review */
 export function ToReview({ me, onOpen, notify }) {
-  const [rows, err, reload] = useTickets({ status: "Pending Review - Head PNS" });
+  // Both PNS gates in one list (Michael, 2026-08-18). They were two menu entries and it
+  // made the sidebar ask a question the reader could not answer from outside: which of my
+  // two review queues is this ticket in? One entry, and each card carries its own gate.
+  // The ROUTING stays split — two statuses, two endpoints, two different decisions — only
+  // the way in is shared.
+  const [rows, err, reload] = useTickets(
+    { status: "Pending Review - PNS,Pending Review - Head PNS" });
+  const [why, setWhy] = useState({});
   const [list, f, set, clear, patch] = useFilter(rows);
   const act = async (fn) => { try { await fn(); notify("Done"); await reload(); } catch (e) { notify(e.message); } };
 
+  // Watched deals first: they are the ones with executives waiting behind them, and the
+  // Head is the only gate that blocks a C-level sign-off.
+  const ordered = [...list].sort((a, b) =>
+    (a.status === "Pending Review - Head PNS" ? 0 : 1)
+    - (b.status === "Pending Review - Head PNS" ? 0 : 1));
+
   return (
-    <Shell title="Review - Head PNS"
-      sub="Hypercare, Strategic and Must Win — whoever priced them. The Head of PNS finalises the solution AND its pricing here, and this is the FIRST gate: PSP, the Sales Head and C-level all come after, so nobody is asked to sign an unfinished solution."
-      rows={rows} err={err} empty="Nothing waiting on review."
+    <Shell title="Review - PNS"
+      sub="Both PNS reviews. A watched deal (Hypercare, Strategic, Must Win) needs the Head to finalise the whole solution, and that is the FIRST gate — PSP and C-level come after, so nobody signs something unfinished. A Standard deal Sales priced at Rp 30 Mio or above needs a member to check the number, and clearing it sends the proposal out."
+      rows={rows} err={err} empty="Nothing waiting on a PNS review."
       bar={<FilterBar f={f} set={set} clear={clear} patch={patch} me={me}
         shown={list.length} total={(rows || []).length} rows={rows} />}
-      filtered={list}>
-      {(list) => list.map((t) => (
-        <TicketCard key={t.ref} t={t} onOpen={onOpen}>
-          {(t.price_file || t.price_url) && <p className="mb-3 text-[13px]"><PriceChip file={t.price_file} url={t.price_url} /></p>}
+      filtered={ordered}>
+      {(list) => list.map((t) => {
+        const head = t.status === "Pending Review - Head PNS";
+        return (
+        <TicketCard key={t.ref} t={t} onOpen={onOpen}
+          badges={[
+            head
+              ? <Pill key="g" tone="bg-amber-50 text-amber-700">Head finalises the solution</Pill>
+              : <Pill key="g" tone="bg-violet-50 text-violet-700">Sales priced it — check the number</Pill>,
+          ]}>
+          {(t.price_file || t.price_url) && <p className="mb-2 text-[13px]"><PriceChip file={t.price_file} url={t.price_url} /></p>}
+          {!head && t.margin != null && (
+            <p className="mb-3 text-[13px]">Margin submitted: <b className="font-mono">{t.margin}%</b></p>
+          )}
           <RateCard service={t.service} />
           <div className="flex flex-wrap items-center gap-2">
             {/* The separate reviewer slot is retired (Baskoro, 2026-08-14) — one PNS
@@ -562,27 +585,53 @@ export function ToReview({ me, onOpen, notify }) {
                 other queue carries, so the ticket can be taken or handed over here
                 without opening it. */}
             <OwnerBar t={t} me={me} notify={notify} onDone={reload} />
-            {me.permissions.sendToPsp && mayGoToPsp(t) && (
-              <Btn onClick={() => act(() => api.status(t.ref, { status: "Pending Review - PSP", reason: "sent for margin approval" }))}>
-                Send to PSP
-              </Btn>
-            )}
-            {me.permissions.markReviewed && (
-              // Not "submit the proposal": on a watched group this is the FIRST gate,
-              // not the last. The server works out whether PSP, the Sales Head or
-              // C-level comes next and says which — hard-coding "Proposal Submitted"
-              // here used to skip the executive sign-off on Hypercare deals entirely.
+          </div>
+          {me.permissions.markReviewed && (
+            <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
+              {/* Sending it back is the member's review saying "this is not right". The
+                  Head's gate has no equivalent: they own the solution, so they fix it
+                  rather than bounce it, and the generic send-back on the ticket is
+                  still there if they want it. */}
+              {!head && (
+                <>
+                  <input className={`${inputCls} max-w-[300px]`}
+                    placeholder="What is wrong with it? (sends it back to Sales)"
+                    value={why[t.ref] || ""}
+                    onChange={(e) => setWhy({ ...why, [t.ref]: e.target.value })} />
+                  <Btn disabled={!((why[t.ref] || "").trim())}
+                    onClick={() => act(() => api.status(t.ref, {
+                      status: "Pending Sales", reason: why[t.ref] }))}>
+                    Send back to Sales
+                  </Btn>
+                </>
+              )}
+              {/* Same escalation from either gate, same rule: PSP is for when there is no
+                  rate to price against. Gated on mayGoToPsp, so a Standard deal needs the
+                  Head to have opened it on Alex's exception first. */}
+              {me.permissions.sendToPsp && mayGoToPsp(t) && (
+                <Btn onClick={() => act(() => api.status(t.ref, {
+                  status: "Pending Review - PSP",
+                  reason: head ? "sent for margin approval" : "no rate to price against" }))}>
+                  {head ? "Send to PSP" : "Escalate to PSP"}
+                </Btn>
+              )}
+              {/* Two endpoints, deliberately. /pns-final continues the watched chain and
+                  the server decides whether PSP or C-level is next — hard-coding
+                  "Proposal Submitted" here used to skip the executive sign-off on
+                  Hypercare deals entirely. /pns-review is the member's yes and normally
+                  ends at the proposal. */}
               <Btn kind="primary" className="ml-auto"
                 onClick={() => act(async () => {
-                  const r = await api.pnsFinal(t.ref);
-                  notify(`${t.ref} finalised → ${r.status}`);
+                  const r = head ? await api.pnsFinal(t.ref) : await api.pnsReview(t.ref);
+                  notify(`${t.ref} ${head ? "finalised" : "checked"} → ${r.status}`);
                 })}>
-                Finalise solution &amp; pricing
+                {head ? "Finalise solution & pricing" : "Price is sound"}
               </Btn>
-            )}
-          </div>
+            </div>
+          )}
         </TicketCard>
-      ))}
+        );
+      })}
     </Shell>
   );
 }

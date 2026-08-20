@@ -5,7 +5,7 @@ confusion this pins down:
 
   head  Hypercare, Strategic, Must Win -> "Pending Review - Head PNS". The Head of PNS's
         own oversight of the groups the business watches.
-  pns   anything else Sales priced at or above 30 Mio -> "Pending PNS". Ordinary PNS
+  pns   anything else Sales priced at or above 30 Mio -> "Pending Review - PNS". Ordinary PNS
         work, assigned like any other job, with the Head nowhere near it.
   None  everything else goes straight to the shipper.
 
@@ -20,8 +20,10 @@ _REPO = os.path.dirname(_HERE)
 src = open(os.path.join(_REPO, "backend", "main.py"), encoding="utf-8").read()
 
 WANT_FN = {"big_group", "review_level", "needs_pns_review", "approval_chain",
-           "next_gate", "proposal_or_signoff"}
-WANT_VAR = {"MANAGED_ACCTS", "CHAIN_WATCHED_BELOW", "CHAIN_WATCHED_CLEAN"}
+           "next_gate", "proposal_or_signoff", "status_for_stage", "_norm_stage"}
+WANT_VAR = {"MANAGED_ACCTS", "CHAIN_WATCHED_BELOW", "CHAIN_WATCHED_CLEAN",
+            "CLOSED_LOST_STAGES", "ACCEPTED_STAGES", "SUBMITTED_STAGES",
+            "_LOST_N", "_ACCEPTED_N", "_SUBMITTED_N"}
 keep = []
 for node in ast.parse(src).body:
     if isinstance(node, ast.FunctionDef) and node.name in WANT_FN:
@@ -35,6 +37,7 @@ exec(compile(ast.fix_missing_locations(ast.Module(body=keep, type_ignores=[])),
              "<review>", "exec"), ns)
 review_level, big_group, needs = ns["review_level"], ns["big_group"], ns["needs_pns_review"]
 approval_chain, next_gate = ns["approval_chain"], ns["next_gate"]
+status_for_stage = ns["status_for_stage"]
 
 T = lambda acct="Standard", mw=0, resp="Sales", rev=0: {
     "acct_type": acct, "must_win": mw, "resp": resp, "needs_review": rev}
@@ -94,22 +97,32 @@ print(f"verify_review_level.py  {len(CASES)} review cases + 5 group cases PASSED
 # The exact order Baskoro set out on 2026-08-13. Written as whole sequences rather than
 # per-step assertions: the bug this guards against is a gate quietly dropping out of the
 # middle, which a step-by-step test would pass right through.
-S = lambda x: x.replace("Pending Review - ", "").replace("Pending ", "")
+# Only the "Pending " prefix is stripped, so "Review - PNS" and "PNS" stay different
+# strings. Collapsing both to "PNS" is what let the old chain pass this test either way:
+# a Standard deal's gate could silently be the pricing queue OR the review gate and the
+# expectation read the same.
+S = lambda x: x.replace("Pending ", "")
 CHAINS = [
     ("Hypercare below floor", {"acct_type": "Hypercare", "must_win": 0, "exec_signoff": 0}, True,
-     ["PSP", "Head PSP", "Head PNS", "C-level"]),
+     ["Review - PSP", "Review - Head PSP", "Review - Head PNS", "Review - C-level"]),
     ("Strategic below floor", {"acct_type": "Strategic", "must_win": 0, "exec_signoff": 0}, True,
-     ["PSP", "Head PSP", "Head PNS", "C-level"]),
+     ["Review - PSP", "Review - Head PSP", "Review - Head PNS", "Review - C-level"]),
     # Must Win ends at C-level like the other two: a deal the business has declared it
     # must win is one the executives want to see, whatever the account tier says.
     ("Must Win below floor", {"acct_type": "Standard", "must_win": 1, "exec_signoff": 0}, True,
-     ["PSP", "Head PSP", "Head PNS", "C-level"]),
+     ["Review - PSP", "Review - Head PSP", "Review - Head PNS", "Review - C-level"]),
     ("Hypercare clean", {"acct_type": "Hypercare", "must_win": 0, "exec_signoff": 0}, False,
-     ["Head PNS", "C-level"]),
+     ["Review - Head PNS", "Review - C-level"]),
     ("Must Win clean", {"acct_type": "Standard", "must_win": 1, "exec_signoff": 0}, False,
-     ["Head PNS", "C-level"]),
+     ["Review - Head PNS", "Review - C-level"]),
+    # PNS's own review is the one gate. Both rows matter: the second is the Tanamera case
+    # (FTL on-call at or above 30 Mio, a band with no published ceiling, so manual_review
+    # is set). It used to skip the review entirely and land in PSP, so the assertion is
+    # that a manual band changes NOTHING about who checks it first.
     ("Standard >= 30 Mio", {"acct_type": "Standard", "must_win": 0, "needs_review": 1}, False,
-     ["PNS"]),
+     ["Review - PNS"]),
+    ("Standard >= 30 Mio, manual band", {"acct_type": "Standard", "must_win": 0, "needs_review": 1}, True,
+     ["Review - PNS"]),
     # The Head of Sales gate was retired on 2026-08-14 -- they approve in Sales CRM. A
     # Standard deal under 30 Mio now has NOTHING left to clear here, so its chain is
     # empty and the proposal goes straight out. An empty chain is the assertion, not an
@@ -148,3 +161,52 @@ if chain_fails:
         print("  -", c)
     sys.exit(1)
 print(f"verify_review_level.py  {len(CHAINS)} approval chains PASSED")
+
+
+# ------------------------------------------------------- Sales CRM stage -> our status
+# Sales CRM owns the commercial stage and this app owns the solutioning status, so only a
+# few stages cross that line. The list is worth pinning because it moved on 2026-08-18:
+# Proposal Submitted became the one NON-terminal stage that overrides ours, on the
+# argument that ACCEPTED_STAGES had always done exactly that and the inconsistency was
+# the bug. Anything mid-funnel must still leave our status alone — a ticket must not jump
+# to Proposal Submitted because Sales moved the deal to Negotiation.
+STAGES = [
+    ("Closed-Lost",        "Lost"),
+    ("Future Opportunity", "Lost"),
+    ("Agreed to Ship",     "Proposal Accepted / Ready to Ship"),
+    ("Closed-Won",         "Proposal Accepted / Ready to Ship"),
+    ("Proposal Submitted", "Proposal Submitted"),
+    # Matching is normalised, so casing and stray whitespace are not different stages.
+    # The picklist is hand-edited -- these lists already carry "Closed Lost" beside
+    # "Closed-Lost" and the misspelt "Future Oppurtunity" because of it.
+    ("Proposal submitted", "Proposal Submitted"),
+    ("  PROPOSAL   SUBMITTED  ", "Proposal Submitted"),
+    ("closed-lost", "Lost"),
+    ("agreed to ship", "Proposal Accepted / Ready to Ship"),
+    # Mid-funnel: ours wins.
+    ("Negotiation",        None),
+    ("New",                None),
+    ("EKYC",               None),
+    ("Contract Sent",      None),
+    (None,                 None),
+]
+stage_fails = []
+for stage, want in STAGES:
+    got = status_for_stage(stage, "Sales")
+    if got != want:
+        stage_fails.append(f"stage {stage!r} -> {got!r}, expected {want!r}")
+# The three stage lists must not overlap: a stage in two of them would make the answer
+# depend on the order of the ifs rather than on the rule.
+for a, b in (("CLOSED_LOST_STAGES", "ACCEPTED_STAGES"),
+             ("CLOSED_LOST_STAGES", "SUBMITTED_STAGES"),
+             ("ACCEPTED_STAGES", "SUBMITTED_STAGES")):
+    both = set(ns[a]) & set(ns[b])
+    if both:
+        stage_fails.append(f"{a} and {b} both claim {sorted(both)}")
+
+if stage_fails:
+    print("verify_review_level.py FAILED — Sales CRM stage mapping:")
+    for f in stage_fails:
+        print("  -", f)
+    sys.exit(1)
+print(f"verify_review_level.py  {len(STAGES)} stage mappings PASSED")

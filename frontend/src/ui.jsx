@@ -1,7 +1,7 @@
 // Shared primitives. Status keeps its own muted register — Ninja red (#EE1B2C) is
 // reserved for brand and actions, so a filled red thing always means "act on me".
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "./api";
 
 // Who a ticket or CAPA can be assigned to. Read from the users table rather than a
@@ -305,5 +305,89 @@ export function TicketCard({ t, badges = [], children, onOpen }) {
       </div>
       {children && <div className="mt-3 border-t border-slate-100 pt-3">{children}</div>}
     </Card>
+  );
+}
+
+// A dropdown that multi-selects. Shared by the dashboards' Status/Service/Group and by
+// the Review meeting's Salesperson/PNS PIC (Michael, 2026-08-18: those had to stay
+// multi-select but a row of thirty name pills is what made the bar unreadable).
+//
+// Status, Service and Group were three rows of chips — twenty-five pills wrapping over
+// five lines and pushing the table below the fold before anyone had filtered anything.
+// They collapse into dropdowns here, and the multi-select is the whole point of keeping
+// them: a native <select multiple> is the control nobody can operate without being told
+// to hold ctrl, so the panel holds ordinary checkboxes and stays open while you tick
+// several. The button reads the one thing you want at a glance — what is picked.
+//
+// `sections` is [{ label, items: [{ key, label, on, toggle, n }] }]. Each item carries
+// its own toggle because Group mixes two different filters in one list: Hypercare and
+// Strategic are account tiers (f.acct), Must Win is a per-deal flag (f.group), and the
+// reader scanning for "how much attention does this need" should not have to care.
+export function MultiSelect({ label, sections, picked, onClear }) {
+  const [open, setOpen] = useState(false);
+  const box = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const away = (e) => { if (box.current && !box.current.contains(e.target)) setOpen(false); };
+    const esc = (e) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", away);
+    document.addEventListener("keydown", esc);
+    return () => {
+      document.removeEventListener("mousedown", away);
+      document.removeEventListener("keydown", esc);
+    };
+  }, [open]);
+
+  return (
+    <div ref={box} className="relative">
+      <button type="button" onClick={() => setOpen(!open)}
+        className={`flex min-w-[178px] items-center gap-2 rounded-lg border px-3 py-2 text-left text-[13.5px] ${
+          picked.length
+            ? "border-[#EE1B2C] bg-rose-50 font-semibold text-[#EE1B2C]"
+            : "border-slate-300 bg-white"}`}>
+        <span className="truncate">
+          {/* One pick reads as itself, and it has to be the item's LABEL, not its key —
+              a key like __unassigned__ would otherwise leak onto the button. */}
+          {picked.length === 0 ? `Any ${label.toLowerCase()}`
+            : picked.length === 1
+              ? (sections.flatMap((s) => s.items).find((i) => i.key === picked[0])?.label
+                 ?? picked[0])
+            : `${label} · ${picked.length}`}
+        </span>
+        <span className="ml-auto shrink-0 opacity-40">▾</span>
+      </button>
+      {open && (
+        <div className="absolute left-0 top-full z-30 mt-1.5 max-h-[58vh] w-[272px] overflow-auto rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg">
+          {sections.map((sec, i) => (
+            <div key={sec.label || i}>
+              {sec.label && (
+                <div className="px-2 pb-1 pt-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  {sec.label}
+                </div>
+              )}
+              {sec.items.map((it) => (
+                <label key={it.key}
+                  className="flex cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 text-[13px] hover:bg-slate-50">
+                  <input type="checkbox" checked={it.on} onChange={it.toggle} />
+                  <span className="truncate">{it.label}</span>
+                  {it.n > 0 && (
+                    <span className="ml-auto shrink-0 font-mono text-[11px] tabular-nums text-slate-400">
+                      {it.n}
+                    </span>
+                  )}
+                </label>
+              ))}
+            </div>
+          ))}
+          {picked.length > 0 && (
+            <button onClick={onClear}
+              className="mt-1 w-full border-t border-slate-100 px-2 pt-2 text-left text-[12.5px] text-slate-500 hover:text-[#EE1B2C]">
+              Clear {label.toLowerCase()}
+            </button>
+          )}
+        </div>
+      )}
+    </div>
   );
 }

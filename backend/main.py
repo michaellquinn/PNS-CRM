@@ -128,7 +128,8 @@ LOSS_REASONS = ["pricing", "shipper", "solution", "ops", "no_vendor", "billing",
 # nobody's yet. Keeping it out would have hidden every unstarted ticket from the one
 # screen people go to when they are looking for something to do.
 AWAIT_STATUSES = ("Open", "Pending Sales", "Pending PNS", "Pending Vendor")
-PENDING_STATUSES = ["Open", "Pending Sales", "Pending PNS", "Pending Review - Head PNS",
+PENDING_STATUSES = ["Open", "Pending Sales", "Pending PNS", "Pending Review - PNS",
+                    "Pending Review - Head PNS",
                     "Pending Review - PSP",
                     "Pending Review - Head PSP", "Pending Vendor",
                     "Pending Review - C-level"]
@@ -139,7 +140,7 @@ NO_CRM_STATUS = "Pending CRM ID"
 # Statuses that mean somebody is actually working the deal. Reaching any of them needs
 # the facts the work depends on — today that is potential revenue, see change_status.
 WORK_STATUSES = ("Pending Sales", "Pending PNS", "Pending Vendor",
-                 "Pending Review - Head PNS",
+                 "Pending Review - PNS", "Pending Review - Head PNS",
                  "Pending Review - PSP", "Pending Review - Head PSP",
                  "Pending Review - C-level")
 # Fields the intake keeps as free text but remembers: the dropdown would otherwise have
@@ -151,6 +152,7 @@ REMEMBERED_FIELDS = ["commodity", "product", "pallet", "destType", "truck", "fre
 # Checked first: zero tickets held it, so nothing needed migrating and the
 # orphaned-status diagnostic stays at zero.
 ALL_STATUSES = [NO_CRM_STATUS, "Open", "Pending Sales", "Pending PNS", "Pending Vendor",
+                "Pending Review - PNS",
                 "Pending Review - Head PNS", "Pending Review - PSP",
                 "Pending Review - Head PSP",
                 "Pending Review - C-level", "Proposal Submitted",
@@ -206,6 +208,14 @@ TRANSITIONS = [
     ("Pending Sales", "the next gate in the approval chain", "The price is attached",
      "whoever owes the price", "POST /tickets/{ref}/price"),
 
+    # Two PNS reviews, deliberately separate gates with separate screens and separate
+    # endpoints (Michael, 2026-08-18). They answer different questions and are held by
+    # different people: an ordinary member checks a Sales price on a big Standard deal,
+    # the Head finalises a whole watched solution. Merging them put the Head's name on
+    # routine checks and hid the routine ones inside the pricing queue.
+    ("Pending Review - PNS", "the next gate in the approval chain",
+     "A PNS member checks the price Sales built",
+     "any PNS member", "POST /tickets/{ref}/pns-review"),
     ("Pending Review - Head PNS", "the next gate in the approval chain",
      "The Head of PNS finalises the solution and its pricing",
      "Head of PNS", "POST /tickets/{ref}/pns-final"),
@@ -236,6 +246,12 @@ TRANSITIONS = [
      "PNS or Sales, on a managed account or Alex's exception", "POST /status"),
     ("Pending Review - Head PNS", "Pending Review - PSP",
      "The Head of PNS sends it for a margin decision",
+     "PNS or Sales, on a managed account or Alex's exception", "POST /status"),
+    # The review's escalation: PNS read the price and there is no rate to price against.
+    # This is the route that replaced the automatic one — a manual-review band used to
+    # send the ticket to PSP at price-attach without PNS ever seeing it.
+    ("Pending Review - PNS", "Pending Review - PSP",
+     "The reviewer finds no rate to price against and sends it for a margin decision",
      "PNS or Sales, on a managed account or Alex's exception", "POST /status"),
 
     # A reviewer at any gate can put the ticket back on whoever owes the work. It needs
@@ -445,6 +461,24 @@ PRICING_GUARD = {
 # Future Opportunity is a loss for PNS purposes: the deal is not being solutioned now.
 CLOSED_LOST_STAGES = ("Closed-Lost", "Closed Lost", "Future Opportunity", "Future Oppurtunity")
 ACCEPTED_STAGES = ("Agreed to Ship", "Onboarding", "Ready to Ship", "Closed-Won", "Closed Won")
+# The one NON-terminal stage that follows ours (Michael, 2026-08-18). Every other
+# mid-funnel stage describes what Sales is doing and leaves our status alone; this one
+# asserts that a price has already reached the shipper, which is a fact about the world
+# rather than a step in Sales' process. Holding the ticket at "Pending Review - PSP"
+# after that does not un-send the proposal, it just makes our queues describe work that
+# is already moot. Spelling variants included because the picklist has been edited.
+SUBMITTED_STAGES = ("Proposal Submitted", "Proposal Sent", "Quotation Sent")
+
+
+def _norm_stage(s: str | None) -> str:
+    """A stage name reduced to what actually identifies it: case-folded, whitespace
+    collapsed. Trailing spaces and a lower-case S are not different stages."""
+    return " ".join(str(s or "").split()).lower()
+
+
+_LOST_N = {_norm_stage(s) for s in CLOSED_LOST_STAGES}
+_ACCEPTED_N = {_norm_stage(s) for s in ACCEPTED_STAGES}
+_SUBMITTED_N = {_norm_stage(s) for s in SUBMITTED_STAGES}
 
 
 def stage_blocks_work(t: dict) -> str | None:
@@ -464,15 +498,30 @@ def status_for_stage(stage: str | None, resp: str) -> str | None:
     """The PNS status a Sales CRM stage implies, or None to leave ours alone.
 
     Deliberately one-way and coarse. Sales CRM owns the commercial stage; this app owns
-    the solutioning status. The only stages that override ours are the terminal ones, 
-    there is no point solutioning a deal the shipper has already declined."""
+    the solutioning status. The stages that override ours are the terminal ones — there
+    is no point solutioning a deal the shipper has already declined — plus Proposal
+    Submitted, which is not terminal but does say the price already left the building.
+
+    That last one is Michael's call, 2026-08-18, and it makes the rule consistent rather
+    than looser: ACCEPTED_STAGES has always overridden our status from any open state, so
+    "the shipper accepted" was allowed to jump every gate while the weaker "the proposal
+    went out" was not. Where a ticket was still in an approval gate, the sync records the
+    gates it bypassed rather than moving it quietly — see _refresh_from_salescrm()."""
     if not stage:
         return None
-    if stage in CLOSED_LOST_STAGES:
+    # Compared normalised — case-folded and inner whitespace collapsed. Sales CRM's
+    # picklist is edited by hand and these lists already carry "Closed Lost" beside
+    # "Closed-Lost" and the misspelt "Future Oppurtunity" to cope with it. An exact
+    # match means a stage renamed to "Proposal submitted " silently stops being
+    # recognised, and nothing anywhere says so — the ticket simply never moves.
+    s = _norm_stage(stage)
+    if s in _LOST_N:
         return "Lost"
-    if stage in ACCEPTED_STAGES:
+    if s in _ACCEPTED_N:
         return "Proposal Accepted / Ready to Ship"
-    return None          # New, Negotiation, Proposal Submitted, EKYC, Contract Sent...
+    if s in _SUBMITTED_N:
+        return "Proposal Submitted"
+    return None          # New, Negotiation, EKYC, Contract Sent...
 
 
 def guard_for(acct: str, svc: str, rev: int) -> dict:
@@ -522,7 +571,10 @@ def review_level(t: dict) -> str | None:
               the path at all, which is exactly the gap this closes.
 
       "pns"   Anything else Sales priced at or above Rp 30 Mio. A second pair of PNS eyes
-              as ordinary work, in "Pending PNS", with the Head nowhere near it.
+              in "Pending Review - PNS", its own gate with its own screen, and the Head
+              nowhere near it. It used to land in plain "Pending PNS", which meant the
+              review was indistinguishable from ordinary pricing work in the queue and
+              the only way to finish it was to attach a price over the top of Sales'.
 
       None    everything else — it goes straight out.
     """
@@ -571,7 +623,14 @@ def approval_chain(t: dict, below_floor: bool) -> list[str]:
     # Head of Sales gate retired, a Standard deal under 30 Mio has nothing left to clear:
     # Sales priced it, Sales owns it, and the proposal goes straight out. An empty chain
     # means next_gate() answers "Proposal Submitted", which is the point.
-    return ["Pending PNS"] if t.get("needs_review") else []
+    #
+    # At or above 30 Mio the one gate is PNS's own review. PSP is deliberately NOT in
+    # this chain: a band with no published ceiling used to route here automatically,
+    # which skipped the review entirely (Michael, 2026-08-18 — a Tanamera FTL on-call
+    # deal went straight to PSP with PNS never seeing it). Where the reviewer genuinely
+    # needs PSP, they escalate from the review screen, which is the gated, recorded route
+    # rather than an automatic one.
+    return ["Pending Review - PNS"] if t.get("needs_review") else []
 
 
 def next_gate(t: dict, current: str | None = None) -> str:
@@ -1018,7 +1077,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-08-14.45"
+BUILD = "2026-08-18.49"
 
 
 class Me(BaseModel):
@@ -2592,7 +2651,13 @@ async def _refresh_from_salescrm(o: dict, account: dict | None = None,
     t = await q("SELECT id, ticket_ref, status, resp, stage, potential_rev, service_type, "
                 "must_win, "
                 "(SELECT name FROM shippers s WHERE s.id=shipper_id) AS shipper, "
-                "(SELECT acct_type FROM shippers s WHERE s.id=shipper_id) AS acct_type "
+                "(SELECT acct_type FROM shippers s WHERE s.id=shipper_id) AS acct_type, "
+                # pricing is keyed on ticket_id, so these are single-valued. Needed
+                # because a Proposal Submitted stage on a ticket carrying no price here
+                # is the case worth shouting about, and without these columns the check
+                # would read "no price" for every ticket and cry wolf on all of them.
+                "(SELECT price_file FROM pricing p WHERE p.ticket_id=tickets.id) AS price_file, "
+                "(SELECT price_url FROM pricing p WHERE p.ticket_id=tickets.id) AS price_url "
                 "FROM tickets WHERE opportunity_id=%s", (oid,), one=True)
     if not t:
         return None
@@ -2697,10 +2762,39 @@ async def _refresh_from_salescrm(o: dict, account: dict | None = None,
     moved, missing = None, []
     wants = status_for_stage(o.get("stage"), t["resp"])
     # Only open tickets follow the stage; a decided ticket keeps its recorded outcome.
+    # "Proposal Submitted" additionally must never pull a ticket BACKWARDS: it is the one
+    # non-terminal stage we follow, and Sales CRM can report it long after the shipper
+    # has actually accepted. The terminal list below already covers accepted/Lost/Cancel,
+    # so this only has to stop it re-entering a ticket that is already submitted.
     if wants and t["status"] != wants and t["status"] not in (
             "Lost", "Cancel", "Proposal Accepted / Ready to Ship"):
         ref = t["ticket_ref"]
-        if wants == "Lost":
+        if wants == "Proposal Submitted":
+            # The proposal has reached the shipper while this ticket was still inside its
+            # approval chain, so a price went out without clearing its gates. Following
+            # Sales CRM is right — the status should describe the world — but doing it
+            # silently would erase the only evidence it happened, so the gates that were
+            # bypassed are named in the history and PNS is told. ACCEPTED_STAGES has been
+            # doing this move quietly since it was written; the same record now covers it.
+            gate = t["status"] if t["status"].startswith("Pending Review") else None
+            no_price = not (t.get("price_file") or t.get("price_url"))
+            note = f"Sales CRM stage is {o.get('stage')}"
+            if gate:
+                note += f" — proposal went out while still at {gate}, that gate was bypassed"
+            if no_price:
+                note += " — no price is attached in this app"
+            if gate or no_price:
+                what = []
+                if gate:
+                    what.append(f"it was still at {gate}")
+                if no_price:
+                    what.append("no price is attached here, so the number the shipper "
+                                "received exists nowhere in this app")
+                await notify(
+                    f"{ref}, {t['shipper']}: Sales CRM says the proposal is submitted, but "
+                    + " and ".join(what) + ". Worth checking.",
+                    groups=["PNS"], ticket_ref=ref)
+        elif wants == "Lost":
             # Sales CRM's own reason, not the generic "Closed in Sales CRM" bucket
             # (Baskoro, 2026-08-18). Every synced loss used to land in one bucket that
             # explained nothing, which made the loss breakdown useless for exactly the
@@ -3105,6 +3199,29 @@ async def submit_price(ref: str, body: PriceIn, u: User = Depends(current_user))
         await notify(f"{ref}, {t['shipper']} ({big_group(t)}): priced by {u.name}, "
                      f"needs your sign-off on the solution before it goes further",
                      roles=["PNS - Head"], ticket_ref=ref)
+    elif review_level(t) == "pns":
+        # Sales priced a Standard deal at or above 30 Mio, so PNS checks it — and this is
+        # tested BEFORE to_psp on purpose, for the same reason the Head branch above is.
+        # A band with no published ceiling (FTL on-call, Fulfillment and Complex
+        # Logistics all go "manual" at this tier) used to satisfy to_psp first and send
+        # the ticket to PSP with PNS never seeing it, even though route() had already
+        # marked it for review and the ticket said "PNS review" on every screen.
+        # Michael, 2026-08-18: PSP is where you go when there is no rate to price
+        # against, and that is the escalation route from the review screen — it is not
+        # a substitute for PNS reading a price Sales built.
+        nxt, note = "Pending Review - PNS", "Sales priced at or above 30 Mio — PNS checks it"
+        who = t.get("owner_name") or await auto_assignee(
+            t["service_type"], t["id"], t.get("shipper_id"))
+        if who:
+            if not t.get("owner_name"):
+                await execute("UPDATE tickets SET owner_name=%s WHERE id=%s", (who, t["id"]))
+            await notify(f"{ref}, {t['shipper']}: Sales priced it at "
+                         f"Rp {int(t['potential_rev']):,} — yours to review",
+                         people=[who], ticket_ref=ref, subject=f"Review {t['shipper']}")
+        else:
+            await notify(f"{ref}, {t['shipper']}: Sales priced it at or above 30 Mio and "
+                         f"everyone eligible is at the cap — needs manual assignment",
+                         roles=["PNS - Head"], groups=["PNS"], ticket_ref=ref)
     elif to_psp:
         nxt, note = "Pending Review - PSP", g["why"]
         await execute("UPDATE tickets SET manual_review=1 WHERE id=%s", (t["id"],))
@@ -3132,25 +3249,6 @@ async def submit_price(ref: str, body: PriceIn, u: User = Depends(current_user))
             await notify(f"{ref}, {t['shipper']}: price attached by {u.name} and flagged "
                          f"BELOW BOTTOM RATE ({g['why']}); no PSP route, so it is yours to "
                          f"finalise", roles=["PNS - Head"], ticket_ref=ref)
-    elif review_level(t) == "pns":
-        # At or above 30 Mio but not a watched group. Still reviewed, but as ordinary PNS
-        # work: it becomes Pending PNS and is assigned like any other job. The Head is
-        # not in this path at all — putting them here made them a bottleneck on the
-        # highest-volume band and put their name on a decision they were not taking.
-        nxt, note = "Pending PNS", "Sales priced at or above 30 Mio — PNS checks it"
-        await execute("UPDATE tickets SET resp='PNS' WHERE id=%s", (t["id"],))
-        who = t.get("owner_name") or await auto_assignee(
-            t["service_type"], t["id"], t.get("shipper_id"))
-        if who:
-            if not t.get("owner_name"):
-                await execute("UPDATE tickets SET owner_name=%s WHERE id=%s", (who, t["id"]))
-            await notify(f"{ref}, {t['shipper']}: Sales priced it at "
-                         f"Rp {int(t['potential_rev']):,} — yours to check",
-                         people=[who], ticket_ref=ref, subject=f"Check {t['shipper']}")
-        else:
-            await notify(f"{ref}, {t['shipper']}: Sales priced it at or above 30 Mio and "
-                         f"everyone eligible is at the cap — needs manual assignment",
-                         roles=["PNS - Head"], groups=["PNS"], ticket_ref=ref)
     else:
         nxt, note = proposal_or_signoff(t), ""
         if nxt == "Pending Review - C-level":
@@ -3436,6 +3534,38 @@ async def change_sales(ref: str, body: SalesIn, u: User = Depends(current_user))
                  people=[name], ticket_ref=ref)
     await audit(u.email, "reassign", "ticket", ref, "sales", t["sales_name"], name)
     return {"ok": True, "ref": ref, "status": t["status"]}
+
+
+@app.post("/api/tickets/{ref}/pns-review", response_model=Ok)
+async def pns_review(ref: str, u: User = Depends(current_user)):
+    """A PNS member accepts the price Sales built, and it moves on.
+
+    The ordinary review, not the Head's. Kept as its own endpoint rather than a flag on
+    pns-final because they are different acts by different people: this one says "the
+    number Sales put on a big Standard deal is sound", the Head's says "this whole
+    watched solution is finished and the executives may be asked to sign it".
+
+    Disagreeing is not done here — the reviewer sends it back to Sales with a reason, or
+    escalates to PSP, both through POST /status. This endpoint is only the yes."""
+    require(u, "markReviewed")
+    t = await get_ticket(ref)
+    if t["status"] != "Pending Review - PNS":
+        raise HTTPException(409, f"{ref} is {t['status']}, not waiting on PNS review")
+
+    nxt = next_gate(t, "Pending Review - PNS")
+    await log_status(t["id"], nxt, u.name, "price checked by PNS")
+    await execute("INSERT INTO approvals (ticket_id, kind, decision, actor, actor_role) "
+                  "VALUES (%s,'pns_review','approved',%s,%s)", (t["id"], u.name, u.group))
+    # Normally "Proposal Submitted" — but say what actually happened rather than assume,
+    # the same way pns_finalise does. A watched ticket parked here by hand has a chain.
+    if nxt == "Proposal Submitted":
+        await notify(f"{ref}, {t['shipper']}: {u.name} checked the price — proposal is ready",
+                     groups=["Commercial"], ticket_ref=ref)
+    else:
+        await notify(f"{ref}, {t['shipper']}: price checked by {u.name} — now at {nxt}",
+                     groups=["PNS", "Commercial"], ticket_ref=ref)
+    await audit(u.email, "pns_review", "ticket", ref, "status", t["status"], nxt)
+    return {"ok": True, "ref": ref, "status": nxt}
 
 
 @app.post("/api/tickets/{ref}/pns-final", response_model=Ok)
@@ -5715,13 +5845,25 @@ async def status_flow(u: User = Depends(current_user)):
                     "this lands, PNS and Sales are told exactly which ones, because Ops "
                     "cannot onboard a shipper the account systems cannot find."),
             StageRule(
-                stages=["New", "Negotiation", "Proposal Submitted", "EKYC Approval",
-                        "Contract Sent", "and every other stage"],
+                stages=list(SUBMITTED_STAGES), becomes="Proposal Submitted",
+                why="The price has already reached the shipper, so holding the ticket in "
+                    "an approval gate does not un-send it — it only makes our queues "
+                    "describe work that is already moot. The one non-terminal stage that "
+                    "overrides ours. Where the ticket was still in a gate, or carries no "
+                    "price in this app at all, the history says so and PNS is notified: "
+                    "the status follows Sales CRM, but a bypassed gate is not erased."),
+            StageRule(
+                # "Proposal Submitted" used to be listed here as left-alone. It moved to
+                # the rule above on 2026-08-18 and listing it in both places said two
+                # opposite things on one page.
+                stages=["New", "Negotiation", "EKYC Approval", "Contract Sent",
+                        "and every other stage"],
                 becomes=None,
                 why="Left alone on purpose. Sales CRM owns the COMMERCIAL stage; this app "
                     "owns the SOLUTIONING status, and they answer different questions. A "
                     "deal can sit at Negotiation there while PNS is still pricing here, "
-                    "and neither is wrong. Only the terminal stages override ours."),
+                    "and neither is wrong. What overrides ours is the two terminal stages "
+                    "plus Proposal Submitted, and nothing else."),
         ],
     }
 

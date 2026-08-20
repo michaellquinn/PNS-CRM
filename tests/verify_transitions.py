@@ -91,6 +91,11 @@ CASES = [
     # A reviewer sending it back for rework, from any gate.
     ("Pending Review - C-level", "Pending PNS", True),
     ("Pending Review - Head PSP", "Pending PNS", True),
+    # The ordinary PNS review's own two exits: back to Sales with a reason, or escalated
+    # to PSP when there is no rate to price against. Approving is /pns-review, not a
+    # status choice, so it is asserted as refused further down.
+    ("Pending Review - PNS", "Pending Sales", True),
+    ("Pending Review - PNS", "Pending Review - PSP", True),
     # Sales recording the outcome.
     ("Proposal Submitted", "Proposal Accepted / Ready to Ship", True),
     ("Proposal Submitted", "Pending PNS", True),
@@ -106,6 +111,8 @@ CASES = [
     ("Pending PNS", "Pending Review - Head PNS", False),   # earned by attaching a price
     ("Pending PNS", "Pending Review - C-level", False),    # skips every gate before it
     ("Pending Review - Head PNS", "Proposal Submitted", False),  # that is /pns-final
+    ("Pending Review - PNS", "Proposal Submitted", False),        # that is /pns-review
+    ("Pending PNS", "Pending Review - PNS", False),               # earned by attaching a price
     ("Pending Review - PSP", "Pending Review - Head PSP", False),  # that is /psp
     ("Pending CRM ID", "Open", False),                     # that is /crm-id
     ("Pending CRM ID", "Pending PNS", False),

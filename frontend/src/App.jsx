@@ -59,8 +59,13 @@ const NAV = [
     { id: "open", label: "Open", icon: "○", count: "Open",
       keywords: "open ready unclaimed available not started" },
     { id: "awaiting", label: "Awaiting price", icon: "◷", count: "awaiting", keywords: "pricing" },
-    { id: "review", label: "Review - Head PNS", icon: "◎", count: "Pending Review - Head PNS",
-      keywords: "pns view pns review" },
+    // One entry for both PNS gates (Michael, 2026-08-18). The routing behind it is still
+    // split — two statuses, two endpoints, two different decisions — but which queue a
+    // ticket sits in is not something the reader can tell from the sidebar, so asking
+    // them to pick was asking a question they could not answer. The screen branches per
+    // card instead. The badge counts both, hence the synthetic key.
+    { id: "review", label: "Review - PNS", icon: "◎", count: "review:pns",
+      keywords: "pns review head finalise watched check sales price 30 mio second pair of eyes" },
     { id: "psp-pending", label: "Review - PSP", icon: "✓", count: "Pending Review - PSP",
       tag: "PSP", keywords: "psp pending margin approval decided finished history" },
     { id: "signoff", label: "Review - C-level", icon: "★", count: "Pending Review - C-level",
@@ -381,6 +386,10 @@ export default function App() {
             c[k] = (c[k] || 0) + 1;
           }
         });
+        // One menu entry now covers both PNS gates, so its badge is their sum. Derived
+        // here rather than in the nav table because `count` reads a single key.
+        c["review:pns"] = (c["Pending Review - PNS"] || 0)
+                        + (c["Pending Review - Head PNS"] || 0);
         setCounts(c);
       })
       .catch(() => {});

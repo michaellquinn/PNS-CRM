@@ -2,13 +2,46 @@ import { Card, Head, Pill } from "../ui";
 
 const ENTRIES = [
   {
+    date: "2026-08-18",
+    title: "A submitted proposal in Sales CRM now moves our status too",
+    by: "Michael + Claude",
+    changes: [
+      "If Sales CRM says the stage is Proposal Submitted, the ticket here becomes Proposal Submitted. Michael found several after a sync sitting in our approval gates while Sales CRM already had the proposal out — PT. LF Services Indonesia (Maersk OCF) - Puma - Sameday - REG - (B2BR) and PT. Farma Bangun Bersama - Sameday (PRM) among them.",
+      "This makes the rule consistent rather than looser. The accepted stages (Agreed to Ship, Onboarding, Closed-Won) have ALWAYS overridden our status from any open state, so \"the shipper accepted\" was allowed to jump every gate while the weaker \"the proposal went out\" was not. Proposal Submitted is the one non-terminal stage worth following, because it is the only one that says something already reached the shipper. Negotiation, EKYC and Contract Sent still leave our status alone.",
+      "Where the ticket was still in an approval gate, the move is recorded rather than made quietly: the history names the gate that was bypassed and PNS is notified. A proposal reaching the shipper before PSP or the Head of PNS cleared it is a real event, and setting the status silently would erase the only evidence of it. Same notice fires when Sales CRM says the proposal is out but no price is attached here at all — meaning the number the shipper received exists nowhere in this app.",
+      "Review meeting filters are multi-select again. Salesperson and PNS PIC are still dropdowns rather than a wrapping row of thirty name pills, but you can now tick several — a review is run for the people in the room, and that is rarely one person. Making them single-select on 14 August was the wrong trade. Unassigned is one of the PNS PIC options.",
+      "The multi-select dropdown is now one shared control used by both dashboards and the Review meeting, rather than two implementations drifting apart.",
+      "Stage matching is normalised — case-folded, whitespace collapsed — so \"Proposal submitted\" and \"Proposal Submitted \" are the same stage. Sales CRM's picklist is hand-edited, which is why these lists already carried \"Closed Lost\" beside \"Closed-Lost\" and the misspelt \"Future Oppurtunity\". An exact match means a renamed stage silently stops being recognised and the ticket simply never moves, with nothing anywhere saying so.",
+    ],
+    overruled: [
+      "status_for_stage() was \"deliberately one-way and coarse — only terminal stages override ours\". Proposal Submitted is now the one non-terminal exception, on the argument that ACCEPTED_STAGES already did exactly this and the inconsistency was the bug.",
+      "The Review meeting salesperson filter was made single-select on 14 August. Reversed — multi-select, in a dropdown.",
+    ],
+  },
+  {
+    date: "2026-08-18",
+    title: "Review - PNS is its own gate: Sales prices, PNS checks, and PSP stops jumping the queue",
+    by: "Michael + Claude",
+    changes: [
+      "FIXED: a Sales-priced deal at or above Rp 30 Mio could skip the PNS review entirely and land in PSP. Reported by Michael on Tanamera Coffee Indonesia (FTL on-call): the ticket said \"PNS review\" on every screen, route() had marked it for review, and it went to PSP anyway. The cause was branch order at price-attach — a band with no published ceiling was tested BEFORE the review, so it won. FTL on-call, Fulfillment and Complex Logistics all go \"manual\" above 30 Mio, so all three were affected.",
+      "PSP is where you go when there is no rate to price against — it is not an automatic stop on the way past. A manual band now changes nothing about who reads the price first. Where the reviewer genuinely needs PSP, there is an Escalate to PSP button on the review screen, which is the gated and recorded route (a Standard deal still needs the Head of PNS to open it on Alex's exception).",
+      "New status: Pending Review - PNS, distinct from Pending Review - Head PNS. Two PNS gates, deliberately not one — an ordinary member checks one number Sales put on a big Standard deal; the Head finalises a whole watched solution before the executives see it. Different decisions, separate statuses, separate endpoints.",
+      "They share ONE menu entry, Review - PNS, and the screen branches per card: a watched deal shows \"Finalise solution & pricing\", a Sales-priced Standard deal shows \"Price is sound\" and a send-back box. Which of two review queues a given ticket sits in is not something you can tell from the sidebar, so two entries asked a question the reader could not answer. The badge counts both.",
+      "The review used to land in plain Pending PNS, which meant it was indistinguishable from ordinary pricing work in the queue, and the only way to finish it was to attach a price over the top of Sales'. There is now an explicit \"Price is sound\" that records who checked it, and \"Send back to Sales\" with a reason beside it.",
+      "The chain test was collapsing \"Pending PNS\" and \"Pending Review - PNS\" to the same string, so it would have passed either way. It now distinguishes them, and pins the Tanamera case by name: Standard, 30 Mio or above, manual band, still reviewed by PNS first.",
+    ],
+    overruled: [
+      "A manual-review 5A band no longer sends a Standard deal straight to PSP at price-attach. It goes to PNS review, and PSP is reached by escalation from there. Watched deals are untouched — they still go to the Head of PNS first, exactly as before.",
+      "The ordinary PNS review no longer shares the \"Pending PNS\" status with pricing work.",
+    ],
+  },
+  {
     date: "2026-08-14",
     title: "Head of Sales approves in Sales CRM; Sales CRM wins; the sync runs itself",
     by: "Baskoro + Claude",
     changes: [
       "The Head of Sales gate is removed from the approval chain. They approve in Sales CRM, where they already work — a queue here that nobody opens does not gate anything, it just leaves the ticket waiting. Checked first: zero tickets were sitting at that status, so nothing was stranded. A watched deal below the floor now goes PSP → Head of PNS → C-level, and a Standard deal under Rp 30 Mio has nothing left to clear here at all: Sales priced it, Sales owns it, the proposal goes straight out.",
       "Sales CRM always takes priority. Every field it carries is now overwritten on every run — including potential revenue, service line and account tier, which used to be left alone on the reasoning that PNS corrects them deliberately. That reasoning is overruled: a copy that disagrees with its source is worse than no copy, because people believe it. The consequence is intended and worth saying plainly — a correction made here to any of those three survives only until the next run. If the value is wrong, fix it in Sales CRM.",
-      "One deliberate exception: the go-live date still only fills a blank. Sales CRM's expected CLOSE date is when the deal closes, not when the shipper starts shipping — letting one overwrite the other would not be honouring the rule, it would be filling a field with the answer to a different question.",
       "Whenever revenue, service or tier changes, the routing is re-derived on the corrected facts and the change is written to the ticket history, so nobody has to work out why a deal changed sides overnight. The sync screen lists exactly what each refresh overwrote.",
       "The sync now runs itself every 5 minutes. Sales CRM has no webhooks, so the app was only ever as fresh as the last person who remembered to press the button. It skips a tick rather than queueing when a manual run is in progress, and — because an unattended sync that dies is silent by nature — its last result is kept and shown at the top of the Sync screen. A failed run gets a red banner naming the likeliest cause, the API key expiring, which it does roughly every 30 days.",
       "The account group is a real link now. Hypercare and Strategic are inherited from the parent account, so an account whose parent you could not open was one whose tier the screen could not explain. Accounts shows the parent by name, links into Sales CRM, and says how many other shippers sit in the same group.",

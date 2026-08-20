@@ -80,6 +80,9 @@ export const api = {
   // The Head of PNS finalises the solution; the server decides what comes next, so the
   // caller cannot accidentally skip PSP or C-level by naming a status.
   pnsFinal: (ref) => call(`/tickets/${ref}/pns-final`, { method: "POST" }),
+  // The ordinary review, not the Head's. Separate endpoint because it is a different
+  // act by a different person — see the two "Pending Review" gates in the status flow.
+  pnsReview: (ref) => call(`/tickets/${ref}/pns-review`, { method: "POST" }),
   psp: (ref, body) => call(`/tickets/${ref}/psp`, { method: "POST", body: JSON.stringify(body) }),
   execSignoff: (ref, body) =>
     call(`/tickets/${ref}/exec-signoff`, { method: "POST", body: JSON.stringify(body) }),
@@ -179,7 +182,8 @@ export const SERVICES = ["LTL", "B2BR", "B2C", "FTL on-call", "FTL monthly", "Sa
 export const FTL = ["FTL on-call", "FTL monthly"];
 
 export const STATUSES = [
-  "Pending CRM ID", "Open", "Pending Sales", "Pending PNS", "Pending Review - Head PNS",
+  "Pending CRM ID", "Open", "Pending Sales", "Pending PNS",
+  "Pending Review - PNS", "Pending Review - Head PNS",
   "Pending Review - PSP", "Pending Review - Head PSP", "Pending Vendor", "Pending Review - C-level", "Proposal Submitted",
   "Proposal Accepted / Ready to Ship", "Lost", "Cancel",
 ];
