@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, PENDING, groupTone, rp } from "../api";
-import { Btn, Card, Head, Pill } from "../ui";
+import { Btn, Card, Head, MultiSelect, Pill } from "../ui";
 
 // Review meeting, run by region. Pick the regions in the room, and both people lists —
 // the salesperson who sold it and the PNS PIC holding it — narrow to whoever actually
@@ -8,8 +8,6 @@ import { Btn, Card, Head, Pill } from "../ui";
 // is how an agenda ends up with somebody else's deals in it.
 
 const REGIONS = ["GJ", "WJ", "CJ", "EJ"];
-
-const sel = "rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-[12.5px]";
 
 /* A multi-select that reads as a row of toggles rather than a <select multiple>, which
    nobody can operate without being told to hold ctrl. */
@@ -60,11 +58,13 @@ export function ReviewMeeting({ onOpen }) {
   const [props_, setProps] = useState(null);
   const [pend, setPend] = useState(null);
   const [regions, setRegions] = useState([]);
-  // Salesperson and PNS PIC are dropdowns rather than the toggle row the regions use:
-  // there are four regions and there are as many names as the company has people, and a
-  // wrapping row of thirty pills is the thing that made this bar hard to read.
-  const [person, setPerson] = useState("");
-  const [owner, setOwner] = useState("");
+  // Salesperson and PNS PIC are multi-select dropdowns. Both halves of that matter:
+  // dropdowns because a wrapping row of thirty name pills is what made this bar
+  // unreadable, and multi-select because a review is run for the people in the room and
+  // that is rarely one person (Michael, 2026-08-18 — this was briefly single-select and
+  // that was the wrong trade). The panel is the same control the dashboards use.
+  const [people, setPeople] = useState([]);
+  const [owners_, setOwners] = useState([]);
   const [err, setErr] = useState(null);
 
   useEffect(() => {
@@ -94,19 +94,21 @@ export function ReviewMeeting({ onOpen }) {
     () => [...new Set(all.map((t) => t.owner).filter(Boolean))].sort(),
     [all.length, regions.join(",")]);
 
-  // Somebody picked for one region and then deselected with the region should not keep
-  // filtering invisibly.
+  // Names picked for one region and then deselected with the region should not keep
+  // filtering invisibly. Unassigned survives on purpose — it is not a name that can stop
+  // being in the list.
   useEffect(() => {
-    if (person && !sales.includes(person)) setPerson("");
+    setPeople((p) => p.filter((n) => sales.includes(n)));
   }, [sales.join(",")]);
   useEffect(() => {
-    if (owner && owner !== "__unassigned__" && !owners.includes(owner)) setOwner("");
+    setOwners((p) => p.filter((n) => n === "__unassigned__" || owners.includes(n)));
   }, [owners.join(",")]);
 
   const keep = (list) =>
     (list || []).filter((t) =>
-      (!person || t.sales === person)
-      && (!owner || (owner === "__unassigned__" ? !t.owner : t.owner === owner)));
+      (!people.length || people.includes(t.sales))
+      && (!owners_.length
+          || owners_.some((o) => (o === "__unassigned__" ? !t.owner : t.owner === o))));
 
   let n = 0;
   const Block = ({ label, sub, list, tone }) => {
@@ -165,29 +167,41 @@ export function ReviewMeeting({ onOpen }) {
             <span className="w-[92px] shrink-0 text-[10.5px] font-bold uppercase tracking-wider text-slate-400">
               Salesperson
             </span>
-            <select className={sel} value={person} onChange={(e) => setPerson(e.target.value)}
-              disabled={sales.length === 0}>
-              <option value="">
-                {sales.length === 0
-                  ? (props_ === null ? "Loading…" : "Nobody in those regions")
-                  : "Everyone"}
-              </option>
-              {sales.map((s) => <option key={s}>{s}</option>)}
-            </select>
+            {sales.length === 0 ? (
+              <span className="text-[12.5px] text-slate-400">
+                {props_ === null ? "Loading…" : "Nobody has a live deal in those regions."}
+              </span>
+            ) : (
+              <MultiSelect label="Salesperson" picked={people}
+                onClear={() => setPeople([])}
+                sections={[{ label: null, items: sales.map((s) => ({
+                  key: s, label: s, on: people.includes(s),
+                  toggle: () => setPeople((p) =>
+                    p.includes(s) ? p.filter((x) => x !== s) : [...p, s]),
+                })) }]} />
+            )}
           </div>
           <div className="flex items-center gap-2.5">
             <span className="shrink-0 text-[10.5px] font-bold uppercase tracking-wider text-slate-400">
               PNS PIC
             </span>
-            <select className={sel} value={owner} onChange={(e) => setOwner(e.target.value)}>
-              <option value="">Anyone</option>
-              {/* Unassigned is a real answer here, and the one worth raising in the room. */}
-              <option value="__unassigned__">Unassigned</option>
-              {owners.map((o) => <option key={o}>{o}</option>)}
-            </select>
+            <MultiSelect label="PNS PIC" picked={owners_}
+              onClear={() => setOwners([])}
+              sections={[{ label: null, items: [
+                // Unassigned is a real answer here, and the one worth raising in the room.
+                { key: "__unassigned__", label: "Unassigned",
+                  on: owners_.includes("__unassigned__"),
+                  toggle: () => setOwners((p) => p.includes("__unassigned__")
+                    ? p.filter((x) => x !== "__unassigned__") : [...p, "__unassigned__"]) },
+                ...owners.map((o) => ({
+                  key: o, label: o, on: owners_.includes(o),
+                  toggle: () => setOwners((p) =>
+                    p.includes(o) ? p.filter((x) => x !== o) : [...p, o]),
+                })),
+              ] }]} />
           </div>
-          {(person || owner) && (
-            <button onClick={() => { setPerson(""); setOwner(""); }}
+          {(people.length > 0 || owners_.length > 0) && (
+            <button onClick={() => { setPeople([]); setOwners([]); }}
               className="ml-auto rounded-lg border border-slate-300 px-3 py-1.5 text-[12.5px]">
               Clear
             </button>

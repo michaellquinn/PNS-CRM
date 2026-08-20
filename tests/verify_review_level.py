@@ -20,8 +20,9 @@ _REPO = os.path.dirname(_HERE)
 src = open(os.path.join(_REPO, "backend", "main.py"), encoding="utf-8").read()
 
 WANT_FN = {"big_group", "review_level", "needs_pns_review", "approval_chain",
-           "next_gate", "proposal_or_signoff"}
-WANT_VAR = {"MANAGED_ACCTS", "CHAIN_WATCHED_BELOW", "CHAIN_WATCHED_CLEAN"}
+           "next_gate", "proposal_or_signoff", "status_for_stage"}
+WANT_VAR = {"MANAGED_ACCTS", "CHAIN_WATCHED_BELOW", "CHAIN_WATCHED_CLEAN",
+            "CLOSED_LOST_STAGES", "ACCEPTED_STAGES", "SUBMITTED_STAGES"}
 keep = []
 for node in ast.parse(src).body:
     if isinstance(node, ast.FunctionDef) and node.name in WANT_FN:
@@ -35,6 +36,7 @@ exec(compile(ast.fix_missing_locations(ast.Module(body=keep, type_ignores=[])),
              "<review>", "exec"), ns)
 review_level, big_group, needs = ns["review_level"], ns["big_group"], ns["needs_pns_review"]
 approval_chain, next_gate = ns["approval_chain"], ns["next_gate"]
+status_for_stage = ns["status_for_stage"]
 
 T = lambda acct="Standard", mw=0, resp="Sales", rev=0: {
     "acct_type": acct, "must_win": mw, "resp": resp, "needs_review": rev}
@@ -158,3 +160,46 @@ if chain_fails:
         print("  -", c)
     sys.exit(1)
 print(f"verify_review_level.py  {len(CHAINS)} approval chains PASSED")
+
+
+# ------------------------------------------------------- Sales CRM stage -> our status
+# Sales CRM owns the commercial stage and this app owns the solutioning status, so only a
+# few stages cross that line. The list is worth pinning because it moved on 2026-08-18:
+# Proposal Submitted became the one NON-terminal stage that overrides ours, on the
+# argument that ACCEPTED_STAGES had always done exactly that and the inconsistency was
+# the bug. Anything mid-funnel must still leave our status alone — a ticket must not jump
+# to Proposal Submitted because Sales moved the deal to Negotiation.
+STAGES = [
+    ("Closed-Lost",        "Lost"),
+    ("Future Opportunity", "Lost"),
+    ("Agreed to Ship",     "Proposal Accepted / Ready to Ship"),
+    ("Closed-Won",         "Proposal Accepted / Ready to Ship"),
+    ("Proposal Submitted", "Proposal Submitted"),
+    ("Proposal submitted", "Proposal Submitted"),   # the picklist has been edited before
+    # Mid-funnel: ours wins.
+    ("Negotiation",        None),
+    ("New",                None),
+    ("EKYC",               None),
+    ("Contract Sent",      None),
+    (None,                 None),
+]
+stage_fails = []
+for stage, want in STAGES:
+    got = status_for_stage(stage, "Sales")
+    if got != want:
+        stage_fails.append(f"stage {stage!r} -> {got!r}, expected {want!r}")
+# The three stage lists must not overlap: a stage in two of them would make the answer
+# depend on the order of the ifs rather than on the rule.
+for a, b in (("CLOSED_LOST_STAGES", "ACCEPTED_STAGES"),
+             ("CLOSED_LOST_STAGES", "SUBMITTED_STAGES"),
+             ("ACCEPTED_STAGES", "SUBMITTED_STAGES")):
+    both = set(ns[a]) & set(ns[b])
+    if both:
+        stage_fails.append(f"{a} and {b} both claim {sorted(both)}")
+
+if stage_fails:
+    print("verify_review_level.py FAILED — Sales CRM stage mapping:")
+    for f in stage_fails:
+        print("  -", f)
+    sys.exit(1)
+print(f"verify_review_level.py  {len(STAGES)} stage mappings PASSED")

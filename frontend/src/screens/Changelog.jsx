@@ -3,6 +3,22 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-08-18",
+    title: "A submitted proposal in Sales CRM now moves our status too",
+    by: "Michael + Claude",
+    changes: [
+      "If Sales CRM says the stage is Proposal Submitted, the ticket here becomes Proposal Submitted. Michael found several after a sync sitting in our approval gates while Sales CRM already had the proposal out — PT. LF Services Indonesia (Maersk OCF) - Puma - Sameday - REG - (B2BR) and PT. Farma Bangun Bersama - Sameday (PRM) among them.",
+      "This makes the rule consistent rather than looser. The accepted stages (Agreed to Ship, Onboarding, Closed-Won) have ALWAYS overridden our status from any open state, so \"the shipper accepted\" was allowed to jump every gate while the weaker \"the proposal went out\" was not. Proposal Submitted is the one non-terminal stage worth following, because it is the only one that says something already reached the shipper. Negotiation, EKYC and Contract Sent still leave our status alone.",
+      "Where the ticket was still in an approval gate, the move is recorded rather than made quietly: the history names the gate that was bypassed and PNS is notified. A proposal reaching the shipper before PSP or the Head of PNS cleared it is a real event, and setting the status silently would erase the only evidence of it. Same notice fires when Sales CRM says the proposal is out but no price is attached here at all — meaning the number the shipper received exists nowhere in this app.",
+      "Review meeting filters are multi-select again. Salesperson and PNS PIC are still dropdowns rather than a wrapping row of thirty name pills, but you can now tick several — a review is run for the people in the room, and that is rarely one person. Making them single-select on 14 August was the wrong trade. Unassigned is one of the PNS PIC options.",
+      "The multi-select dropdown is now one shared control used by both dashboards and the Review meeting, rather than two implementations drifting apart.",
+    ],
+    overruled: [
+      "status_for_stage() was \"deliberately one-way and coarse — only terminal stages override ours\". Proposal Submitted is now the one non-terminal exception, on the argument that ACCEPTED_STAGES already did exactly this and the inconsistency was the bug.",
+      "The Review meeting salesperson filter was made single-select on 14 August. Reversed — multi-select, in a dropdown.",
+    ],
+  },
+  {
+    date: "2026-08-18",
     title: "Review - PNS is its own gate: Sales prices, PNS checks, and PSP stops jumping the queue",
     by: "Michael + Claude",
     changes: [

@@ -461,6 +461,13 @@ PRICING_GUARD = {
 # Future Opportunity is a loss for PNS purposes: the deal is not being solutioned now.
 CLOSED_LOST_STAGES = ("Closed-Lost", "Closed Lost", "Future Opportunity", "Future Oppurtunity")
 ACCEPTED_STAGES = ("Agreed to Ship", "Onboarding", "Ready to Ship", "Closed-Won", "Closed Won")
+# The one NON-terminal stage that follows ours (Michael, 2026-08-18). Every other
+# mid-funnel stage describes what Sales is doing and leaves our status alone; this one
+# asserts that a price has already reached the shipper, which is a fact about the world
+# rather than a step in Sales' process. Holding the ticket at "Pending Review - PSP"
+# after that does not un-send the proposal, it just makes our queues describe work that
+# is already moot. Spelling variants included because the picklist has been edited.
+SUBMITTED_STAGES = ("Proposal Submitted", "Proposal submitted", "Proposal Sent")
 
 
 def stage_blocks_work(t: dict) -> str | None:
@@ -480,15 +487,24 @@ def status_for_stage(stage: str | None, resp: str) -> str | None:
     """The PNS status a Sales CRM stage implies, or None to leave ours alone.
 
     Deliberately one-way and coarse. Sales CRM owns the commercial stage; this app owns
-    the solutioning status. The only stages that override ours are the terminal ones, 
-    there is no point solutioning a deal the shipper has already declined."""
+    the solutioning status. The stages that override ours are the terminal ones — there
+    is no point solutioning a deal the shipper has already declined — plus Proposal
+    Submitted, which is not terminal but does say the price already left the building.
+
+    That last one is Michael's call, 2026-08-18, and it makes the rule consistent rather
+    than looser: ACCEPTED_STAGES has always overridden our status from any open state, so
+    "the shipper accepted" was allowed to jump every gate while the weaker "the proposal
+    went out" was not. Where a ticket was still in an approval gate, the sync records the
+    gates it bypassed rather than moving it quietly — see _refresh_from_salescrm()."""
     if not stage:
         return None
     if stage in CLOSED_LOST_STAGES:
         return "Lost"
     if stage in ACCEPTED_STAGES:
         return "Proposal Accepted / Ready to Ship"
-    return None          # New, Negotiation, Proposal Submitted, EKYC, Contract Sent...
+    if stage in SUBMITTED_STAGES:
+        return "Proposal Submitted"
+    return None          # New, Negotiation, EKYC, Contract Sent...
 
 
 def guard_for(acct: str, svc: str, rev: int) -> dict:
@@ -1044,7 +1060,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-08-18.47"
+BUILD = "2026-08-18.48"
 
 
 class Me(BaseModel):
@@ -2596,7 +2612,13 @@ async def _refresh_from_salescrm(o: dict, account: dict | None = None,
     oid = str(o.get("id"))
     t = await q("SELECT id, ticket_ref, status, resp, stage, potential_rev, service_type, "
                 "(SELECT name FROM shippers s WHERE s.id=shipper_id) AS shipper, "
-                "(SELECT acct_type FROM shippers s WHERE s.id=shipper_id) AS acct_type "
+                "(SELECT acct_type FROM shippers s WHERE s.id=shipper_id) AS acct_type, "
+                # pricing is keyed on ticket_id, so these are single-valued. Needed
+                # because a Proposal Submitted stage on a ticket carrying no price here
+                # is the case worth shouting about, and without these columns the check
+                # would read "no price" for every ticket and cry wolf on all of them.
+                "(SELECT price_file FROM pricing p WHERE p.ticket_id=tickets.id) AS price_file, "
+                "(SELECT price_url FROM pricing p WHERE p.ticket_id=tickets.id) AS price_url "
                 "FROM tickets WHERE opportunity_id=%s", (oid,), one=True)
     if not t:
         return None
@@ -2694,10 +2716,39 @@ async def _refresh_from_salescrm(o: dict, account: dict | None = None,
     moved, missing = None, []
     wants = status_for_stage(o.get("stage"), t["resp"])
     # Only open tickets follow the stage; a decided ticket keeps its recorded outcome.
+    # "Proposal Submitted" additionally must never pull a ticket BACKWARDS: it is the one
+    # non-terminal stage we follow, and Sales CRM can report it long after the shipper
+    # has actually accepted. The terminal list below already covers accepted/Lost/Cancel,
+    # so this only has to stop it re-entering a ticket that is already submitted.
     if wants and t["status"] != wants and t["status"] not in (
             "Lost", "Cancel", "Proposal Accepted / Ready to Ship"):
         ref = t["ticket_ref"]
-        if wants == "Lost":
+        if wants == "Proposal Submitted":
+            # The proposal has reached the shipper while this ticket was still inside its
+            # approval chain, so a price went out without clearing its gates. Following
+            # Sales CRM is right — the status should describe the world — but doing it
+            # silently would erase the only evidence it happened, so the gates that were
+            # bypassed are named in the history and PNS is told. ACCEPTED_STAGES has been
+            # doing this move quietly since it was written; the same record now covers it.
+            gate = t["status"] if t["status"].startswith("Pending Review") else None
+            no_price = not (t.get("price_file") or t.get("price_url"))
+            note = f"Sales CRM stage is {o.get('stage')}"
+            if gate:
+                note += f" — proposal went out while still at {gate}, that gate was bypassed"
+            if no_price:
+                note += " — no price is attached in this app"
+            if gate or no_price:
+                what = []
+                if gate:
+                    what.append(f"it was still at {gate}")
+                if no_price:
+                    what.append("no price is attached here, so the number the shipper "
+                                "received exists nowhere in this app")
+                await notify(
+                    f"{ref}, {t['shipper']}: Sales CRM says the proposal is submitted, but "
+                    + " and ".join(what) + ". Worth checking.",
+                    groups=["PNS"], ticket_ref=ref)
+        elif wants == "Lost":
             # Sales CRM's own reason, not the generic "Closed in Sales CRM" bucket
             # (Baskoro, 2026-08-18). Every synced loss used to land in one bucket that
             # explained nothing, which made the loss breakdown useless for exactly the
@@ -5747,6 +5798,14 @@ async def status_flow(u: User = Depends(current_user)):
                 why="The shipper accepted. If the onboarding fields are still blank when "
                     "this lands, PNS and Sales are told exactly which ones, because Ops "
                     "cannot onboard a shipper the account systems cannot find."),
+            StageRule(
+                stages=list(SUBMITTED_STAGES), becomes="Proposal Submitted",
+                why="The price has already reached the shipper, so holding the ticket in "
+                    "an approval gate does not un-send it — it only makes our queues "
+                    "describe work that is already moot. The one non-terminal stage that "
+                    "overrides ours. Where the ticket was still in a gate, or carries no "
+                    "price in this app at all, the history says so and PNS is notified: "
+                    "the status follows Sales CRM, but a bypassed gate is not erased."),
             StageRule(
                 stages=["New", "Negotiation", "Proposal Submitted", "EKYC Approval",
                         "Contract Sent", "and every other stage"],
