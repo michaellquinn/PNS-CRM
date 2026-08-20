@@ -103,9 +103,11 @@ export default function StatusFlow() {
           </h2>
           <p className="text-[12px] text-slate-500">
             The two are different questions: Sales CRM owns the <b>commercial stage</b>,
-            this app owns the <b>solutioning status</b>. Only the terminal stages override
-            ours — everything else leaves it alone, which is why a deal can sit at
-            Negotiation there while PNS is still pricing here.
+            this app owns the <b>solutioning status</b>. Three stages override ours — the
+            two terminal ones, plus <b>Proposal Submitted</b>, which is not terminal but
+            does say the price already reached the shipper. Everything else leaves ours
+            alone, which is why a deal can sit at Negotiation there while PNS is still
+            pricing here.
           </p>
         </div>
         <div className="divide-y divide-slate-100">
