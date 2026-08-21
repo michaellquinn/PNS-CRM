@@ -2,6 +2,17 @@ import { Card, Head, Pill } from "../ui";
 
 const ENTRIES = [
   {
+    date: "2026-08-21",
+    title: "FIXED: blank screen. And a blank screen can no longer happen quietly",
+    by: "Michael + Claude",
+    changes: [
+      "FIXED: the whole app went white. Reported by Michael. Yesterday's sticky filters stored the region and name selections on All pending as arrays, and the code that read them back treated every array as a plain object — so [\"GJ\"] came back as {} and the next line that called .join() on it threw. React unmounts the entire tree on an unhandled render error, so one screen took down the header, the sidebar and everything else.",
+      "It only appeared on the SECOND visit to a screen in the same tab, which is what made it look random: the first visit had nothing saved to restore, and the crash needed a saved value to read. Anything already corrupted repairs itself on load.",
+      "A crashing screen no longer blanks the app. The header and menu stay, the screen area explains what failed and shows the error line to pass on, and every other screen keeps working. It also offers Clear saved filters and reload — a filter restored in a shape the screen no longer understands is the likeliest reason a screen breaks on open but works in a fresh tab, and a plain reload does not fix that.",
+    ],
+    overruled: [],
+  },
+  {
     date: "2026-08-18",
     title: "Filters stay put when you open a ticket and come back",
     by: "Michael + Claude",

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { Component, useCallback, useEffect, useState } from "react";
 import { api, LIVE_STATUSES, isPnsWork } from "./api";
 import Dashboard from "./screens/Dashboard";
 import Matrix from "./screens/Matrix";
@@ -335,6 +335,67 @@ function Bell({ notes, onRead }) {
   );
 }
 
+// One screen throwing used to blank the ENTIRE app: no header, no sidebar, no message,
+// nothing in the page to say what happened or what to do (Michael hit exactly this on
+// 2026-08-21). React unmounts the whole tree on an unhandled render error, and with no
+// boundary there was nothing left to render.
+//
+// This keeps the shell and reports the failure. The "Clear saved filters" button is here
+// on purpose rather than in a menu: a filter restored from sessionStorage in a shape the
+// screen no longer understands is the most likely reason a screen crashes on open but
+// not on a fresh tab, and it is not something a reload alone fixes.
+class ScreenError extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { err: null };
+  }
+
+  static getDerivedStateFromError(err) {
+    return { err };
+  }
+
+  componentDidUpdate(prev) {
+    // A different screen deserves a fresh attempt; without this the error sticks and
+    // every other screen looks broken too.
+    if (prev.screen !== this.props.screen && this.state.err) this.setState({ err: null });
+  }
+
+  render() {
+    if (!this.state.err) return this.props.children;
+    return (
+      <div className="mx-auto max-w-xl rounded-xl border border-rose-200 bg-rose-50 p-6">
+        <h2 className="text-[15px] font-semibold text-rose-900">This screen did not load</h2>
+        <p className="mt-2 text-[13px] text-rose-800">
+          The rest of the app still works — pick another screen from the menu. If it keeps
+          happening, send this line to whoever is on the build:
+        </p>
+        <pre className="mt-3 overflow-x-auto rounded-lg border border-rose-200 bg-white p-3 text-[12px] text-rose-900">
+          {String(this.state.err?.message || this.state.err)}
+        </pre>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button
+            className="rounded-lg border border-rose-300 bg-white px-3 py-1.5 text-[13px] font-medium"
+            onClick={() => window.location.reload()}>
+            Reload
+          </button>
+          <button
+            className="rounded-lg border border-rose-300 bg-white px-3 py-1.5 text-[13px] font-medium"
+            onClick={() => {
+              try {
+                Object.keys(sessionStorage)
+                  .filter((k) => k.startsWith("nx:"))
+                  .forEach((k) => sessionStorage.removeItem(k));
+              } catch { /* nothing to clear */ }
+              window.location.reload();
+            }}>
+            Clear saved filters and reload
+          </button>
+        </div>
+      </div>
+    );
+  }
+}
+
 export default function App() {
   const [me, setMe] = useState(null);
   const [err, setErr] = useState(null);
@@ -568,7 +629,9 @@ export default function App() {
           </div>
         )}
         <main className="min-w-0 flex-1 p-4 sm:p-6">
-          {screens[screen] || screens.dashboard}
+          <ScreenError screen={screen}>
+            {screens[screen] || screens.dashboard}
+          </ScreenError>
         </main>
       </div>
 

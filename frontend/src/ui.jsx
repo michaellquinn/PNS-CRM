@@ -408,7 +408,17 @@ export function useSticky(key, initial) {
     try {
       const saved = JSON.parse(sessionStorage.getItem("nx:" + key) || "null");
       if (saved == null) return initial;
-      if (typeof initial !== "object" || initial === null) return saved;
+      // Arrays FIRST. typeof [] is "object", so without this an array fell into the
+      // object merge below and came back as {...[]} — a plain object, not an array —
+      // and the next .join()/.length on it threw and took the whole app down. It only
+      // showed on the SECOND visit, because the first had nothing saved to restore.
+      if (Array.isArray(initial)) return Array.isArray(saved) ? saved : initial;
+      // Anything not an object round-trips as itself, if the type still matches.
+      if (typeof initial !== "object" || initial === null) {
+        return typeof saved === typeof initial ? saved : initial;
+      }
+      // An object initial needs an object back; a saved array here is a shape change.
+      if (typeof saved !== "object" || Array.isArray(saved)) return initial;
       // Merge onto the CURRENT shape and drop anything whose shape has changed. A filter
       // saved before a control became multi-select would otherwise come back as a bare
       // string where an array is expected and quietly match nothing.
