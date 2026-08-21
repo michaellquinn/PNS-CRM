@@ -639,6 +639,10 @@ export function Open({ me, onOpen, notify }) {
    for a team that will not open it is how the Head of Sales gate ended up retired. */
 export function OpenPns({ me, onOpen, notify }) {
   const [rows, err, reload] = useTickets({ status: LIVE_STATUSES });
+  const [why, setWhy] = useState({});
+  const act = async (fn) => {
+    try { await fn(); notify("Done"); await reload(); } catch (e) { notify(e.message); }
+  };
   const [list, f, set, clear, patch] = useFilter(
     (rows || []).filter((t) => isPnsWork(t) && !t.owner),
     { resp: [], review: [] }, "open-pns");
@@ -677,10 +681,26 @@ export function OpenPns({ me, onOpen, notify }) {
               <Pill key="r" tone="bg-violet-50 text-violet-700">PNS review after</Pill>
             ),
           ]}>
-          {/* Assignment only. What to DO with the ticket belongs to the queue its status
-              puts it in — pricing it is Awaiting price, checking it is Review - PNS.
-              Duplicating those actions here would be two screens racing on one ticket. */}
+          {/* Assignment, plus the one thing Open has that this needed too (Michael,
+              2026-08-21): saying what is missing and handing it back to Sales. Pricing
+              still belongs to Awaiting price and checking to Review - PNS — duplicating
+              THOSE here would be two screens racing on one ticket — but "this cannot be
+              worked until Sales fills something in" is a judgement made while reading
+              the list, not after claiming the ticket. */}
           <OwnerBar t={t} me={me} notify={notify} onDone={reload} />
+          {me.permissions.sendBackProposal && t.status !== "Pending Sales" && (
+            <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
+              <input className={`${inputCls} max-w-[320px]`}
+                placeholder="What is missing? (sends it back to Sales)"
+                value={why[t.ref] || ""}
+                onChange={(e) => setWhy({ ...why, [t.ref]: e.target.value })} />
+              <Btn disabled={!((why[t.ref] || "").trim())}
+                onClick={() => act(() => api.status(t.ref, {
+                  status: "Pending Sales", reason: why[t.ref].trim() }))}>
+                Need info from Sales
+              </Btn>
+            </div>
+          )}
         </TicketCard>
       ))}
     </Shell>
@@ -978,15 +998,61 @@ export function ExecSignoff({ me, onOpen, notify }) {
 }
 
 /* ---------------------------------------------------------------- proposals */
-export function Proposals({ me, onOpen, notify }) {
-  const [rows, err, reload] = useTickets({ status: "Proposal Submitted" });
-  const [next, setNext] = useState({});
-  const [reason, setReason] = useState({});
-  const [list, f, set, clear, patch] = useFilter(rows, {}, "proposals");
-  const act = async (fn) => { try { await fn(); notify("Done"); await reload(); } catch (e) { notify(e.message); } };
-
+/* The status controls for a submitted proposal. Extracted so the Proposals queue and the
+   combined Pending & proposals screen run the same code — a second copy of "what may a
+   submitted proposal become" is exactly the kind of thing that drifts and leaves one
+   screen offering a move the other has already retired. Per-row state, so each card
+   keeps its own draft without a map keyed by ref. */
+export function ProposalActions({ t, me, notify, onDone }) {
+  const [next, setNext] = useState(PENDING[0]);
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
   const mayClose = me.permissions.acceptProposal;
   const mayPull = me.permissions.sendBackProposal;
+  if (!mayClose && !mayPull) {
+    return <span className="text-[12px] text-slate-500">View only — Sales records the outcome.</span>;
+  }
+  const act = async (fn) => {
+    setBusy(true);
+    try { await fn(); notify("Done"); await onDone(); }
+    catch (e) { notify(e.message); }
+    finally { setBusy(false); }
+  };
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <select className={`${inputCls} max-w-[220px]`} value={next}
+        onChange={(e) => setNext(e.target.value)}>
+        <optgroup label="Send back">
+          {PENDING.map((x) => <option key={x} value={x}>{x}</option>)}
+        </optgroup>
+        {mayClose && (
+          <optgroup label="Lost">
+            {PICKABLE_LOSS_REASONS.map(([v, l]) => <option key={v} value={`Lost:${v}`}>{l}</option>)}
+          </optgroup>
+        )}
+      </select>
+      <input className={`${inputCls} max-w-[300px]`} placeholder="Reason — required to send back"
+        value={reason} onChange={(e) => setReason(e.target.value)} />
+      <Btn disabled={busy} onClick={() => act(() => api.status(t.ref,
+        next.startsWith("Lost:")
+          ? { status: "Lost", loss_reason: next.slice(5) }
+          : { status: next, reason }))}>
+        Change status
+      </Btn>
+      {mayClose && (
+        <Btn kind="primary" className="ml-auto" disabled={busy}
+          onClick={() => act(() => api.status(t.ref,
+            { status: "Proposal Accepted / Ready to Ship" }))}>
+          Proposal accepted
+        </Btn>
+      )}
+    </div>
+  );
+}
+
+export function Proposals({ me, onOpen, notify }) {
+  const [rows, err, reload] = useTickets({ status: "Proposal Submitted" });
+  const [list, f, set, clear, patch] = useFilter(rows, {}, "proposals");
 
   return (
     <Shell title="Proposal submitted"
@@ -998,40 +1064,7 @@ export function Proposals({ me, onOpen, notify }) {
       {(list) => list.map((t) => (
         <TicketCard key={t.ref} t={t} onOpen={onOpen}>
           {(t.price_file || t.price_url) && <p className="mb-3 text-[13px]"><PriceChip file={t.price_file} url={t.price_url} /></p>}
-          {(mayPull || mayClose) && (
-            <div className="flex flex-wrap items-center gap-2">
-              <select className={`${inputCls} max-w-[220px]`} value={next[t.ref] || PENDING[0]}
-                onChange={(e) => setNext({ ...next, [t.ref]: e.target.value })}>
-                <optgroup label="Send back">
-                  {PENDING.map((s) => <option key={s} value={s}>{s}</option>)}
-                </optgroup>
-                {mayClose && (
-                  <optgroup label="Lost">
-                    {PICKABLE_LOSS_REASONS.map(([v, l]) => <option key={v} value={`Lost:${v}`}>{l}</option>)}
-                  </optgroup>
-                )}
-              </select>
-              <input className={`${inputCls} max-w-[300px]`} placeholder="Reason — required to send back"
-                value={reason[t.ref] || ""} onChange={(e) => setReason({ ...reason, [t.ref]: e.target.value })} />
-              <Btn onClick={() => {
-                const sel = next[t.ref] || PENDING[0];
-                const body = sel.startsWith("Lost:")
-                  ? { status: "Lost", loss_reason: sel.slice(5) }
-                  : { status: sel, reason: reason[t.ref] };
-                act(() => api.status(t.ref, body));
-              }}>
-                Change status
-              </Btn>
-              {mayClose ? (
-                <Btn kind="primary" className="ml-auto"
-                  onClick={() => act(() => api.status(t.ref, { status: "Proposal Accepted / Ready to Ship" }))}>
-                  Proposal accepted
-                </Btn>
-              ) : (
-                <span className="ml-auto text-[12px] text-slate-500">Sales records the outcome</span>
-              )}
-            </div>
-          )}
+          <ProposalActions t={t} me={me} notify={notify} onDone={reload} />
         </TicketCard>
       ))}
     </Shell>

@@ -3,6 +3,22 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-08-21",
+    title: "One screen for the review: proposals and everything pending together",
+    by: "Michael + Claude",
+    changes: [
+      "Pending & proposals replaces the two separate menu entries. A review walks the proposals sitting with shippers AND everything still open in the same sitting, so having them apart meant leaving the list to see the other half and losing your place.",
+      "The two halves do different jobs and the screen shows that. A submitted proposal has an outcome to record, so it carries the status controls inline — accept it, send it back, or mark it lost without leaving the list. A pending ticket is discussed and updated inside the ticket, so it is a link and nothing more.",
+      "The salesperson heading above each group is gone. The list is one flat numbered run now, and the name moved onto the row itself beside the region and the PNS PIC — same information, without a header that chopped the list into blocks nobody was walking separately.",
+      "Region, salesperson and PNS PIC filters cover both halves and stay put when you open a ticket and come back, which is the whole point of walking a list this way.",
+      "The status controls are now one piece of code shared with the Proposal submitted screen, which is still reachable at ?screen=proposals. A second copy of “what may a submitted proposal become” is exactly the sort of thing that drifts until one screen offers a move the other has retired.",
+      "Open - PNS gained the send-back Open already had: say what is missing and hand the ticket to Sales. That judgement is made while reading the list, not after claiming the ticket. Pricing still belongs to Awaiting price and checking to Review - PNS.",
+    ],
+    overruled: [
+      "Proposal submitted is no longer its own menu entry. Nothing was removed — the screen still exists and still works, it is just not a second thing to click past during a review.",
+    ],
+  },
+  {
+    date: "2026-08-21",
     title: "FIXED: blank screen. And a blank screen can no longer happen quietly",
     by: "Michael + Claude",
     changes: [

@@ -88,9 +88,14 @@ const NAV = [
       keywords: "executive exec sign-off alex dhinesh cso coo" },
   ]],
   ["Planning", [
-    { id: "meeting", label: "All pending", icon: "☷", when: works,
-      keywords: "agenda sales region salesperson walk the list review meeting pending" },
-    { id: "proposals", label: "Proposal submitted", icon: "◫", count: "Proposal Submitted" },
+    // One entry for the whole review (Michael, 2026-08-21): proposals out with shippers
+    // and everything still open are walked in the same sitting, so two entries meant
+    // leaving the list to see the other half and losing your place. The separate
+    // Proposal submitted screen still exists at ?screen=proposals for anyone with the
+    // link, it is just not a second thing to click past in the menu.
+    { id: "meeting", label: "Pending & proposals", icon: "☷", when: works,
+      count: "Proposal Submitted",
+      keywords: "agenda review meeting sales region salesperson walk the list pending proposal submitted" },
     // NOT in Michael's list, both kept: Ready to ship is the won-deal list Legal and Ops
     // read, and Workload is the only screen that answers "who has capacity".
     { id: "ship", label: "Ready to ship", icon: "➔",
@@ -516,7 +521,7 @@ export default function App() {
     "psp-pending": <PspPending me={me} notify={notify} onOpen={open} />,
     proposals: <Proposals me={me} notify={notify} onOpen={open} />,
     ship: <ReadyToShip me={me} onOpen={open} />,
-    meeting: <ReviewMeeting onOpen={open} />,
+    meeting: <ReviewMeeting me={me} notify={notify} onOpen={open} />,
     rdo: <Rdo onOpen={open} />,
     fields: <Fields />,
     ignored: <Ignored notify={notify} />,
