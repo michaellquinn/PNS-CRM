@@ -3,6 +3,21 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-08-18",
+    title: "Admin can move a ticket between the Sales and PNS pricing queues",
+    by: "Michael + Claude",
+    changes: [
+      "New Move to Sales / Move to PNS button on the ticket, beside Priced by. Admin only — no other role sees it and the server refuses it for anyone else.",
+      "Why it exists: the trial runs with Sales not yet on the platform, so PNS is working tickets the 5A matrix has already assigned to Sales, and there was no way to say so. It is a stopgap with a name (setPricedBy), not a general capability — normally nobody chooses this, route() derives it from account tier, service and revenue.",
+      "The choice is REMEMBERED, not just written. Both places that re-derive routing — the Sales CRM sync and the intake edit — recompute who prices a deal whenever revenue, service or account tier changes. Without this, moving a ticket to PNS by hand would have lasted only until Sales CRM next touched any of those three, and the ticket would have bounced back to a queue somebody had deliberately taken it out of, with the sync's own note as the only clue. Both now honour the override and say so in the history.",
+      "Moving to PNS clears the PNS review, because PNS does not re-check its own work. Moving back to Sales restores whatever the 5A answer for that deal is.",
+      "The override rides in the intake payload rather than a new column, the same way the Sales CRM loss reason does — no migration, which matters when two people deploy into one database from separate clones and migrations have already collided three times. It is also what makes this cheap to delete the day Sales onboards.",
+    ],
+    overruled: [
+      "Who prices a deal was derived and nothing could override it. Admin can now, per ticket, and the derivation stops applying to that ticket until an admin moves it back.",
+    ],
+  },
+  {
+    date: "2026-08-18",
     title: "Drop a request that cannot be built, and a record of everything dropped",
     by: "Michael + Claude",
     changes: [

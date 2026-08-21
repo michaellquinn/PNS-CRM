@@ -75,6 +75,10 @@ export const api = {
   assign: (ref, body) => call(`/tickets/${ref}/assign`, { method: "POST", body: JSON.stringify(body) }),
   editInput: (ref, body) => call(`/tickets/${ref}/input`, { method: "PATCH", body: JSON.stringify(body) }),
   setSales: (ref, name) => call(`/tickets/${ref}/sales`, { method: "POST", body: JSON.stringify({ name }) }),
+  // Admin only. A trial-period stopgap while Sales is not on the platform: the choice is
+  // remembered, so the sync and the intake edit stop re-deriving resp for this ticket.
+  setPricedBy: (ref, resp, reason) =>
+    call(`/tickets/${ref}/priced-by`, { method: "POST", body: JSON.stringify({ resp, reason }) }),
   setMustWin: (ref, must_win) =>
     call(`/tickets/${ref}/must-win`, { method: "POST", body: JSON.stringify({ must_win }) }),
   setCrmId: (ref, opportunity_id) =>

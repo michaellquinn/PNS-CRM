@@ -433,6 +433,27 @@
         }
       }
     },
+    "/api/tickets/{ref}/priced-by": {
+      "post": {
+        "summary": "Move a ticket between the Sales and PNS pricing queues",
+        "description": "Admin only (setPricedBy). Normally nobody chooses this — route() derives who prices a deal from account tier, service and revenue, which is what the 5A matrix says. It exists because the trial runs with Sales not yet on the platform, so PNS works tickets the matrix has assigned to Sales. The choice is REMEMBERED, not merely written: both places that re-derive routing (the Sales CRM sync and PATCH .../input) recompute resp whenever revenue, service or account tier changes, and both honour this override instead — without it, a manual move lasted only until Sales CRM next touched any of the three and the ticket bounced back. Moving to PNS clears needs_review, because PNS does not re-check its own work; moving to Sales restores whatever the 5A answer for that deal is. 400 if the ticket is already priced by that side.",
+        "operationId": "setPricedBy",
+        "parameters": [ { "$ref": "#/components/parameters/TicketRef" } ],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PricedByIn" } } }
+        },
+        "responses": {
+          "200": {
+            "description": "Moved; the ticket keeps its status",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Ok" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
     "/api/tickets/{ref}/psp": {
       "post": {
         "summary": "Approve or reject a margin as the pricing desk",
@@ -1181,6 +1202,14 @@
           "psp_assignee": { "type": "string", "nullable": true, "description": "Which PSP member is handling this. Flat — any PSP member may set this on any ticket, there is no head/staff distinction." },
           "psp_ready": { "type": "boolean", "description": "PSP approved a margin that did not also need PNS review, so it is back with whoever priced it for an explicit final submit rather than a re-price." },
           "psp_decision": { "type": "string", "nullable": true, "enum": ["approved", "rejected"], "description": "PSP's most recent decision on this ticket, if any — independent of psp_ready and of the ticket's current status" }
+        }
+      },
+      "PricedByIn": {
+        "type": "object",
+        "required": ["resp"],
+        "properties": {
+          "resp": { "type": "string", "enum": ["PNS", "Sales"], "description": "Which side prices this deal from now on" },
+          "reason": { "type": "string", "nullable": true, "description": "Optional. Recorded in the ticket history beside the change." }
         }
       },
       "CancelledTicket": {

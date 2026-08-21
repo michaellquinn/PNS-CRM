@@ -147,6 +147,16 @@ WORK_STATUSES = ("Pending Sales", "Pending PNS", "Pending Vendor",
 # to predict every commodity Ninja ever carries (a shipper turned up with medicine).
 REMEMBERED_FIELDS = ["commodity", "product", "pallet", "destType", "truck", "freq"]
 
+# The payload key an admin's "who prices this" override rides in. Underscore-prefixed
+# like _crm so nothing that walks the intake — the charter, the edit diff, the
+# remembered-values list — reads it as a field somebody typed. In the payload rather than
+# a column on purpose: two people deploy into this database from separate clones and
+# migrations have collided three times, and this is a trial-period stopgap that should be
+# cheap to delete. Defined here, above all three places that read it, so the JSON path and
+# the key cannot drift apart.
+RESP_OVERRIDE_KEY = "_pricedByOverride"
+RESP_OVERRIDE_PATH = "$." + RESP_OVERRIDE_KEY
+
 # Every status in the order a ticket meets them. The two terminal outcomes come last.
 # "Pending Review - Head Sales" was removed on 2026-08-14 along with the gate itself.
 # Checked first: zero tickets held it, so nothing needed migrating and the
@@ -768,6 +778,12 @@ def can(u: User, action: str, t: dict | None = None) -> bool:
         "deleteTicket":     pns_head,
         "restoreTicket":    pns_head,
         "purgeTicket":      admin,
+        # Admin only, and deliberately narrower than editAcctOrRev beside it. Who prices
+        # a deal is normally derived from the 5A matrix and nobody overrides it by hand;
+        # this exists because the trial runs with Sales not yet on the platform, so PNS
+        # is working tickets the matrix has already assigned to Sales (Michael,
+        # 2026-08-18). It is a stopgap with a name, not a general capability.
+        "setPricedBy":      admin,
         # Assignment is the PNS team's own, not only the Head's (Baskoro, 2026-08-14,
         # for the PNS-first rollout). Anybody in PNS may take a ticket, hand one over or
         # put one back — waiting for the Head to place every ticket is the kind of queue
@@ -1079,7 +1095,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-08-18.57"
+BUILD = "2026-08-18.58"
 
 
 class Me(BaseModel):
@@ -1264,7 +1280,7 @@ async def me(u: User = Depends(current_user)):
                # revenue beside it. Removed rather than left looking live.
                "setSales", "reopen", "pspDecide", "vendorToggle", "sendToPsp",
                "acceptProposal", "sendBackProposal", "seeMargin", "capaRaise",
-               "capaClose", "capaSubmit", "manageUsers", "grantAdmin",
+               "capaClose", "capaSubmit", "manageUsers", "grantAdmin", "setPricedBy",
                "pspAssign", "pspOverride", "allowPsp", "syncSalesCrm",
                "pspHeadDecide", "manageIgnored"]
     return Me(email=u.email, name=u.name, group=u.group, level=u.level, team=u.team,
@@ -2659,7 +2675,11 @@ async def _refresh_from_salescrm(o: dict, account: dict | None = None,
                 # is the case worth shouting about, and without these columns the check
                 # would read "no price" for every ticket and cry wolf on all of them.
                 "(SELECT price_file FROM pricing p WHERE p.ticket_id=tickets.id) AS price_file, "
-                "(SELECT price_url FROM pricing p WHERE p.ticket_id=tickets.id) AS price_url "
+                "(SELECT price_url FROM pricing p WHERE p.ticket_id=tickets.id) AS price_url, "
+                # An admin has said who prices this one, and that outranks the
+                # matrix until they say otherwise -- see set_priced_by().
+                "(SELECT JSON_UNQUOTE(JSON_EXTRACT(i.payload, '" + RESP_OVERRIDE_PATH + "')) "
+                " FROM ticket_input i WHERE i.ticket_id=tickets.id) AS resp_override "
                 "FROM tickets WHERE opportunity_id=%s", (oid,), one=True)
     if not t:
         return None
@@ -2736,9 +2756,19 @@ async def _refresh_from_salescrm(o: dict, account: dict | None = None,
     if changed:
         # Routing is re-derived on the corrected facts, because who prices the deal,
         # which ceiling applies and whether PNS reviews were all decided on the old ones.
+        # An admin override is the one thing that survives it: without this, moving a
+        # ticket to PNS by hand lasted only until Sales CRM next touched the revenue,
+        # and the ticket bounced back to a queue somebody had deliberately taken it out
+        # of, with the sync's own note as the only clue.
+        over = str(t.get("resp_override") or "").strip()
         rr = route(new_tier, new_service, new_rev)
-        sets += ["potential_rev=%s", "service_type=%s", "resp=%s", "needs_review=%s"]
-        args += [new_rev, new_service, rr["resp"], int(rr["review"])]
+        sets += ["potential_rev=%s", "service_type=%s"]
+        args += [new_rev, new_service]
+        if over in ("PNS", "Sales"):
+            changed.append(f"priced by stays {over}, set by an admin")
+        else:
+            sets += ["resp=%s", "needs_review=%s"]
+            args += [rr["resp"], int(rr["review"])]
     filled_rev = crm_rev if (crm_rev > 0 and not int(t.get("potential_rev") or 0)) else 0
 
     # First time this app has ever seen the deal, written once and never revised.
@@ -3503,16 +3533,81 @@ async def edit_input(ref: str, body: InputPatch, u: User = Depends(current_user)
     # a correction should not yank the ticket out of the queue it is sitting in.
     r = route(acct, service, int(revenue))
     if service != t["service_type"] or routing_changed:
-        await execute("UPDATE tickets SET service_type=%s, potential_rev=%s, resp=%s, "
-                      "needs_review=%s WHERE id=%s",
-                      (service, int(revenue), r["resp"], int(r["review"]), t["id"]))
-        if r["resp"] != t["resp"] or bool(r["review"]) != bool(t["needs_review"]):
-            changes.append(f"now priced by {r['resp']}"
-                           + (", PNS review required" if r["review"] else ""))
+        # An admin override outranks the matrix here for the same reason it does in the
+        # sync: it was a deliberate decision about who prices this one deal, and a
+        # correction to the revenue is not a reversal of it.
+        #
+        # Read from the row rather than from `merged`, which only exists when this edit
+        # carried intake fields — an edit that changes revenue alone never binds it.
+        _ov = await q("SELECT JSON_UNQUOTE(JSON_EXTRACT(payload, '" + RESP_OVERRIDE_PATH
+                      + "')) AS v FROM ticket_input WHERE ticket_id=%s", (t["id"],), one=True)
+        over = str((_ov or {}).get("v") or "").strip()
+        if over == "null":
+            over = ""
+        if over in ("PNS", "Sales"):
+            await execute("UPDATE tickets SET service_type=%s, potential_rev=%s "
+                          "WHERE id=%s", (service, int(revenue), t["id"]))
+            changes.append(f"priced by stays {over}, set by an admin")
+        else:
+            await execute("UPDATE tickets SET service_type=%s, potential_rev=%s, resp=%s, "
+                          "needs_review=%s WHERE id=%s",
+                          (service, int(revenue), r["resp"], int(r["review"]), t["id"]))
+            if r["resp"] != t["resp"] or bool(r["review"]) != bool(t["needs_review"]):
+                changes.append(f"now priced by {r['resp']}"
+                               + (", PNS review required" if r["review"] else ""))
 
     note = f"edited by {u.name}, " + "; ".join(changes)
     await log_note(t["id"], t["status"], u.name, note[:500])
     await audit(u.email, "edit", "ticket", ref, "input", None, "; ".join(changes)[:500])
+    await notify(f"{ref}, {t['shipper']}: {note}",
+                 groups=["PNS", "Commercial"], ticket_ref=ref)
+    return {"ok": True, "ref": ref, "status": t["status"]}
+
+
+class PricedByIn(BaseModel):
+    resp: str                      # "PNS" or "Sales"
+    reason: str | None = None
+
+
+@app.post("/api/tickets/{ref}/priced-by", response_model=Ok)
+async def set_priced_by(ref: str, body: PricedByIn, u: User = Depends(current_user)):
+    """Move a ticket between the Sales and PNS pricing queues by hand. Admin only.
+
+    Normally nobody chooses this: route() derives it from account tier, service and
+    revenue, and that derivation is what the 5A matrix says. The trial runs with Sales
+    not yet on the platform, so PNS is working tickets the matrix has assigned to Sales,
+    and there was no way to say so (Michael, 2026-08-18).
+
+    The choice is REMEMBERED, not just written. Both places that re-derive routing — the
+    Sales CRM sync and the intake edit — recompute resp whenever revenue, service or
+    account tier changes, so a plain UPDATE here would be silently undone the next time
+    Sales CRM moved any of the three, bouncing the ticket back to a queue the admin had
+    deliberately moved it out of. The override is recorded and both of them honour it."""
+    require(u, "setPricedBy")
+    if body.resp not in ("PNS", "Sales"):
+        raise HTTPException(400, "resp must be 'PNS' or 'Sales'")
+    t = await get_ticket(ref)
+    if t["resp"] == body.resp:
+        raise HTTPException(400, f"{ref} is already priced by {body.resp}")
+
+    # PNS does not re-check its own routine work, so a ticket moved to PNS carries no
+    # PNS review; moved to Sales, the 5A answer for this deal applies again.
+    r = route(t["acct_type"], t["service_type"], int(t.get("potential_rev") or 0))
+    review = int(body.resp == "Sales" and bool(r["review"]))
+    await execute("UPDATE tickets SET resp=%s, needs_review=%s WHERE id=%s",
+                  (body.resp, review, t["id"]))
+
+    row = await q("SELECT payload FROM ticket_input WHERE ticket_id=%s", (t["id"],), one=True)
+    if row:
+        p = row["payload"] if isinstance(row["payload"], dict) else json.loads(row["payload"] or "{}")
+        p[RESP_OVERRIDE_KEY] = body.resp
+        await execute("UPDATE ticket_input SET payload=%s WHERE ticket_id=%s",
+                      (json.dumps(p), t["id"]))
+
+    note = (f"priced by {t['resp']} to {body.resp}, set by {u.name}"
+            + (f": {body.reason.strip()}" if (body.reason or "").strip() else ""))
+    await log_note(t["id"], t["status"], u.name, note[:500])
+    await audit(u.email, "priced_by", "ticket", ref, "resp", t["resp"], body.resp)
     await notify(f"{ref}, {t['shipper']}: {note}",
                  groups=["PNS", "Commercial"], ticket_ref=ref)
     return {"ok": True, "ref": ref, "status": t["status"]}

@@ -635,7 +635,30 @@ export default function TicketDetail({ ticketRef: initialRef, me, notify, onBack
                   </a>
                 ) : (d.rate_card || "—")}
               </Row>
-              <Row label="Priced by">{t.priced_by}</Row>
+              <Row label="Priced by">
+                {t.priced_by}
+                {/* Admin only, and a trial-period stopgap: Sales is not on the platform
+                    yet, so PNS works tickets the 5A matrix has assigned to Sales. The
+                    choice is remembered — the sync and the intake edit both re-derive
+                    routing, and both honour it. */}
+                {p.setPricedBy && (
+                  <button
+                    className="ml-3 rounded-lg border border-slate-300 px-2.5 py-1 text-[12px] font-medium hover:border-slate-400"
+                    onClick={async () => {
+                      const to = t.priced_by === "PNS" ? "Sales" : "PNS";
+                      const why = window.prompt(
+                        `Move ${t.ref} to be priced by ${to}. Why? (optional)`);
+                      if (why === null) return;      // cancelled the prompt
+                      try {
+                        await api.setPricedBy(t.ref, to, why);
+                        notify(`${t.ref} is now priced by ${to}`);
+                        load(); loadList();
+                      } catch (e) { notify(e.message); }
+                    }}>
+                    Move to {t.priced_by === "PNS" ? "Sales" : "PNS"}
+                  </button>
+                )}
+              </Row>
               <Row label="Price spreadsheet">
                 <PriceChip file={d.price_file} url={d.price_url} />
               </Row>
