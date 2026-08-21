@@ -38,68 +38,63 @@ const works = (m) => !READ_ONLY.includes(m.group);
 // The PSP screens live inside Solutioning — PSP approval is a step of solutioning, not
 // a separate pipeline — but keep their tag so it is obvious which entries are PSP's.
 const NAV = [
+  // Reorganised to Michael's layout, 2026-08-18. The sections now split by WHOSE WORK a
+  // screen is, not by where a ticket sits in the pipeline: Solutioning is what PNS works,
+  // Sales CRM is what arrives from and belongs to the commercial side, Planning is the
+  // step back from any single ticket.
   ["Solutioning", [
-    { id: "dashboard", label: "Dashboard all", icon: "▤",
-      keywords: "overview home stats everything whole book" },
-    // The same board, cut to the tickets PNS owes a price on or reviews. The full board
-    // carries every opportunity the Sales CRM sync could map, which is the right default
-    // for Sales and unreadable for a PNS reader looking for their own work.
     { id: "dashboard-pns", label: "Dashboard PNS", icon: "▨",
       when: (m) => ["PNS", "Commercial", "Admin"].includes(m.group),
       keywords: "pns overview clean filtered my team work review" },
-    { id: "mine", label: "My requests", icon: "◐", when: works, keywords: "my tickets assignment" },
-    { id: "new", label: "New request", icon: "＋", when: (m) => m.permissions.createTicket },
-    // Baskoro's call, 2026-08-18: back in Solutioning. Michael grouped it under Sales
-    // CRM in .42 with the other opportunity-shaped screens, which is a fair reading —
-    // but this is not a Sales CRM screen, it is the FIRST STOP of the pipeline. A ticket
-    // sitting here is a solutioning ticket that cannot start, and the people who clear
-    // it are working the queues above and below it, not the sync.
-    { id: "crmid", label: "Pending CRM ID", icon: "⚠", count: "Pending CRM ID",
-      keywords: "crm id missing blocked salesforce opportunity" },
-    { id: "open", label: "Open", icon: "○", count: "Open",
-      keywords: "open ready unclaimed available not started" },
-    // The assignment inbox (Michael, 2026-08-18). "Open" the STATUS was too narrow for
-    // the job that menu was being used for: a Sales-priced deal at or above 30 Mio waits
-    // at "Pending Sales" carrying "PNS review after" with no PNS PIC, which is
-    // unassigned PNS work the Open queue never showed. Its own entry rather than a
-    // filter inside Open, for the badge: "how much is sitting on nobody" is worth
-    // answering from the sidebar without opening anything.
+    // The assignment inbox: PNS work with nobody on it, whatever status it is in.
     { id: "open-pns", label: "Open - PNS", icon: "◑", count: "open:pns",
       when: (m) => ["PNS", "Admin"].includes(m.group),
       keywords: "unassigned pns take claim assign nobody mine inbox" },
-    { id: "awaiting", label: "Awaiting price", icon: "◷", count: "awaiting", keywords: "pricing" },
-    // One entry for both PNS gates (Michael, 2026-08-18). The routing behind it is still
-    // split — two statuses, two endpoints, two different decisions — but which queue a
-    // ticket sits in is not something the reader can tell from the sidebar, so asking
-    // them to pick was asking a question they could not answer. The screen branches per
-    // card instead. The badge counts both, hence the synthetic key.
+    { id: "mine", label: "My requests", icon: "◐", when: works,
+      keywords: "my tickets assignment" },
+    { id: "awaiting-pns", label: "Awaiting price - PNS", icon: "◷", count: "awaiting:pns",
+      keywords: "pricing pns attach rate card" },
+    // NOT in Michael's list, kept deliberately: this is a live gate. Tickets reach
+    // "Pending Review - PNS" and "Pending Review - Head PNS" by rule, and with no menu
+    // entry there is no screen that can clear them — they would simply stop moving.
     { id: "review", label: "Review - PNS", icon: "◎", count: "review:pns",
       keywords: "pns review head finalise watched check sales price 30 mio second pair of eyes" },
     { id: "psp-pending", label: "Review - PSP", icon: "✓", count: "Pending Review - PSP",
       tag: "PSP", keywords: "psp pending margin approval decided finished history" },
     { id: "signoff", label: "Review - C-level", icon: "★", count: "Pending Review - C-level",
       keywords: "executive exec sign-off alex dhinesh cso coo" },
-    { id: "proposals", label: "Proposal submitted", icon: "◫", count: "Proposal Submitted" },
-    { id: "ship", label: "Ready to ship", icon: "➔", count: "Proposal Accepted / Ready to Ship" },
   ]],
-  // The team-level views: walking the agenda in a meeting, and reading who has capacity
-  // — both a step back from any single ticket, so they sit apart from Solutioning's
-  // queues rather than inside the fifteen-line list.
-  ["Planning", [
-    { id: "meeting", label: "Review meeting", icon: "☷", when: works,
-      keywords: "agenda sales region salesperson walk the list" },
-    { id: "workload", label: "Workload", icon: "◴", when: (m) => m.permissions.seeWorkload,
-      keywords: "pns capacity assignment load who is free" },
-  ]],
-  // Everything that traces back to a Sales CRM opportunity, together: what is blocked
-  // on a CRM id, the accounts those opportunities roll up to, and the sync itself.
+  // Everything that arrives from, or belongs to, the commercial side.
   ["Sales CRM", [
-    // A ticket is per opportunity; an account normally runs several at once. Without
-    // this the flat queues make one shipper look like four, which is what "why are
-    // there duplicates?" turned out to mean most of the time.
+    { id: "dashboard", label: "Dashboard all", icon: "▤",
+      keywords: "overview home stats everything whole book" },
+    { id: "new", label: "New request", icon: "＋", when: (m) => m.permissions.createTicket },
+    { id: "crmid", label: "Pending CRM ID", icon: "⚠", count: "Pending CRM ID",
+      keywords: "crm id missing blocked salesforce opportunity" },
+    { id: "awaiting-sales", label: "Awaiting price - Sales", icon: "◷",
+      count: "awaiting:sales", keywords: "pricing sales attach rate card" },
+    // NOT in Michael's list, kept deliberately: "Open" the status still exists and a
+    // ticket in it is unclaimed by EITHER side. Open - PNS only shows the PNS half, so
+    // without this a Sales-owed unclaimed ticket has no screen at all.
+    { id: "open", label: "Open", icon: "○", count: "Open",
+      keywords: "open ready unclaimed available not started both sides" },
+    // A ticket is per opportunity; an account normally runs several at once.
     { id: "accounts", label: "Accounts", icon: "🏢",
       keywords: "account group shipper parent grouped duplicates opportunities" },
     { id: "sync", label: "Sync", icon: "⇄", when: (m) => m.permissions.syncSalesCrm },
+  ]],
+  // The step back from any single ticket: walking an agenda, reading capacity, and the
+  // two late-stage states you report on rather than work.
+  ["Planning", [
+    { id: "meeting", label: "Review meeting", icon: "☷", when: works,
+      keywords: "agenda sales region salesperson walk the list" },
+    { id: "proposals", label: "Proposal submitted", icon: "◫", count: "Proposal Submitted" },
+    // NOT in Michael's list, both kept: Ready to ship is the won-deal list Legal and Ops
+    // read, and Workload is the only screen that answers "who has capacity".
+    { id: "ship", label: "Ready to ship", icon: "➔",
+      count: "Proposal Accepted / Ready to Ship" },
+    { id: "workload", label: "Workload", icon: "◴", when: (m) => m.permissions.seeWorkload,
+      keywords: "pns capacity assignment load who is free" },
   ]],
   // The three watched groups, as their own section rather than three more entries in a
   // fifteen-line Solutioning list. Every rule in the app keys off this distinction, and
@@ -384,7 +379,12 @@ export default function App() {
     refreshNotes();
     Promise.all([api.tickets({}), api.tickets({ awaiting: true })])
       .then(([all, awaiting]) => {
-        const c = { awaiting: awaiting.tickets.length };
+        const c = {
+          awaiting: awaiting.tickets.length,
+          // Split the same way the two menu entries are, on who owes the price now.
+          "awaiting:pns": awaiting.tickets.filter((t) => t.priced_by === "PNS").length,
+          "awaiting:sales": awaiting.tickets.filter((t) => t.priced_by === "Sales").length,
+        };
         all.tickets.forEach((t) => {
           c[t.status] = (c[t.status] || 0) + 1;
           // Watched-group badges count what is still live, not the whole history —
@@ -439,7 +439,11 @@ export default function App() {
     open: <Open me={me} notify={notify} onOpen={open} />,
     "open-pns": <OpenPns me={me} notify={notify} onOpen={open} />,
     crmid: <PendingCrmId me={me} notify={notify} onOpen={open} />,
+    // Two entries, one component. `awaiting` stays routable so an emailed or pasted
+    // ?screen=awaiting link from before the split still lands somewhere real.
     awaiting: <AwaitingPrice me={me} notify={notify} onOpen={open} />,
+    "awaiting-pns": <AwaitingPrice me={me} notify={notify} onOpen={open} side="PNS" />,
+    "awaiting-sales": <AwaitingPrice me={me} notify={notify} onOpen={open} side="Sales" />,
     review: <ToReview me={me} notify={notify} onOpen={open} />,
     signoff: <ExecSignoff me={me} notify={notify} onOpen={open} />,
     "psp-pending": <PspPending me={me} notify={notify} onOpen={open} />,

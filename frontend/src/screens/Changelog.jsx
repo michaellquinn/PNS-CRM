@@ -3,6 +3,19 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-08-18",
+    title: "Sidebar reorganised: Solutioning is PNS's work, Sales CRM is the commercial side",
+    by: "Michael + Claude",
+    changes: [
+      "The sections now split by WHOSE WORK a screen is rather than by where a ticket sits in the pipeline. Solutioning: Dashboard PNS, Open - PNS, My requests, Awaiting price - PNS, the three review gates. Sales CRM: Dashboard all, New request, Pending CRM ID, Awaiting price - Sales, Open, Accounts, Sync. Planning: Review meeting, Proposal submitted.",
+      "Awaiting price is split into two menu entries, PNS and Sales, each with its own badge. One component behind both — the cut is on who owes the price NOW (resp), not on isPnsWork(), because a Sales-priced deal PNS reviews later is still Sales' to price today. On a side-specific entry the Priced by filter is hidden, having nothing left to choose.",
+      "?screen=awaiting still resolves, so a link sent before the split does not land on a blank page.",
+    ],
+    overruled: [
+      "Four entries were not in the requested layout and are kept anyway, in the nearest sensible place. Review - PNS is a LIVE GATE: tickets reach Pending Review - PNS and Pending Review - Head PNS by rule, and with no menu entry nothing could clear them — they would stop moving with no error to explain why. Open still holds the tickets unclaimed by EITHER side, and Open - PNS shows only the PNS half. Ready to ship is the won-deal list Legal and Ops read. Workload is the only screen answering who has capacity. Say the word on any of them and they go.",
+    ],
+  },
+  {
+    date: "2026-08-18",
     title: "Open - PNS: the assignment inbox, not a status",
     by: "Michael + Claude",
     changes: [

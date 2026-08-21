@@ -235,8 +235,12 @@ function RateCard({ service }) {
 }
 
 /* ---------------------------------------------------------------- awaiting price */
-export function AwaitingPrice({ me, onOpen, notify }) {
-  const [rows, err, reload] = useTickets({ awaiting: true });
+// One component, two menu entries (Michael, 2026-08-18). `side` cuts the queue to who
+// attaches the price NOW — resp, not isPnsWork(), because a Sales-priced deal PNS
+// reviews later is still Sales' to price today. Left unset it is the whole queue.
+export function AwaitingPrice({ me, onOpen, notify, side }) {
+  const [all, err, reload] = useTickets({ awaiting: true });
+  const rows = side ? (all || []).filter((t) => t.priced_by === side) : all;
   const [file, setFile] = useState({});
   const [link, setLink] = useState({});
   const [below, setBelow] = useState({});
@@ -257,18 +261,27 @@ export function AwaitingPrice({ me, onOpen, notify }) {
 
   return (
     <Shell
-      title="Awaiting price"
-      sub="The responsible party attaches the price. Always build it from the linked rate card."
+      title={side ? `Awaiting price - ${side}` : "Awaiting price"}
+      sub={side === "PNS"
+        ? "Tickets PNS owes a price on. Always build it from the linked rate card."
+        : side === "Sales"
+          ? "Tickets Sales owes a price on. PNS can price these too while the pilot runs, and the ones at or above Rp 30 Mio come back to PNS to review afterwards."
+          : "The responsible party attaches the price. Always build it from the linked rate card."}
       right={<span className="text-[12px] text-slate-500">
-        {me.group === "PNS" ? "PNS-priced tickets" : me.group === "Commercial" ? "Tickets you must price" : "All tickets"}
+        {side ? `${side} owes these`
+              : me.group === "PNS" ? "PNS-priced tickets"
+              : me.group === "Commercial" ? "Tickets you must price" : "All tickets"}
       </span>}
       rows={rows} err={err} empty="Nothing awaiting a price."
       bar={
         <FilterBar f={f} set={set} clear={clear} patch={patch} me={me}
           shown={list.length} total={(rows || []).length} rows={rows}>
-          <MultiSelect label="Priced by" picked={f.resp}
-            onClear={() => patch("resp", [])}
-            sections={pickList(["PNS", "Sales"], f.resp, (v) => patch("resp", v))} />
+          {/* Redundant once the menu entry has already fixed the side. */}
+          {!side && (
+            <MultiSelect label="Priced by" picked={f.resp}
+              onClear={() => patch("resp", [])}
+              sections={pickList(["PNS", "Sales"], f.resp, (v) => patch("resp", v))} />
+          )}
           <MultiSelect label="Review" picked={f.review}
             onClear={() => patch("review", [])}
             sections={pickList(["yes", "no"], f.review, (v) => patch("review", v),
