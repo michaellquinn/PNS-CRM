@@ -140,12 +140,22 @@ export function ReviewMeeting({ me, onOpen, notify }) {
   // A name picked for one region and then deselected with the region should not keep
   // filtering invisibly. Unassigned survives on purpose — it is not a name that can stop
   // being in the list.
+  //
+  // GUARDED ON `loaded`, and that guard is the whole feature working or not (Michael,
+  // 2026-08-21). Both lists are derived from the tickets, so before the fetch returns
+  // they are empty — and this effect runs on mount. Ungated it filtered every restored
+  // name against an empty list, cleared the selection, and useSticky then saved that
+  // empty value straight over the good one. The filter came back, was wiped a frame
+  // later, and looked like it had never been remembered at all.
+  const loaded = props_ !== null && pend !== null;
   useEffect(() => {
+    if (!loaded) return;
     setPeople((p) => p.filter((x) => sales.includes(x)));
-  }, [sales.join(",")]);
+  }, [loaded, sales.join(",")]);
   useEffect(() => {
+    if (!loaded) return;
     setOwners((p) => p.filter((x) => x === "__unassigned__" || owners.includes(x)));
-  }, [owners.join(",")]);
+  }, [loaded, owners.join(",")]);
 
   const keep = (list) =>
     (list || []).filter((t) =>

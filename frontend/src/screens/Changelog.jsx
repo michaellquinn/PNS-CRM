@@ -3,6 +3,17 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-08-21",
+    title: "FIXED: the Pending and proposals filter really does stay now",
+    by: "Michael + Claude",
+    changes: [
+      "FIXED: picking a PNS PIC, opening a ticket and coming back cleared the filter — the thing the sticky filters were supposed to stop. Reported by Michael with the three screenshots that made it obvious.",
+      "The saving and restoring were working the whole time. What undid them was the rule that drops a name no longer in the list when you change region: the salesperson and PNS PIC lists are BUILT from the tickets, so before the fetch comes back they are empty — and that rule ran on mount. It checked the restored names against an empty list, found none of them, cleared the selection, and the sticky store then wrote that empty value over the good one. The filter was restored and wiped within the same breath.",
+      "It now waits until both lists have actually loaded before dropping anything. Changing region still prunes names that no longer have a deal there, which is what the rule was for.",
+    ],
+    overruled: [],
+  },
+  {
+    date: "2026-08-21",
     title: "One screen for the review: proposals and everything pending together",
     by: "Michael + Claude",
     changes: [
