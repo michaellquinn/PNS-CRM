@@ -4,7 +4,7 @@ import { api, BOTTOM_MARGIN, LIVE_STATUSES, PENDING, PICKABLE_LOSS_REASONS, SERV
          rp } from "../api";
 import {
   Btn, Card, Confirm, Empty, Head, MultiSelect, Pill, PriceChip, TicketCard, inputCls,
-  usePnsTeam,
+  usePnsTeam, useSticky,
 } from "../ui";
 
 function useTickets(filters, dep = []) {
@@ -24,9 +24,11 @@ function useTickets(filters, dep = []) {
 // a time is the wrong shape for the question people bring to a queue: "show me LTL and
 // B2BR", "Annisa's and Ramdhani's", "Hypercare and Must Win". An empty array means no
 // filter, so the tests for it read the same as the old truthiness checks did.
-function useFilter(rows, extra = {}) {
+function useFilter(rows, extra = {}, key = "") {
   const base = { q: "", service: [], owner: [], group: [], ...extra };
-  const [f, setF] = useState(base);
+  // `key` makes the filter survive leaving the screen and coming back. Every queue keeps
+  // its own, so narrowing Awaiting price does not silently narrow Open as well.
+  const [f, setF] = useSticky(key ? "filter:" + key : "", base);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const patch = (k, v) => setF((p) => ({ ...p, [k]: v }));
   const clear = () => setF(base);
@@ -248,7 +250,7 @@ export function AwaitingPrice({ me, onOpen, notify, side }) {
   const [disc, setDisc] = useState({});
   const [drop, setDrop] = useState({});
   const [busy, setBusy] = useState(null);
-  const [list, f, set, clear, patch] = useFilter(rows, { resp: [], review: [] });
+  const [list, f, set, clear, patch] = useFilter(rows, { resp: [], review: [] }, "awaiting");
 
   // Anyone may look at this queue; only the sides that owe prices get the form.
   const canAct = ["PNS", "Commercial", "Admin"].includes(me.group);
@@ -452,7 +454,7 @@ export function Watched({ me, onOpen, notify, group }) {
   const meta = WATCHED_GROUPS.find((g) => g.id === group) || WATCHED_GROUPS[0];
   const [rows, err, reload] = useTickets(
     { status: [...PENDING, "Proposal Submitted"], ...groupFilter(meta.id) }, [group]);
-  const [list, f, set, clear, patch] = useFilter(rows);
+  const [list, f, set, clear, patch] = useFilter(rows, {}, `watched:${group}`);
 
   return (
     <Shell
@@ -544,7 +546,7 @@ export function Open({ me, onOpen, notify }) {
   // `review` beside it answers the other half of "is this mine?": Sales prices plenty
   // that PNS never sees again, and PNS checks the ones at or above 30 Mio afterwards.
   // Priced by alone cannot tell those two apart.
-  const [list, f, set, clear, patch] = useFilter(rows, { resp: [], review: [] });
+  const [list, f, set, clear, patch] = useFilter(rows, { resp: [], review: [] }, "open");
   const act = async (fn) => { try { await fn(); notify("Done"); await reload(); } catch (e) { notify(e.message); } };
 
   const mayTake = ["PNS", "Commercial", "Admin"].includes(me.group);
@@ -638,7 +640,8 @@ export function Open({ me, onOpen, notify }) {
 export function OpenPns({ me, onOpen, notify }) {
   const [rows, err, reload] = useTickets({ status: LIVE_STATUSES });
   const [list, f, set, clear, patch] = useFilter(
-    (rows || []).filter((t) => isPnsWork(t) && !t.owner), { resp: [], review: [] });
+    (rows || []).filter((t) => isPnsWork(t) && !t.owner),
+    { resp: [], review: [] }, "open-pns");
 
   return (
     <Shell title="Open - PNS"
@@ -694,7 +697,7 @@ export function ToReview({ me, onOpen, notify }) {
   const [rows, err, reload] = useTickets(
     { status: "Pending Review - PNS,Pending Review - Head PNS" });
   const [why, setWhy] = useState({});
-  const [list, f, set, clear, patch] = useFilter(rows);
+  const [list, f, set, clear, patch] = useFilter(rows, {}, "review");
   const act = async (fn) => { try { await fn(); notify("Done"); await reload(); } catch (e) { notify(e.message); } };
 
   // Watched deals first: they are the ones with executives waiting behind them, and the
@@ -800,7 +803,7 @@ export function PspPending({ me, onOpen, notify }) {
   const [file, setFile] = useState({});
   const [margin, setMargin] = useState({});
   const [disc, setDisc] = useState({});
-  const [list, f, set, clear, patch] = useFilter(rows);
+  const [list, f, set, clear, patch] = useFilter(rows, {}, "psp");
   const act = async (fn) => { try { await fn(); notify("Done"); await reload(); } catch (e) { notify(e.message); } };
 
   // A ticket reaches PSP because someone else could not price it, or PSP is checking a
@@ -926,7 +929,7 @@ export function ExecSignoff({ me, onOpen, notify }) {
   const [rows, err, reload] = useTickets({ status: "Pending Review - C-level" });
   const [note, setNote] = useState({});
   const [draft, setDraft] = useState({});
-  const [list, f, set, clear, patch] = useFilter(rows);
+  const [list, f, set, clear, patch] = useFilter(rows, {}, "signoff");
   const act = async (fn) => { try { await fn(); notify("Done"); await reload(); } catch (e) { notify(e.message); } };
 
   const showDraft = async (ref) => {
@@ -979,7 +982,7 @@ export function Proposals({ me, onOpen, notify }) {
   const [rows, err, reload] = useTickets({ status: "Proposal Submitted" });
   const [next, setNext] = useState({});
   const [reason, setReason] = useState({});
-  const [list, f, set, clear, patch] = useFilter(rows);
+  const [list, f, set, clear, patch] = useFilter(rows, {}, "proposals");
   const act = async (fn) => { try { await fn(); notify("Done"); await reload(); } catch (e) { notify(e.message); } };
 
   const mayClose = me.permissions.acceptProposal;
@@ -1038,7 +1041,7 @@ export function Proposals({ me, onOpen, notify }) {
 /* ---------------------------------------------------------------- ready to ship */
 export function ReadyToShip({ me, onOpen }) {
   const [rows, err] = useTickets({ status: "Proposal Accepted / Ready to Ship" });
-  const [list, f, set, clear, patch] = useFilter(rows);
+  const [list, f, set, clear, patch] = useFilter(rows, {}, "ship");
   return (
     <Shell title="Ready to ship"
       sub="Accepted proposals, handed to Legal for the contract and then to Ops."

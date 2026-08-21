@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, SERVICES, STATUSES, isPnsWork, rp } from "../api";
-import { Head, MultiSelect, Pill, Sla, StagePill, Tile, usePnsTeam } from "../ui";
+import { Head, MultiSelect, Pill, Sla, StagePill, Tile, usePnsTeam, useSticky } from "../ui";
 
 const EMPTY = { search: "", status: [], service: [], acct: [], owner: "", sales: "",
                 line: "", stage: "", group: "", from: "", to: "" };
@@ -74,7 +74,10 @@ export default function Dashboard({ me, onOpen, view = "all" }) {
   const pnsOnly = view === "pns";
   const [stats, setStats] = useState(null);
   const [rows, setRows] = useState([]);
-  const [f, setF] = useState(EMPTY);
+  // Sticky per board, so the two dashboards keep their own filters and neither is
+  // reset by opening a ticket from it. Keyed on `view` — narrowing Dashboard PNS must
+  // not silently narrow Dashboard all as well.
+  const [f, setF] = useSticky(`filter:dash:${view}`, EMPTY);
   const [salesNames, setSalesNames] = useState([]);
   // The whole book's size before the PNS filter, so the board can say what it is holding
   // back rather than just quietly showing a smaller number than the other screen.
@@ -84,7 +87,7 @@ export default function Dashboard({ me, onOpen, view = "all" }) {
   // Who the tile numbers describe. Separate from the table filters on purpose: you want
   // to see "Niko's book" in the headline numbers while still browsing everything below,
   // and clicking a tile is what pushes that scope down into the table.
-  const [scope, setScope] = useState({ owner: "", sales: "" });
+  const [scope, setScope] = useSticky(`filter:dash:${view}:scope`, { owner: "", sales: "" });
   const [all, setAll] = useState([]);
   const [sort, setSort] = useState({ key: "submitted_on", dir: "desc" });
   const [stageNames, setStageNames] = useState([]);

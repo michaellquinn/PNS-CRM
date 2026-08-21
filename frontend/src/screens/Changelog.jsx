@@ -3,6 +3,19 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-08-18",
+    title: "Filters stay put when you open a ticket and come back",
+    by: "Michael + Claude",
+    changes: [
+      "Every filter now survives leaving the screen. Opening a ticket from a filtered list unmounted that list, so the filter was gone by the time you returned — and on a review call, where you pick a ticket, discuss it and come back for the next one, that meant re-filtering before every single ticket.",
+      "It covers All pending (region, salesperson, PNS PIC), both dashboards, and every queue: Open, Open - PNS, both Awaiting price screens, Review - PNS, Review - PSP, Review - C-level, Proposal submitted, Ready to ship and the three Watched screens.",
+      "Each screen keeps its OWN filter. Narrowing Awaiting price - PNS does not quietly narrow Open, and the two dashboards do not share, so a filter set on one board cannot hide rows on the other.",
+      "It lasts for the browser tab, not forever. That covers the whole complaint — navigation and a page reload — without leaving a filter set last Tuesday quietly hiding rows next week. Closing the tab resets everything, and Clear still works as it always did.",
+      "A filter saved before a control changed shape is dropped rather than restored, so nothing from an older build comes back as a value the screen can no longer read.",
+    ],
+    overruled: [],
+  },
+  {
+    date: "2026-08-18",
     title: "Admin can move a ticket between the Sales and PNS pricing queues",
     by: "Michael + Claude",
     changes: [

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, PENDING, groupTone, rp } from "../api";
-import { Btn, Card, Head, MultiSelect, Pill } from "../ui";
+import { Btn, Card, Head, MultiSelect, Pill, useSticky } from "../ui";
 
 // All pending, run by region. Pick the regions in the room, and both people lists — the
 // salesperson who sold it and the PNS PIC holding it — narrow to whoever actually has
@@ -60,14 +60,17 @@ function Line({ n, t, onOpen, right }) {
    tickets appear twice and the agenda read longer than the work actually was. */
 export function ReviewMeeting({ onOpen }) {
   const [pend, setPend] = useState(null);
-  const [regions, setRegions] = useState([]);
+  // Sticky, like every queue filter (Michael, 2026-08-18): this screen is walked ticket
+  // by ticket on a call, and opening one unmounted the list, so the region and the names
+  // had to be picked again before every single ticket.
+  const [regions, setRegions] = useSticky("filter:pending:regions", []);
   // Salesperson and PNS PIC are multi-select dropdowns. Both halves of that matter:
   // dropdowns because a wrapping row of thirty name pills is what made this bar
   // unreadable, and multi-select because a review is run for the people in the room and
   // that is rarely one person (Michael, 2026-08-18 — this was briefly single-select and
   // that was the wrong trade). The panel is the same control the dashboards use.
-  const [people, setPeople] = useState([]);
-  const [owners_, setOwners] = useState([]);
+  const [people, setPeople] = useSticky("filter:pending:sales", []);
+  const [owners_, setOwners] = useSticky("filter:pending:owners", []);
   const [err, setErr] = useState(null);
 
   useEffect(() => {

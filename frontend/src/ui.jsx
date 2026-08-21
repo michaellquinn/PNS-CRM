@@ -391,3 +391,41 @@ export function MultiSelect({ label, sections, picked, onClear }) {
     </div>
   );
 }
+
+// State that survives leaving the screen and coming back (Michael, 2026-08-18). Opening
+// a ticket from a filtered queue unmounts that queue, so its filter was reset by the
+// time you came back — and on a review call, where you pick a ticket, discuss it and
+// return for the next one, that meant re-filtering for every single ticket.
+//
+// sessionStorage rather than localStorage on purpose: it survives navigation and a
+// reload, which is the whole complaint, but it does not leave a filter set from last
+// Tuesday quietly hiding rows next week. Closing the tab is the reset.
+export function useSticky(key, initial) {
+  const [v, setV] = useState(() => {
+    // No key means "do not persist" — a caller that forgot one gets ordinary state
+    // rather than silently sharing a bucket with every other caller that forgot.
+    if (!key) return initial;
+    try {
+      const saved = JSON.parse(sessionStorage.getItem("nx:" + key) || "null");
+      if (saved == null) return initial;
+      if (typeof initial !== "object" || initial === null) return saved;
+      // Merge onto the CURRENT shape and drop anything whose shape has changed. A filter
+      // saved before a control became multi-select would otherwise come back as a bare
+      // string where an array is expected and quietly match nothing.
+      const out = { ...initial };
+      for (const [k, val] of Object.entries(saved)) {
+        if (!(k in initial)) continue;
+        if (Array.isArray(initial[k]) !== Array.isArray(val)) continue;
+        out[k] = val;
+      }
+      return out;
+    } catch {
+      return initial;          // private mode, quota, corrupt JSON — never block the screen
+    }
+  });
+  useEffect(() => {
+    if (!key) return;
+    try { sessionStorage.setItem("nx:" + key, JSON.stringify(v)); } catch { /* ignore */ }
+  }, [key, v]);
+  return [v, setV];
+}
