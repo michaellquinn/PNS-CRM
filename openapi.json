@@ -488,6 +488,19 @@
         }
       }
     },
+    "/api/tickets/cancelled": {
+      "get": {
+        "summary": "List dropped requests with the date, the person and the reason",
+        "description": "Readable by anyone signed in. Tickets currently at status 'Cancel' and not deleted, newest first. Cancelling requires a reason, so the reason field is populated for anything cancelled after 2026-08-18; older rows may read 'not recorded' for the person because who and when are read out of ticket_history rather than from columns on the ticket — log_status() has always written the actor and timestamp there, so no migration was needed to answer this. Where a ticket was cancelled, reopened and cancelled again, the LAST cancellation is reported, because that is the state the ticket is actually in.",
+        "operationId": "listCancelled",
+        "responses": {
+          "200": {
+            "description": "Cancelled tickets",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CancelledList" } } }
+          }
+        }
+      }
+    },
     "/api/tickets/deleted": {
       "get": {
         "summary": "List the recycle bin — tickets that were soft-deleted",
@@ -1168,6 +1181,30 @@
           "psp_assignee": { "type": "string", "nullable": true, "description": "Which PSP member is handling this. Flat — any PSP member may set this on any ticket, there is no head/staff distinction." },
           "psp_ready": { "type": "boolean", "description": "PSP approved a margin that did not also need PNS review, so it is back with whoever priced it for an explicit final submit rather than a re-price." },
           "psp_decision": { "type": "string", "nullable": true, "enum": ["approved", "rejected"], "description": "PSP's most recent decision on this ticket, if any — independent of psp_ready and of the ticket's current status" }
+        }
+      },
+      "CancelledTicket": {
+        "type": "object",
+        "required": ["ref", "shipper", "service", "revenue", "acct_type", "at", "by"],
+        "properties": {
+          "ref": { "type": "string" },
+          "shipper": { "type": "string" },
+          "service": { "type": "string" },
+          "revenue": { "type": "integer", "description": "Potential revenue in IDR, as it stood when the ticket was dropped" },
+          "acct_type": { "type": "string" },
+          "region": { "type": "string", "nullable": true },
+          "sales": { "type": "string", "nullable": true },
+          "owner": { "type": "string", "nullable": true, "description": "PNS PIC at the time, if one had been assigned" },
+          "at": { "type": "string", "description": "When it was cancelled, YYYY-MM-DD HH:MM. An em dash where no history row records it." },
+          "by": { "type": "string", "description": "Who cancelled it, or 'not recorded' for a ticket cancelled before the history carried it" },
+          "reason": { "type": "string", "nullable": true, "description": "Mandatory at the time of cancelling; the only record of why the deal stopped" }
+        }
+      },
+      "CancelledList": {
+        "type": "object",
+        "required": ["tickets"],
+        "properties": {
+          "tickets": { "type": "array", "items": { "$ref": "#/components/schemas/CancelledTicket" } }
         }
       },
       "TicketList": {

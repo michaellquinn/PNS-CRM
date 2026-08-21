@@ -268,7 +268,9 @@ TRANSITIONS = [
      "PNS or Sales", "POST /status"),
 
     ("*", "Lost", "Sales records the loss with a reason", "Sales", "POST /status"),
-    ("*", "Cancel", "The request is withdrawn", "Sales", "POST /status"),
+    ("*", "Cancel", "The request is withdrawn, or PNS drops it as not feasible — "
+     "a reason is required either way and becomes the record of why it stopped",
+     "Sales or PNS", "POST /status"),
     ("Lost", "any pending status", "Sales puts the deal back in the pipeline",
      "any Commercial user", "POST /tickets/{ref}/reopen"),
     ("Cancel", "any pending status", "Sales puts the deal back in the pipeline",
@@ -1077,7 +1079,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-08-18.56"
+BUILD = "2026-08-18.57"
 
 
 class Me(BaseModel):
@@ -3319,6 +3321,18 @@ async def change_status(ref: str, body: StatusIn, u: User = Depends(current_user
             raise HTTPException(400, f"loss_reason must be one of {LOSS_REASONS}")
     elif nxt == "Proposal Accepted / Ready to Ship":
         require(u, "acceptProposal")
+    elif nxt == "Cancel":
+        # Dropping a request that cannot be built (Michael, 2026-08-18). Commercial raises
+        # plenty that turns out not to be feasible — no rate to price against, no vendor
+        # on the lane, a solution Ninja does not run — and leaving those in Awaiting price
+        # makes the queue read as work when it is not. Same permission as a send-back,
+        # because it is the same act one step further: instead of handing it back with a
+        # reason, it stops here with one.
+        require(u, "sendBackProposal")
+        if not (body.reason or "").strip():
+            raise HTTPException(
+                400, f"say why {ref} is being cancelled. It is the only record of why "
+                     f"this deal was dropped, and it is what Commercial will ask about.")
     elif nxt == "Pending Review - PSP":
         # Forwarding for a margin check, not a send-back, no reason required, and this
         # is not "the ticket came back to you", so it skips the send-back notification.
@@ -3357,6 +3371,14 @@ async def change_status(ref: str, body: StatusIn, u: User = Depends(current_user
         await execute("UPDATE tickets SET outcome='accepted' WHERE id=%s", (t["id"],))
         await notify(f"{ref}, {t['shipper']} ACCEPTED. Contract needed.",
                      groups=["PNS", "Commercial", "Ops"], ticket_ref=ref)
+    elif nxt == "Cancel":
+        # 'cancel' is the third value the outcome column was always documented to hold,
+        # and it was the one nothing ever wrote — so a cancelled ticket read as still
+        # undecided everywhere outcome is consulted. Win rate is unaffected: that counts
+        # accepted against lost, and a deal nobody could build is neither.
+        await execute("UPDATE tickets SET outcome='cancel' WHERE id=%s", (t["id"],))
+        await notify(f"{ref}, {t['shipper']} was cancelled by {u.name}: {body.reason}",
+                     groups=["PNS", "Commercial"], ticket_ref=ref)
     elif nxt == "Pending Review - PSP":
         await notify(f"{ref}, {t['shipper']}: sent to PSP for a margin check by {u.name}",
                      groups=["PSP"], ticket_ref=ref)
@@ -4526,6 +4548,62 @@ RATE_CARDS = {
     "Sameday": {"name": "Sameday calculator, Regular Rp 20.000 / 5kg, Premium Rp 35.000 / 5kg",
                 "url": None},
 }
+
+
+class CancelledTicket(BaseModel):
+    ref: str
+    shipper: str
+    service: str
+    revenue: int
+    acct_type: str
+    region: str | None = None
+    sales: str | None = None
+    owner: str | None = None
+    at: str                       # when it was cancelled
+    by: str                       # who cancelled it
+    reason: str | None = None     # what they said, mandatory at the time
+
+
+class CancelledList(BaseModel):
+    tickets: list[CancelledTicket]
+
+
+@app.get("/api/tickets/cancelled", response_model=CancelledList)
+async def list_cancelled(u: User = Depends(current_user)):
+    """Dropped requests, with the date and the name against each.
+
+    Readable by everyone who works the pipeline: "why did this one stop" is a question
+    Commercial asks PNS and PNS asks Commercial, and an answer only one side can see is
+    not an answer. Who and when come out of ticket_history rather than a new column —
+    log_status() has always written the actor and the timestamp there, so the record
+    already existed and only needed reading. Two people deploy into this database from
+    separate clones and migrations have collided three times; a column that duplicates
+    something already stored is not worth a fourth."""
+    rows = await q(
+        "SELECT t.ticket_ref AS ref, s.name AS shipper, t.service_type AS service, "
+        "t.potential_rev AS revenue, s.acct_type, t.region, t.sales_name AS sales, "
+        "t.owner_name AS owner, "
+        # The LAST time it entered Cancel — a ticket can be reopened and dropped again,
+        # and the current state is what this screen reports.
+        "(SELECT h.at FROM ticket_history h WHERE h.ticket_id=t.id AND h.status='Cancel' "
+        "ORDER BY h.at DESC LIMIT 1) AS at, "
+        "(SELECT h.actor FROM ticket_history h WHERE h.ticket_id=t.id AND h.status='Cancel' "
+        "ORDER BY h.at DESC LIMIT 1) AS by_who, "
+        "(SELECT h.note FROM ticket_history h WHERE h.ticket_id=t.id AND h.status='Cancel' "
+        "ORDER BY h.at DESC LIMIT 1) AS reason "
+        "FROM tickets t JOIN shippers s ON s.id=t.shipper_id "
+        "WHERE t.deleted_at IS NULL AND t.status='Cancel' "
+        "ORDER BY t.status_since DESC")
+    return {"tickets": [
+        {"ref": r["ref"], "shipper": r["shipper"], "service": r["service"],
+         "revenue": int(r["revenue"] or 0), "acct_type": r["acct_type"],
+         "region": r["region"], "sales": r["sales"], "owner": r["owner"],
+         # A ticket cancelled before this screen existed has no history row naming who;
+         # say so rather than printing an empty cell that looks like a bug.
+         "at": str(r["at"])[:16] if r["at"] else "—",
+         "by": r["by_who"] or "not recorded",
+         "reason": r["reason"]}
+        for r in rows]}
 
 
 @app.get("/api/tickets/deleted", response_model=TicketList)

@@ -3,6 +3,22 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-08-18",
+    title: "Drop a request that cannot be built, and a record of everything dropped",
+    by: "Michael + Claude",
+    changes: [
+      "Awaiting price has a Cancel ticket action. Commercial raises plenty that turns out not to be feasible — no rate to price against, no vendor on the lane, a solution Ninja does not run — and leaving those sitting in the queue makes it read as work when it is not.",
+      "The reason is typed in beside the button and is mandatory. It becomes the only record of why the deal stopped, and it is what Commercial will ask about, so it is not a bare confirm.",
+      "New Planning / Cancelled screen: every dropped request with the date, who cancelled it and the reason they gave. Open to everyone who works the pipeline, because “why did this one stop” is a question Commercial asks PNS and PNS asks Commercial, and an answer only one side can see is not an answer.",
+      "Who and when come out of the ticket history rather than a new column — log_status() has always written the actor and the timestamp, so the record already existed and only needed reading. Two people deploy into this database from separate clones and migrations have collided three times; a column duplicating something already stored is not worth a fourth. A ticket cancelled before today says “not recorded” rather than showing an empty cell that looks like a bug.",
+      "Cancelling now writes outcome = cancel. That was the third value the column has always been documented to hold and the one nothing ever wrote, so a cancelled ticket read as still undecided everywhere outcome is consulted. Win rate is unaffected: it counts accepted against lost, and a deal nobody could build is neither.",
+      "A cancelled ticket is not deleted. Sales can put it back in the pipeline if the deal becomes possible again, and the cancellation travels with it in the history.",
+    ],
+    overruled: [
+      "The transition table described Cancel as Sales withdrawing the request. PNS drops infeasible work too, with the same permission as a send-back — it is the same act one step further: instead of handing it back with a reason, it stops here with one.",
+    ],
+  },
+  {
+    date: "2026-08-18",
     title: "Sales CRM leads the sidebar; Review meeting becomes All pending",
     by: "Michael + Claude",
     changes: [

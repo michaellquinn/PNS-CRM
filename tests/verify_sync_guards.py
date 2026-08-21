@@ -210,6 +210,35 @@ check("the sync counts unmapped fields", "crm_unmapped" in calls_in("sync_salesc
       "'are we syncing everything?' has to be answerable from the data")
 
 print()
+print("literal ticket routes are declared before /tickets/{ref}")
+# FastAPI matches in declaration order, so a literal path registered AFTER the
+# parameterised one is unreachable -- /api/tickets/cancelled would be read as a ticket
+# whose ref is the word "cancelled" and answer 404. Nothing about that failure says
+# "wrong order"; it just looks like the endpoint was never built.
+_routes = []
+for _n in ast.walk(TREE):
+    if isinstance(_n, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        for _d in _n.decorator_list:
+            if (isinstance(_d, ast.Call) and _d.args
+                    and isinstance(_d.func, ast.Attribute)
+                    and isinstance(_d.args[0], ast.Constant)
+                    and isinstance(_d.args[0].value, str)
+                    and _d.args[0].value.startswith("/api/tickets")):
+                # Method matters: a DELETE /tickets/{ref} cannot shadow a
+                # GET /tickets/deleted, so only same-method routes are compared.
+                _routes.append((_d.func.attr, _n.lineno, _d.args[0].value))
+for _method in sorted({m for m, _l, _p in _routes}):
+    _same = [(l, p_) for m, l, p_ in _routes if m == _method]
+    _ref = next((l for l, p_ in _same if p_ == "/api/tickets/{ref}"), None)
+    if _ref is None:
+        continue
+    for _l, _p in _same:
+        if "{" not in _p.replace("/api/tickets", "", 1):
+            check(f"{_method.upper()} {_p} is declared before /api/tickets/{{ref}}",
+                  _l < _ref,
+                  "declared after the parameterised route, so it can never match")
+
+print()
 if fails:
     print("FAILED %d check(s):" % len(fails))
     for f in fails:

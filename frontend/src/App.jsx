@@ -19,6 +19,7 @@ import Fields from "./screens/Fields";
 import { ReviewMeeting } from "./screens/Meetings";
 import StatusFlow from "./screens/StatusFlow";
 import DataChecks from "./screens/DataChecks";
+import Cancelled from "./screens/Cancelled";
 import {
   AwaitingPrice, Open, OpenPns, PendingCrmId, ToReview, PspPending, ExecSignoff,
   Proposals, ReadyToShip, RecycleBin, Watched,
@@ -96,6 +97,10 @@ const NAV = [
       count: "Proposal Accepted / Ready to Ship" },
     { id: "workload", label: "Workload", icon: "◴", when: (m) => m.permissions.seeWorkload,
       keywords: "pns capacity assignment load who is free" },
+    // What was dropped and why. In Planning rather than beside the working queues: it is
+    // a record to read, not a list anybody works.
+    { id: "cancelled", label: "Cancelled", icon: "⊗", count: "Cancel",
+      keywords: "cancel cancelled dropped not feasible killed withdrawn why stopped" },
   ]],
   // The three watched groups, as their own section rather than three more entries in a
   // fifteen-line Solutioning list. Every rule in the app keys off this distinction, and
@@ -460,6 +465,7 @@ export default function App() {
     "g-mustwin": <Watched me={me} notify={notify} onOpen={open} group="Must Win" />,
     statusflow: <StatusFlow />,
     checks: <DataChecks me={me} onOpen={open} />,
+    cancelled: <Cancelled onOpen={open} />,
     detail: <TicketDetail ticketRef={ticketRef} me={me} notify={notify} onBack={() => go("dashboard")} />,
     "capa-all": <Capa view="all" me={me} notify={notify} onRaise={() => go("capa-raise")} />,
     "capa-new": <Capa view="new" me={me} notify={notify} onRaise={() => go("capa-raise")} />,

@@ -246,6 +246,7 @@ export function AwaitingPrice({ me, onOpen, notify, side }) {
   const [below, setBelow] = useState({});
   const [margin, setMargin] = useState({});
   const [disc, setDisc] = useState({});
+  const [drop, setDrop] = useState({});
   const [busy, setBusy] = useState(null);
   const [list, f, set, clear, patch] = useFilter(rows, { resp: [], review: [] });
 
@@ -387,6 +388,24 @@ export function AwaitingPrice({ me, onOpen, notify, side }) {
               <Btn onClick={() => act(t.ref, () => api.status(t.ref, { status: t.priced_by === "PNS" ? "Pending PNS" : "Pending Sales", reason: "vendor cost received" }))}>
                 Vendor cost received
               </Btn>
+            )}
+            {/* Dropping a request that cannot be built — no rate, no vendor on the lane,
+                a solution Ninja does not run (Michael, 2026-08-18). Leaving those sitting
+                in Awaiting price makes the queue read as work when it is not. The reason
+                is mandatory and becomes the only record of why the deal stopped, so it
+                is typed here rather than being a bare confirm. */}
+            {me.permissions.sendBackProposal && (
+              <>
+                <input className={`${inputCls} max-w-[280px]`}
+                  placeholder="Why it cannot be built (cancels the ticket)"
+                  value={drop[t.ref] || ""}
+                  onChange={(e) => setDrop({ ...drop, [t.ref]: e.target.value })} />
+                <Btn disabled={busy === t.ref || !((drop[t.ref] || "").trim())}
+                  onClick={() => act(t.ref, () => api.status(t.ref, {
+                    status: "Cancel", reason: drop[t.ref].trim() }))}>
+                  Cancel ticket
+                </Btn>
+              </>
             )}
             <Btn kind="primary" className="ml-auto"
               disabled={busy === t.ref

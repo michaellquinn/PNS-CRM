@@ -62,6 +62,9 @@ export const api = {
   // opportunity — this is the other way of reading the same rows, not a second store.
   accounts: (filters) => call(`/accounts${qs(filters)}`),
   deleted: () => call("/tickets/deleted"),
+  // Dropped requests with the date and the name against each. Who and when come out of
+  // the ticket history, which log_status() has always written — no new column.
+  cancelled: () => call("/tickets/cancelled"),
   ticket: (ref) => call(`/tickets/${encodeURIComponent(ref)}`),
 
   createTicket: (body) => call("/tickets", { method: "POST", body: JSON.stringify(body) }),
