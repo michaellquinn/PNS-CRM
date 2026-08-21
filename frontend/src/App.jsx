@@ -38,10 +38,32 @@ const works = (m) => !READ_ONLY.includes(m.group);
 // The PSP screens live inside Solutioning — PSP approval is a step of solutioning, not
 // a separate pipeline — but keep their tag so it is obvious which entries are PSP's.
 const NAV = [
-  // Reorganised to Michael's layout, 2026-08-18. The sections now split by WHOSE WORK a
-  // screen is, not by where a ticket sits in the pipeline: Solutioning is what PNS works,
-  // Sales CRM is what arrives from and belongs to the commercial side, Planning is the
-  // step back from any single ticket.
+  // Reorganised to Michael's layout, 2026-08-18. The sections split by WHOSE WORK a
+  // screen is, not by where a ticket sits in the pipeline. Sales CRM leads because that
+  // is where a deal starts: it arrives from the sync, and only then becomes PNS's
+  // (Michael, 2026-08-18) — the sidebar now reads in the order the work happens.
+  // Everything that arrives from, or belongs to, the commercial side.
+  ["Sales CRM", [
+    { id: "dashboard", label: "Dashboard all", icon: "▤",
+      keywords: "overview home stats everything whole book" },
+    { id: "new", label: "New request", icon: "＋", when: (m) => m.permissions.createTicket },
+    { id: "crmid", label: "Pending CRM ID", icon: "⚠", count: "Pending CRM ID",
+      keywords: "crm id missing blocked salesforce opportunity" },
+    { id: "awaiting-sales", label: "Awaiting price - Sales", icon: "◷",
+      count: "awaiting:sales", keywords: "pricing sales attach rate card" },
+    // NOT in Michael's list, kept deliberately: "Open" the status still exists and a
+    // ticket in it is unclaimed by EITHER side. Open - PNS only shows the PNS half, so
+    // without this a Sales-owed unclaimed ticket has no screen at all.
+    { id: "open", label: "Open", icon: "○", count: "Open",
+      keywords: "open ready unclaimed available not started both sides" },
+    // A ticket is per opportunity; an account normally runs several at once.
+    { id: "accounts", label: "Accounts", icon: "🏢",
+      keywords: "account group shipper parent grouped duplicates opportunities" },
+    { id: "sync", label: "Sync", icon: "⇄", when: (m) => m.permissions.syncSalesCrm },
+  ]],
+  // The step back from any single ticket: walking an agenda, reading capacity, and the
+  // two late-stage states you report on rather than work.
+  // What PNS works, once a deal has arrived.
   ["Solutioning", [
     { id: "dashboard-pns", label: "Dashboard PNS", icon: "▨",
       when: (m) => ["PNS", "Commercial", "Admin"].includes(m.group),
@@ -64,30 +86,9 @@ const NAV = [
     { id: "signoff", label: "Review - C-level", icon: "★", count: "Pending Review - C-level",
       keywords: "executive exec sign-off alex dhinesh cso coo" },
   ]],
-  // Everything that arrives from, or belongs to, the commercial side.
-  ["Sales CRM", [
-    { id: "dashboard", label: "Dashboard all", icon: "▤",
-      keywords: "overview home stats everything whole book" },
-    { id: "new", label: "New request", icon: "＋", when: (m) => m.permissions.createTicket },
-    { id: "crmid", label: "Pending CRM ID", icon: "⚠", count: "Pending CRM ID",
-      keywords: "crm id missing blocked salesforce opportunity" },
-    { id: "awaiting-sales", label: "Awaiting price - Sales", icon: "◷",
-      count: "awaiting:sales", keywords: "pricing sales attach rate card" },
-    // NOT in Michael's list, kept deliberately: "Open" the status still exists and a
-    // ticket in it is unclaimed by EITHER side. Open - PNS only shows the PNS half, so
-    // without this a Sales-owed unclaimed ticket has no screen at all.
-    { id: "open", label: "Open", icon: "○", count: "Open",
-      keywords: "open ready unclaimed available not started both sides" },
-    // A ticket is per opportunity; an account normally runs several at once.
-    { id: "accounts", label: "Accounts", icon: "🏢",
-      keywords: "account group shipper parent grouped duplicates opportunities" },
-    { id: "sync", label: "Sync", icon: "⇄", when: (m) => m.permissions.syncSalesCrm },
-  ]],
-  // The step back from any single ticket: walking an agenda, reading capacity, and the
-  // two late-stage states you report on rather than work.
   ["Planning", [
-    { id: "meeting", label: "Review meeting", icon: "☷", when: works,
-      keywords: "agenda sales region salesperson walk the list" },
+    { id: "meeting", label: "All pending", icon: "☷", when: works,
+      keywords: "agenda sales region salesperson walk the list review meeting pending" },
     { id: "proposals", label: "Proposal submitted", icon: "◫", count: "Proposal Submitted" },
     // NOT in Michael's list, both kept: Ready to ship is the won-deal list Legal and Ops
     // read, and Workload is the only screen that answers "who has capacity".

@@ -3,6 +3,19 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-08-18",
+    title: "Sales CRM leads the sidebar; Review meeting becomes All pending",
+    by: "Michael + Claude",
+    changes: [
+      "Sales CRM sits above Solutioning now. The sidebar reads in the order the work happens: a deal arrives from the sync, and only then becomes PNS's.",
+      "Review meeting is renamed All pending, and the Proposals submitted block inside it is gone. A submitted proposal is out with the shipper and already has a queue of its own — listing it here made the same tickets appear twice and the agenda read longer than the work actually was. What is left is everything still open, grouped by the salesperson who presents it, with the same region, salesperson and PNS PIC filters.",
+      "The screen keeps its address, so a ?screen=meeting link sent before the rename still lands on it.",
+    ],
+    overruled: [
+      "The Review meeting opened with Proposals submitted and walked pending second. It is one list now.",
+    ],
+  },
+  {
+    date: "2026-08-18",
     title: "Sidebar reorganised: Solutioning is PNS's work, Sales CRM is the commercial side",
     by: "Michael + Claude",
     changes: [

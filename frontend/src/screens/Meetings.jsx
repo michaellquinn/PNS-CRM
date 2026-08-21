@@ -2,10 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import { api, PENDING, groupTone, rp } from "../api";
 import { Btn, Card, Head, MultiSelect, Pill } from "../ui";
 
-// Review meeting, run by region. Pick the regions in the room, and both people lists —
-// the salesperson who sold it and the PNS PIC holding it — narrow to whoever actually
-// has deals there. Picking from all of Commercial when three of them cover your region
-// is how an agenda ends up with somebody else's deals in it.
+// All pending, run by region. Pick the regions in the room, and both people lists — the
+// salesperson who sold it and the PNS PIC holding it — narrow to whoever actually has
+// deals there. Picking from all of Commercial when three of them cover your region is
+// how a list ends up with somebody else's deals in it.
 
 const REGIONS = ["GJ", "WJ", "CJ", "EJ"];
 
@@ -53,9 +53,12 @@ function Line({ n, t, onOpen, right }) {
   );
 }
 
-/* ---------------------------------------------------------------- review meeting */
+/* ------------------------------------------------------------------- all pending */
+/* Was "Review meeting", and carried a Proposals-submitted block above the pending one.
+   Renamed and cut back to the pending half (Michael, 2026-08-18): a submitted proposal
+   is out with the shipper and has a queue of its own, so listing it here made the same
+   tickets appear twice and the agenda read longer than the work actually was. */
 export function ReviewMeeting({ onOpen }) {
-  const [props_, setProps] = useState(null);
   const [pend, setPend] = useState(null);
   const [regions, setRegions] = useState([]);
   // Salesperson and PNS PIC are multi-select dropdowns. Both halves of that matter:
@@ -68,16 +71,13 @@ export function ReviewMeeting({ onOpen }) {
   const [err, setErr] = useState(null);
 
   useEffect(() => {
-    setProps(null); setPend(null);
-    const region = regions.length ? regions : undefined;
-    Promise.all([
-      api.tickets({ status: "Proposal Submitted", region }),
-      api.tickets({ status: PENDING, region }),
-    ]).then(([a, b]) => { setProps(a.tickets); setPend(b.tickets); })
+    setPend(null);
+    api.tickets({ status: PENDING, region: regions.length ? regions : undefined })
+      .then((d) => setPend(d.tickets))
       .catch((e) => setErr(e.message));
   }, [regions.join(",")]);
 
-  const all = [...(props_ || []), ...(pend || [])];
+  const all = pend || [];
 
   // The salesperson list is derived from the tickets ALREADY narrowed to the chosen
   // regions, so it answers "who has deals in the room" rather than "who exists". There
@@ -87,9 +87,9 @@ export function ReviewMeeting({ onOpen }) {
     () => [...new Set(all.map((t) => t.sales).filter(Boolean))].sort(),
     [all.length, regions.join(",")]);
 
-  // The PNS side of the same question. A review meeting walks Sales' deals, but the
-  // answer to "where is this one" is usually a PNS name, so the agenda has to be
-  // narrowable by who is holding it as well as by who sold it.
+  // The PNS side of the same question. The list walks Sales' deals, but the answer to
+  // "where is this one" is usually a PNS name, so it has to be narrowable by who is
+  // holding it as well as by who sold it.
   const owners = useMemo(
     () => [...new Set(all.map((t) => t.owner).filter(Boolean))].sort(),
     [all.length, regions.join(",")]);
@@ -149,9 +149,9 @@ export function ReviewMeeting({ onOpen }) {
 
   return (
     <>
-      <Head title="Review meeting"
-        sub="Walk the list top to bottom. Proposals first, then everything pending — grouped by the salesperson who presents it."
-        right={<Btn onClick={() => window.print()}>Print agenda</Btn>} />
+      <Head title="All pending"
+        sub="Everything still open, grouped by the salesperson who presents it. Walk it top to bottom. Proposals already submitted are not here — they are out with the shipper and have their own screen."
+        right={<Btn onClick={() => window.print()}>Print list</Btn>} />
 
       {err && <Card className="mb-4 border-rose-200 bg-rose-50 p-3 text-[13px] text-rose-700">{err}</Card>}
 
@@ -169,7 +169,7 @@ export function ReviewMeeting({ onOpen }) {
             </span>
             {sales.length === 0 ? (
               <span className="text-[12.5px] text-slate-400">
-                {props_ === null ? "Loading…" : "Nobody has a live deal in those regions."}
+                {pend === null ? "Loading…" : "Nobody has a live deal in those regions."}
               </span>
             ) : (
               <MultiSelect label="Salesperson" picked={people}
@@ -215,12 +215,8 @@ export function ReviewMeeting({ onOpen }) {
         )}
       </Card>
 
-      <div className="flex flex-col gap-4">
-        <Block label="A · Proposals submitted" sub="Start here. Each salesperson walks their own."
-          list={props_} tone="bg-teal-50 text-teal-700" />
-        <Block label="B · All pending" sub="Everything still open, by salesperson."
-          list={pend} tone="bg-amber-50 text-amber-700" />
-      </div>
+      <Block label="All pending" sub="Everything still open, by salesperson."
+        list={pend} tone="bg-amber-50 text-amber-700" />
     </>
   );
 }
