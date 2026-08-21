@@ -3,6 +3,16 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-08-18",
+    title: "Filter Open and Awaiting price by whether PNS reviews it",
+    by: "Michael + Claude",
+    changes: [
+      "New Review filter on Open and Awaiting price: PNS reviews it after, or no PNS review. Priced by alone could not answer this — Sales prices plenty that PNS never sees again, and separately prices the ones at or above Rp 30 Mio that PNS checks afterwards. Both read \"Priced by Sales\" and they are not the same work.",
+      "Open also shows the \"PNS review after\" badge now, the same one Awaiting price carries. Filtering on something the card does not display leaves the reader unable to check the answer.",
+    ],
+    overruled: [],
+  },
+  {
+    date: "2026-08-18",
     title: "Open carries a Priced by filter, and stays one queue",
     by: "Michael + Claude",
     changes: [

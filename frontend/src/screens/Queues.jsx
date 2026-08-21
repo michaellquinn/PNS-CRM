@@ -34,6 +34,11 @@ function useFilter(rows, extra = {}) {
     if (q && !`${t.ref} ${t.shipper}`.toLowerCase().includes(q)) return false;
     if (f.service.length && !f.service.includes(t.service)) return false;
     if (f.resp?.length && !f.resp.includes(t.priced_by)) return false;
+    // Whether PNS checks the price after Sales builds it. Stored as the strings "yes" and
+    // "no" rather than booleans so it behaves like every other filter here: an empty
+    // array means no filter, and picking both is the same as picking neither.
+    if (f.review?.length
+        && !f.review.includes(t.needs_review ? "yes" : "no")) return false;
     // __none__ is a real choice, not the absence of one, so it lives in the array beside
     // the names and can be combined with them: "unassigned, or Annisa's".
     if (f.owner.length
@@ -232,7 +237,7 @@ export function AwaitingPrice({ me, onOpen, notify }) {
   const [margin, setMargin] = useState({});
   const [disc, setDisc] = useState({});
   const [busy, setBusy] = useState(null);
-  const [list, f, set, clear, patch] = useFilter(rows, { resp: [] });
+  const [list, f, set, clear, patch] = useFilter(rows, { resp: [], review: [] });
 
   // Anyone may look at this queue; only the sides that owe prices get the form.
   const canAct = ["PNS", "Commercial", "Admin"].includes(me.group);
@@ -258,6 +263,11 @@ export function AwaitingPrice({ me, onOpen, notify }) {
           <MultiSelect label="Priced by" picked={f.resp}
             onClear={() => patch("resp", [])}
             sections={pickList(["PNS", "Sales"], f.resp, (v) => patch("resp", v))} />
+          <MultiSelect label="Review" picked={f.review}
+            onClear={() => patch("review", [])}
+            sections={pickList(["yes", "no"], f.review, (v) => patch("review", v),
+                               (v) => (v === "yes" ? "PNS reviews it after"
+                                                   : "No PNS review"))} />
         </FilterBar>
       }
       filtered={list}
@@ -493,7 +503,10 @@ export function Open({ me, onOpen, notify }) {
   // Priced by, same control Awaiting price carries. This is the answer to "is Open mine
   // or Sales'?" (Michael, 2026-08-18): it is both, and the filter is how each side reads
   // its own half without the other side's tickets being hidden from anybody.
-  const [list, f, set, clear, patch] = useFilter(rows, { resp: [] });
+  // `review` beside it answers the other half of "is this mine?": Sales prices plenty
+  // that PNS never sees again, and PNS checks the ones at or above 30 Mio afterwards.
+  // Priced by alone cannot tell those two apart.
+  const [list, f, set, clear, patch] = useFilter(rows, { resp: [], review: [] });
   const act = async (fn) => { try { await fn(); notify("Done"); await reload(); } catch (e) { notify(e.message); } };
 
   const mayTake = ["PNS", "Commercial", "Admin"].includes(me.group);
@@ -509,6 +522,11 @@ export function Open({ me, onOpen, notify }) {
           <MultiSelect label="Priced by" picked={f.resp}
             onClear={() => patch("resp", [])}
             sections={pickList(["PNS", "Sales"], f.resp, (v) => patch("resp", v))} />
+          <MultiSelect label="Review" picked={f.review}
+            onClear={() => patch("review", [])}
+            sections={pickList(["yes", "no"], f.review, (v) => patch("review", v),
+                               (v) => (v === "yes" ? "PNS reviews it after"
+                                                   : "No PNS review"))} />
         </FilterBar>
       }
       filtered={list}>
@@ -518,6 +536,11 @@ export function Open({ me, onOpen, notify }) {
             <Pill key="by" tone={t.priced_by === "PNS" ? "bg-violet-50 text-violet-700" : "bg-sky-50 text-sky-700"}>
               {t.priced_by} will price it
             </Pill>,
+            // The same badge Awaiting price carries. Filtering on something the card
+            // does not show would leave the reader unable to check the answer.
+            t.needs_review && (
+              <Pill key="r" tone="bg-violet-50 text-violet-700">PNS review after</Pill>
+            ),
           ]}>
           {!t.revenue ? (
             <p className="text-[12.5px] text-rose-700">
