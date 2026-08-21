@@ -190,6 +190,13 @@ export const STATUSES = [
 
 export const PENDING = STATUSES.filter((s) => s.startsWith("Pending"));
 
+// Everything still being worked, mirroring the backend's PENDING_STATUSES. "Pending CRM
+// ID" is deliberately out: it is blocked on an id rather than waiting on a person, it
+// cannot be worked until that arrives, and it has a queue of its own. Used by Open - PNS
+// and by its sidebar badge, from one definition so the count and the list cannot drift.
+export const LIVE_STATUSES = STATUSES.filter(
+  (s) => s !== "Pending CRM ID" && (s === "Open" || s.startsWith("Pending")));
+
 export const LOSS_REASONS = [
   ["pricing", "Lost on price"],
   ["shipper", "Shipper withdrew"],

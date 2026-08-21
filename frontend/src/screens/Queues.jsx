@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { api, BOTTOM_MARGIN, PENDING, PICKABLE_LOSS_REASONS, SERVICES, FTL,
-         WATCHED_GROUPS, groupFilter, groupTone, mayGoToPsp, rp } from "../api";
+import { api, BOTTOM_MARGIN, LIVE_STATUSES, PENDING, PICKABLE_LOSS_REASONS, SERVICES,
+         FTL, WATCHED_GROUPS, groupFilter, groupTone, isPnsWork, mayGoToPsp,
+         rp } from "../api";
 import {
   Btn, Card, Confirm, Empty, Head, MultiSelect, Pill, PriceChip, TicketCard, inputCls,
   usePnsTeam,
@@ -89,7 +90,8 @@ function GroupChips({ value, onPick, counts }) {
   );
 }
 
-function FilterBar({ f, set, clear, patch, me, shown, total, rows, groups = true, children }) {
+function FilterBar({ f, set, clear, patch, me, shown, total, rows, groups = true,
+                    people = true, children }) {
   const team = usePnsTeam();
   const mineOn = me && f.owner.includes(me.name);
   // Counted off the unfiltered list, so a chip reading 0 tells you the queue holds none
@@ -106,11 +108,15 @@ function FilterBar({ f, set, clear, patch, me, shown, total, rows, groups = true
       <MultiSelect label="Service" picked={f.service}
         onClear={() => patch("service", [])}
         sections={pickList(SERVICES, f.service, (v) => patch("service", v))} />
-      <MultiSelect label="PNS PIC" picked={f.owner}
-        onClear={() => patch("owner", [])}
-        sections={pickList(["__none__", ...team], f.owner, (v) => patch("owner", v),
-                           (v) => (v === "__none__" ? "Unassigned" : v))} />
-      {me && team.includes(me.name) && patch && (
+      {/* Hidden on a queue where nothing is assigned yet — a PNS PIC filter whose only
+          matching value is "Unassigned" is a control that cannot do anything. */}
+      {people && (
+        <MultiSelect label="PNS PIC" picked={f.owner}
+          onClear={() => patch("owner", [])}
+          sections={pickList(["__none__", ...team], f.owner, (v) => patch("owner", v),
+                             (v) => (v === "__none__" ? "Unassigned" : v))} />
+      )}
+      {people && me && team.includes(me.name) && patch && (
         <button type="button" aria-pressed={mineOn}
           onClick={() => patch("owner", mineOn
             ? f.owner.filter((x) => x !== me.name)
@@ -580,6 +586,66 @@ export function Open({ me, onOpen, notify }) {
               Waiting for {t.priced_by} to pick it up.
             </p>
           )}
+        </TicketCard>
+      ))}
+    </Shell>
+  );
+}
+
+/* ------------------------------------------------------------- open - PNS */
+/* The assignment inbox for PNS (Michael, 2026-08-18). "Open" the STATUS was too narrow
+   for the job people were using that menu for: a Sales-priced deal at or above 30 Mio
+   sits at "Pending Sales" until Sales attaches a price, carries "PNS review after" the
+   whole time, and has no PNS PIC — so it is unassigned PNS work that the Open queue
+   never showed, because its status is not "Open".
+
+   This asks the question the menu is actually for: what does PNS have a stake in that
+   nobody here owns yet? Any live status, PNS's by isPnsWork(), no owner. The Sales half
+   is deliberately not built — Sales is not on the platform yet, and inventing a queue
+   for a team that will not open it is how the Head of Sales gate ended up retired. */
+export function OpenPns({ me, onOpen, notify }) {
+  const [rows, err, reload] = useTickets({ status: LIVE_STATUSES });
+  const [list, f, set, clear, patch] = useFilter(
+    (rows || []).filter((t) => isPnsWork(t) && !t.owner), { resp: [], review: [] });
+
+  return (
+    <Shell title="Open - PNS"
+      sub="PNS work with nobody on it yet, whatever status it is in. A ticket is here because PNS owes the price or PNS reviews the price Sales built, and no PNS PIC has taken it. Taking one is the whole point of the screen — the status it is in is not changed by claiming it."
+      right={<span className="text-[12px] text-slate-500">
+        {(rows || []).filter((t) => isPnsWork(t) && !t.owner).length} unassigned
+      </span>}
+      rows={rows} err={err}
+      empty="Every PNS ticket has somebody on it."
+      bar={
+        <FilterBar f={f} set={set} clear={clear} patch={patch} me={me} people={false}
+          shown={list.length}
+          total={(rows || []).filter((t) => isPnsWork(t) && !t.owner).length}
+          rows={(rows || []).filter((t) => isPnsWork(t) && !t.owner)}>
+          <MultiSelect label="Priced by" picked={f.resp}
+            onClear={() => patch("resp", [])}
+            sections={pickList(["PNS", "Sales"], f.resp, (v) => patch("resp", v))} />
+          <MultiSelect label="Review" picked={f.review}
+            onClear={() => patch("review", [])}
+            sections={pickList(["yes", "no"], f.review, (v) => patch("review", v),
+                               (v) => (v === "yes" ? "PNS reviews it after"
+                                                   : "No PNS review"))} />
+        </FilterBar>
+      }
+      filtered={list}>
+      {(list) => list.map((t) => (
+        <TicketCard key={t.ref} t={t} onOpen={onOpen}
+          badges={[
+            <Pill key="by" tone={t.priced_by === "PNS" ? "bg-violet-50 text-violet-700" : "bg-sky-50 text-sky-700"}>
+              {t.priced_by} will price it
+            </Pill>,
+            t.needs_review && (
+              <Pill key="r" tone="bg-violet-50 text-violet-700">PNS review after</Pill>
+            ),
+          ]}>
+          {/* Assignment only. What to DO with the ticket belongs to the queue its status
+              puts it in — pricing it is Awaiting price, checking it is Review - PNS.
+              Duplicating those actions here would be two screens racing on one ticket. */}
+          <OwnerBar t={t} me={me} notify={notify} onDone={reload} />
         </TicketCard>
       ))}
     </Shell>

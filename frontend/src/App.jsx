@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { api } from "./api";
+import { api, LIVE_STATUSES, isPnsWork } from "./api";
 import Dashboard from "./screens/Dashboard";
 import Matrix from "./screens/Matrix";
 import Capa from "./screens/Capa";
@@ -20,7 +20,7 @@ import { ReviewMeeting } from "./screens/Meetings";
 import StatusFlow from "./screens/StatusFlow";
 import DataChecks from "./screens/DataChecks";
 import {
-  AwaitingPrice, Open, PendingCrmId, ToReview, PspPending, ExecSignoff,
+  AwaitingPrice, Open, OpenPns, PendingCrmId, ToReview, PspPending, ExecSignoff,
   Proposals, ReadyToShip, RecycleBin, Watched,
 } from "./screens/Queues";
 
@@ -58,6 +58,15 @@ const NAV = [
       keywords: "crm id missing blocked salesforce opportunity" },
     { id: "open", label: "Open", icon: "○", count: "Open",
       keywords: "open ready unclaimed available not started" },
+    // The assignment inbox (Michael, 2026-08-18). "Open" the STATUS was too narrow for
+    // the job that menu was being used for: a Sales-priced deal at or above 30 Mio waits
+    // at "Pending Sales" carrying "PNS review after" with no PNS PIC, which is
+    // unassigned PNS work the Open queue never showed. Its own entry rather than a
+    // filter inside Open, for the badge: "how much is sitting on nobody" is worth
+    // answering from the sidebar without opening anything.
+    { id: "open-pns", label: "Open - PNS", icon: "◑", count: "open:pns",
+      when: (m) => ["PNS", "Admin"].includes(m.group),
+      keywords: "unassigned pns take claim assign nobody mine inbox" },
     { id: "awaiting", label: "Awaiting price", icon: "◷", count: "awaiting", keywords: "pricing" },
     // One entry for both PNS gates (Michael, 2026-08-18). The routing behind it is still
     // split — two statuses, two endpoints, two different decisions — but which queue a
@@ -390,6 +399,10 @@ export default function App() {
         // here rather than in the nav table because `count` reads a single key.
         c["review:pns"] = (c["Pending Review - PNS"] || 0)
                         + (c["Pending Review - Head PNS"] || 0);
+        // Same cut Open - PNS applies, from the same two helpers, so the badge and the
+        // list cannot answer differently.
+        c["open:pns"] = all.tickets.filter(
+          (t) => isPnsWork(t) && !t.owner && LIVE_STATUSES.includes(t.status)).length;
         setCounts(c);
       })
       .catch(() => {});
@@ -424,6 +437,7 @@ export default function App() {
     sync: <Sync notify={notify} />,
     new: <NewRequest me={me} notify={notify} onCreated={open} />,
     open: <Open me={me} notify={notify} onOpen={open} />,
+    "open-pns": <OpenPns me={me} notify={notify} onOpen={open} />,
     crmid: <PendingCrmId me={me} notify={notify} onOpen={open} />,
     awaiting: <AwaitingPrice me={me} notify={notify} onOpen={open} />,
     review: <ToReview me={me} notify={notify} onOpen={open} />,

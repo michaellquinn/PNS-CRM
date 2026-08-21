@@ -3,6 +3,21 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-08-18",
+    title: "Open - PNS: the assignment inbox, not a status",
+    by: "Michael + Claude",
+    changes: [
+      "New Open - PNS menu: PNS work with nobody on it yet, whatever status it is in. A ticket is here because PNS owes the price or PNS reviews the price Sales built, and no PNS PIC has taken it.",
+      "Michael found the gap: a Sales-priced deal at or above Rp 30 Mio sits at \"Pending Sales\" until Sales attaches a price, carries \"PNS review after\" the whole time, and has no PNS PIC — unassigned PNS work that the Open queue never showed, because its status is not \"Open\". \"Open is the menu for us to assign the ticket\" is the job, and matching one status was too narrow for it.",
+      "Its own menu entry rather than a filter inside Open, for the badge: how much is sitting on nobody is worth answering from the sidebar without opening anything. Same reason the watched groups have their own entries.",
+      "Assignment is the only action on it. Pricing a ticket is still Awaiting price and checking one is still Review - PNS — duplicating those here would be two screens racing on the same ticket. Claiming a ticket does not change its status.",
+      "The screen and its badge share one definition of both halves — isPnsWork() and LIVE_STATUSES — so the number in the sidebar and the list behind it cannot answer differently.",
+    ],
+    overruled: [
+      "Open stays exactly as it was, showing the \"Open\" status. The Sales half of the split Michael proposed is deliberately NOT built: Sales is not on the platform yet, and inventing a queue for a team that will not open it is how the Head of Sales gate ended up retired three days after it shipped. It can be added the day Sales onboards and can say what they need from it.",
+    ],
+  },
+  {
+    date: "2026-08-18",
     title: "Filter Open and Awaiting price by whether PNS reviews it",
     by: "Michael + Claude",
     changes: [
