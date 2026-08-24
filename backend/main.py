@@ -1095,7 +1095,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-08-21.62"
+BUILD = "2026-08-21.63"
 
 
 class Me(BaseModel):
@@ -3797,7 +3797,11 @@ class ReopenIn(BaseModel):
 
 @app.post("/api/tickets/{ref}/reopen", response_model=Ok)
 async def reopen(ref: str, body: ReopenIn, u: User = Depends(current_user)):
-    """Put a lost or cancelled deal back into the pipeline. Any Commercial user."""
+    """Put a lost or cancelled deal back into the pipeline. Any Commercial user.
+
+    Reopening into "Open" is the route back for a request PNS cancelled as not feasible:
+    it returns to the unclaimed shelf for somebody to pick up, rather than landing in a
+    queue naming a side nobody has decided on yet."""
     require(u, "reopen")
     t = await get_ticket(ref)
     if t["status"] not in ("Lost", "Cancel"):
@@ -3805,9 +3809,24 @@ async def reopen(ref: str, body: ReopenIn, u: User = Depends(current_user)):
     if body.status not in PENDING_STATUSES:
         raise HTTPException(400, f"reopen into one of {PENDING_STATUSES}")
 
-    resp = "PNS" if body.status in ("Pending PNS", "Pending Review - Head PNS") else "Sales"
-    await execute("UPDATE tickets SET outcome=NULL, loss_reason=NULL, resp=%s WHERE id=%s",
-                  (resp, t["id"]))
+    if body.status == "Open":
+        # "Open" names no side, so the side is DERIVED rather than assumed. It used to
+        # fall through to the else below and come back as Sales', which quietly
+        # re-assigned a PNS-priced deal on its way back into the pipeline — the reopen
+        # looked clean and the ticket turned up in the wrong queue. An admin's
+        # priced-by override still outranks the matrix, same as everywhere else.
+        _ov = await q("SELECT JSON_UNQUOTE(JSON_EXTRACT(payload, '" + RESP_OVERRIDE_PATH
+                      + "')) AS v FROM ticket_input WHERE ticket_id=%s", (t["id"],), one=True)
+        over = str((_ov or {}).get("v") or "").strip()
+        r = route(t["acct_type"], t["service_type"], int(t.get("potential_rev") or 0))
+        resp = over if over in ("PNS", "Sales") else r["resp"]
+        review = int(resp == "Sales" and bool(r["review"]))
+        await execute("UPDATE tickets SET outcome=NULL, loss_reason=NULL, resp=%s, "
+                      "needs_review=%s WHERE id=%s", (resp, review, t["id"]))
+    else:
+        resp = "PNS" if body.status in ("Pending PNS", "Pending Review - Head PNS") else "Sales"
+        await execute("UPDATE tickets SET outcome=NULL, loss_reason=NULL, resp=%s WHERE id=%s",
+                      (resp, t["id"]))
     await log_status(t["id"], body.status, u.name, f"reopened by {u.name} (Sales)")
     await notify(f"{ref}, {t['shipper']} reopened as {body.status} by {u.name}",
                  groups=["PNS", "Commercial"], ticket_ref=ref)

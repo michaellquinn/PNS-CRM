@@ -161,7 +161,7 @@
     "/api/tickets/{ref}/reopen": {
       "post": {
         "summary": "Put a lost or cancelled deal back into the pipeline",
-        "description": "Commercial Head only (reopen). Refuses unless the ticket is currently Lost or Cancel. Clears the outcome and loss reason, and sets resp from the status it reopens into.",
+        "description": "Any Commercial user, or Admin (reopen) — the spec previously said Head only, which has not been true since the permission was widened. Refuses unless the ticket is currently Lost or Cancel, and the target must be one of the pending statuses. Clears the outcome and loss reason. Reopening into 'Open' is the route back for a request PNS cancelled as not feasible: it returns to the unclaimed shelf, and the pricing side is DERIVED there (route(), or an admin's priced-by override) rather than defaulting to Sales as every other target does — 'Open' names no side, and defaulting quietly re-assigned a PNS-priced deal on its way back in.",
         "operationId": "reopenTicket",
         "parameters": [ { "$ref": "#/components/parameters/TicketRef" } ],
         "requestBody": {

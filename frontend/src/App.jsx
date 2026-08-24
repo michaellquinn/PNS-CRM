@@ -531,7 +531,7 @@ export default function App() {
     "g-mustwin": <Watched me={me} notify={notify} onOpen={open} group="Must Win" />,
     statusflow: <StatusFlow />,
     checks: <DataChecks me={me} onOpen={open} />,
-    cancelled: <Cancelled onOpen={open} />,
+    cancelled: <Cancelled me={me} notify={notify} onOpen={open} />,
     detail: <TicketDetail ticketRef={ticketRef} me={me} notify={notify} onBack={() => go("dashboard")} />,
     "capa-all": <Capa view="all" me={me} notify={notify} onRaise={() => go("capa-raise")} />,
     "capa-new": <Capa view="new" me={me} notify={notify} onRaise={() => go("capa-raise")} />,

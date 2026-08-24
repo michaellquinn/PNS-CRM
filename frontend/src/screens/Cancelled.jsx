@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, rp } from "../api";
-import { Card, Empty, Head, Pill } from "../ui";
+import { Btn, Card, Empty, Head } from "../ui";
 
 /* Dropped requests, with the date and the name against each (Michael, 2026-08-18).
    Commercial raises plenty that turns out not to be feasible — no rate to price against,
@@ -10,13 +10,27 @@ import { Card, Empty, Head, Pill } from "../ui";
    Open to everyone who works the pipeline on purpose: "why did this one stop" is a
    question Commercial asks PNS and PNS asks Commercial, and an answer only one side can
    see is not an answer. */
-export default function Cancelled({ onOpen }) {
+export default function Cancelled({ me, onOpen, notify }) {
   const [rows, setRows] = useState(null);
   const [err, setErr] = useState(null);
+  const [busy, setBusy] = useState(null);
 
-  useEffect(() => {
+  const load = () =>
     api.cancelled().then((d) => setRows(d.tickets)).catch((e) => setErr(e.message));
-  }, []);
+  useEffect(() => { load(); }, []);
+
+  // Back onto the unclaimed shelf, not into a queue naming a side. A deal that could not
+  // be built and now can is somebody's to pick up again, and which side prices it is
+  // re-derived on the way in rather than assumed — see reopen() in the backend.
+  const putBack = async (t) => {
+    setBusy(t.ref);
+    try {
+      await api.reopen(t.ref, "Open");
+      notify(`${t.ref} is back in Open`);
+      await load();
+    } catch (e) { notify(e.message); }
+    finally { setBusy(null); }
+  };
 
   const total = (rows || []).reduce((n, t) => n + (t.revenue || 0), 0);
 
@@ -49,6 +63,7 @@ export default function Cancelled({ onOpen }) {
                   <th className="whitespace-nowrap px-4 py-3.5">Cancelled</th>
                   <th className="whitespace-nowrap px-4 py-3.5">By</th>
                   <th className="px-4 py-3.5">Reason</th>
+                  <th className="px-4 py-3.5"></th>
                 </tr>
               </thead>
               <tbody>
@@ -83,6 +98,13 @@ export default function Cancelled({ onOpen }) {
                     <td className="min-w-[280px] px-4 py-3.5 text-slate-600">
                       {t.reason || <span className="text-slate-300">—</span>}
                     </td>
+                    <td className="whitespace-nowrap px-4 py-3.5 text-right">
+                      {me.permissions.reopen && (
+                        <Btn disabled={busy === t.ref} onClick={() => putBack(t)}>
+                          Return to Open
+                        </Btn>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -93,9 +115,11 @@ export default function Cancelled({ onOpen }) {
 
       {rows && rows.length > 0 && (
         <p className="mt-3 text-[12px] text-slate-400">
-          A cancelled ticket is not deleted. Sales can put it back in the pipeline from
-          the ticket itself if the deal becomes possible again, and its history —
-          including this cancellation — travels with it.
+          A cancelled ticket is not deleted. <b>Return to Open</b> puts it back on the
+          unclaimed shelf for somebody to pick up, with its history — including this
+          cancellation and the reason — travelling with it. Which side prices it is
+          worked out again on the way back in, so a deal PNS was pricing does not
+          reappear as Sales&rsquo;.
         </p>
       )}
     </>

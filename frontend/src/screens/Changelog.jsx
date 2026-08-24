@@ -3,6 +3,18 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-08-21",
+    title: "Put a cancelled request back on the Open shelf",
+    by: "Michael + Claude",
+    changes: [
+      "Planning / Cancelled has a Return to Open button on every row. A deal that could not be built and now can goes back to the unclaimed shelf for somebody to pick up, rather than to a queue naming a side nobody has decided on yet.",
+      "Nothing is recreated. It is the same ticket with the same reference and the same history — the cancellation and the reason it carried stay in the timeline, so the record of why it stopped once is not lost by starting it again.",
+      "FIXED on the way: reopening into Open used to set the ticket to Sales-priced whatever it had been. Only Pending PNS and Review - Head PNS were treated as PNS's and everything else fell through to Sales, so a PNS-priced deal came back in the wrong queue and the reopen itself looked clean. Open names no side, so the side is now worked out again from account tier, service and revenue — and an admin's priced-by override still outranks that, as it does everywhere else.",
+      "The API description for reopen also said “Commercial Head only”, which has not been true since the permission was widened to any Commercial user.",
+    ],
+    overruled: [],
+  },
+  {
+    date: "2026-08-21",
     title: "FIXED: the Pending and proposals filter really does stay now",
     by: "Michael + Claude",
     changes: [
