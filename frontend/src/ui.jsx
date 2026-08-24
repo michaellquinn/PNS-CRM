@@ -279,8 +279,14 @@ export function TicketCard({ t, badges = [], children, onOpen }) {
             {t.must_win && <Pill tone="bg-orange-100 text-orange-800">Must Win</Pill>}
             {/* On a synced loss our own reason is the generic "Closed in Sales CRM",
                 which explains nothing. Sales CRM's own reason is shown instead wherever
-                the ticket appears (Baskoro, 2026-08-18). */}
-            {t.crm_loss_reason && (
+                the ticket appears (Baskoro, 2026-08-18).
+
+                Gated on the ticket ACTUALLY being lost (Michael, 2026-08-21). The sync
+                copies loss_reason from Sales CRM on every run whatever the stage says,
+                so an opportunity that was marked a duplicate and then revived still
+                carries the reason — and this pill was reading that as "lost" and
+                stamping a live, submitted proposal with a red Lost badge. */}
+            {t.status === "Lost" && t.crm_loss_reason && (
               <Pill tone="bg-rose-50 text-rose-700">Lost: {t.crm_loss_reason}</Pill>
             )}
             {t.open_questions > 0 && (

@@ -3,6 +3,17 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-08-21",
+    title: "FIXED: live tickets wearing a red “Lost” badge",
+    by: "Michael + Claude",
+    changes: [
+      "FIXED: a ticket could show “Lost: Duplicate Opportunity” while sitting at Proposal Submitted. Reported by Michael on SOF-2001424 (PT Teknologi Medika Pratama). The badge is meant to replace our generic “Closed in Sales CRM” with the real reason on a lost deal, but it was drawn whenever the reason field had anything in it, without ever checking whether the ticket was lost. It now only appears on a ticket whose status actually is Lost.",
+      "Why the reason is there at all: the sync copies loss_reason from Sales CRM on EVERY run, whatever the stage says. Somebody marked that opportunity a duplicate in Sales CRM, and the field kept the value after the deal carried on. Our copy is faithful; the badge was the part drawing the wrong conclusion from it.",
+      "The data itself is worth a look, separately from the display. A live opportunity carrying a loss reason usually means it really was raised twice — clearing the reason in Sales CRM, or closing whichever of the two is the duplicate, is the fix at the source. Reference / Data checks already lists duplicates by account.",
+    ],
+    overruled: [],
+  },
+  {
+    date: "2026-08-21",
     title: "Put a cancelled request back on the Open shelf",
     by: "Michael + Claude",
     changes: [
