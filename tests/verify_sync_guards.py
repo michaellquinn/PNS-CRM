@@ -239,6 +239,30 @@ for _method in sorted({m for m, _l, _p in _routes}):
                   "declared after the parameterised route, so it can never match")
 
 print()
+print("every held ticket eventually gets re-read")
+# It was sorted(known)[:SYNC_REFRESH_MAX]: the same first 400 opportunity ids on every
+# run, and the rest never. Not a slow refresh, no refresh at all -- so a rule change
+# reached some tickets in five minutes and others never, with nothing saying which.
+_sync = body_of("sync_salescrm")
+check("the refresh window rotates rather than truncating",
+      "'_refresh_cursor'" in _sync,
+      "a fixed [:MAX] slice re-reads the same tickets forever")
+check("a cursor exists to rotate it", "_refresh_cursor" in SRC)
+
+print()
+print("naming an id re-reads it even when the ticket already exists")
+# The ids mode sent refresh=false, so a named id that was already a ticket hit `continue`
+# and the run reported nothing done. The one tool for fixing a single ticket did nothing
+# to any ticket that existed.
+# Matched on the source rather than the AST dump: body_of() returns an ast.dump, where
+# `body.ids` reads as Attribute(value=Name(id='body'), attr='ids') and a literal search
+# for "body.ids" can never hit. The first version of this check failed for that reason
+# while the code under it was correct.
+check("the refresh branch also fires for an explicit id list",
+      "(body.refresh or body.ids)" in SRC,
+      "ids mode skips every id it already holds")
+
+print()
 if fails:
     print("FAILED %d check(s):" % len(fails))
     for f in fails:

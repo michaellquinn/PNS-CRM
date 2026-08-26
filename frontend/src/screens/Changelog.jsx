@@ -3,6 +3,19 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-08-26",
+    title: "FIXED: most tickets were never re-read by the sync at all",
+    by: "Michael + Claude",
+    changes: [
+      "Michael asked why three FTL shippers were still showing B2BR after the service-line rewrite. Chasing it turned up something bigger than those three tickets.",
+      "FIXED: the sync re-read the same first 400 opportunity ids on every single run and never looked at the rest. Not a slow refresh — no refresh ever, for every ticket past position 400 in a sort of the ids. So a rule change reached some tickets within five minutes and others never, and nothing anywhere said which was which. Stage changes, revenue corrections and tier moves were all going unseen on those deals too; the service line is just where it happened to show.",
+      "The window rotates now. A full pass over everything held takes as many runs as it takes, and every ticket gets its turn — with 1,000 tickets that is three runs, about fifteen minutes.",
+      "FIXED: “These opportunity IDs only” did nothing to any ticket that already existed. It sent refresh=false, so every id you named that was already a ticket was skipped and the run reported nothing done. The one tool for putting a single deal right ignored every deal you actually have. Naming an id now re-reads it.",
+      "So the way to pull a specific deal back into line after a rule change is Sync → These opportunity IDs only, paste its Sales CRM id, run it. No waiting for the rotation to come round.",
+    ],
+    overruled: [],
+  },
+  {
+    date: "2026-08-26",
     title: "The service line comes from NV Product Line AND Service Level, and FTL is read off the shipper name",
     by: "Michael + Claude",
     changes: [

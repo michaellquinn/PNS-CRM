@@ -44,7 +44,9 @@ export default function Sync({ notify }) {
     const body = {
       days: mode === "refresh" || mode === "ids" ? 0 : Number(days) || 7,
       pages: mode === "refresh" || mode === "ids" ? 0 : Number(pages) || 0,
-      refresh: mode !== "new" && mode !== "ids",
+      // ids mode refreshes too: naming an id you already hold is a request to re-read
+      // that deal, and it used to send refresh:false so those ids were skipped.
+      refresh: mode !== "new",
       ids: mode === "ids" ? idList : [],
       groups,
       dry_run: dry,
@@ -70,7 +72,7 @@ export default function Sync({ notify }) {
     ["both", "New + refresh", "The routine run: import new opportunities and re-check the ones you already hold."],
     ["new", "New only", "Import only, leave held tickets untouched."],
     ["refresh", "Re-check held tickets only", "No date window at all — re-reads every opportunity behind a ticket you hold, by id, to see whether its Sales CRM stage has moved."],
-    ["ids", "These opportunity IDs only", "Paste Sales CRM opportunity ids and import exactly those, nothing else. This is how you rebuild the board deliberately: clear it down, then pull in the deals you actually want."],
+    ["ids", "These opportunity IDs only", "Paste Sales CRM opportunity ids and handle exactly those, nothing else — imported if new, re-read if you already hold them. The quickest way to pull one deal back into line after a rule change, without waiting for the rotating refresh to reach it."],
   ];
   const modeHint = MODES.find(([v]) => v === mode)[2];
 

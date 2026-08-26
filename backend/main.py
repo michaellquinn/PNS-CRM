@@ -1109,7 +1109,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-08-26.68"
+BUILD = "2026-08-26.69"
 
 
 class Me(BaseModel):
@@ -2073,6 +2073,10 @@ def service_line_for(product, level, shipper_name=""):
 # sweep, not ten. The UNIQUE key on opportunity_id is what actually prevents duplicate
 # tickets, this only stops the wasted work.
 _sync_lock = asyncio.Lock()
+# Where the rotating refresh window starts next. Process-local and reset by a restart,
+# which is fine: the point is that consecutive runs cover different tickets, not that the
+# position survives a deploy.
+_refresh_cursor = {"at": 0}
 
 
 def _first(v):
@@ -2507,7 +2511,21 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
             # 2. Opportunities behind tickets we already hold, read directly by id so
             #    their stage and revenue stay current. Bounded by our own ticket count.
             if body.refresh and not truncated and known and not body.ids:
-                ids = sorted(in_scope if wanted_groups else known)[:SYNC_REFRESH_MAX]
+                # ROTATED, not truncated (Michael, 2026-08-26). This was
+                # sorted(known)[:SYNC_REFRESH_MAX], which re-read the same first 400
+                # opportunity ids on every single run and never once looked at the rest.
+                # Not a slow refresh — no refresh at all, for every ticket past position
+                # 400 in a string sort of the ids. A rule change like the service-line
+                # rewrite would reach some tickets in five minutes and others never, with
+                # nothing anywhere saying which. The cursor walks the whole set, so a
+                # full pass takes ceil(held / 400) runs and every ticket gets its turn.
+                pool = sorted(in_scope if wanted_groups else known)
+                if len(pool) > SYNC_REFRESH_MAX:
+                    start = _refresh_cursor["at"] % len(pool)
+                    ids = (pool + pool)[start:start + SYNC_REFRESH_MAX]
+                    _refresh_cursor["at"] = (start + SYNC_REFRESH_MAX) % len(pool)
+                else:
+                    ids = pool
                 sem = asyncio.Semaphore(SYNC_CONCURRENCY)
 
                 async def one(oid: str):
@@ -2605,7 +2623,12 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
                         # Already imported, so refresh the fields Sales CRM owns rather
                         # than skipping it. Stage, committed revenue and the close date
                         # are theirs, ours are only ever a copy, so theirs wins.
-                        if body.refresh and not any(x["id"] == oid for x in refreshed):
+                        # `or body.ids`: naming an id you already hold is a request to
+                        # re-read THAT deal. The ids mode sent refresh=false, so every
+                        # named id that was already a ticket hit the `continue` below and
+                        # the run reported nothing done — the one tool for fixing a
+                        # single ticket quietly did nothing to any ticket that existed.
+                        if (body.refresh or body.ids) and not any(x["id"] == oid for x in refreshed):
                             if not body.dry_run:
                                 acct_for_refresh = crm._accounts.get(
                                     str(o.get("account_id") or ""))
