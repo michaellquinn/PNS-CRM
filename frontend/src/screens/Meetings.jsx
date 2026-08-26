@@ -57,10 +57,6 @@ function Line({ n, t, onOpen, right, children }) {
           className="font-mono text-[13px] font-bold text-[#EE1B2C] hover:underline">
           {t.ref}
         </button>
-        <b className="text-[13px]">{t.shipper}</b>
-        <Pill dot>{t.status}</Pill>
-        {t.group && <Pill tone={groupTone(t.group)}>{t.group}</Pill>}
-        <span className="text-[12px] text-slate-500">{t.service} &middot; {rp(t.revenue)}</span>
         {/* When the deal was raised, not when it last moved — on a review list the
             question behind every row is how long this has been going on. Sales CRM's
             date where the ticket came from the sync, ours where it was raised here. */}
@@ -73,6 +69,10 @@ function Line({ n, t, onOpen, right, children }) {
             </span>
           )}
         </span>
+        <b className="text-[13px]">{t.shipper}</b>
+        <Pill dot>{t.status}</Pill>
+        {t.group && <Pill tone={groupTone(t.group)}>{t.group}</Pill>}
+        <span className="text-[12px] text-slate-500">{t.service} &middot; {rp(t.revenue)}</span>
         <span className="ml-auto text-[12px] text-slate-400">{right}</span>
       </div>
       {children && <div className="mt-2.5">{children}</div>}
