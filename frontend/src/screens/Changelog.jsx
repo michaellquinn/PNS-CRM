@@ -3,6 +3,19 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-08-26",
+    title: "FIXED: a Must Win deal could reach C-level and then be refused there",
+    by: "Michael + Claude",
+    changes: [
+      "FIXED: Record sign-off refused SOF-4001332 (ZONA KARYA MENDUNIA) with “this is Standard; executive sign-off applies to Hypercare and Strategic only” — on a ticket the app had itself routed to Review - C-level. Reported by Michael, who could neither sign it off nor move it on.",
+      "The routing and the gate were asking different questions. Since 13 August all THREE watched groups end at C-level, Must Win included — approval_chain and proposal_or_signoff were both updated then, and the endpoint that records the sign-off was not. It still tested the account tier. So a Must Win deal on a Standard account was sent to the gate by one rule and refused at it by another: no way forward, no way back, and an error message blaming the account tier for a decision nobody had made about it.",
+      "The gate now asks the same question the routing asks. Anything routed to C-level can be signed off there.",
+      "The screen said “Hypercare and Strategic solutions need Alex and Dhinesh”, which had been wrong since the same date. It names all three watched groups now.",
+      "Pinned in verify_charter: every group the routing sends to C-level must be one the gate accepts. Confirmed it fails when the fix is taken out, not just that it passes with it in.",
+    ],
+    overruled: [],
+  },
+  {
+    date: "2026-08-26",
     title: "FIXED: most tickets were never re-read by the sync at all",
     by: "Michael + Claude",
     changes: [

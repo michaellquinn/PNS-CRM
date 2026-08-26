@@ -1109,7 +1109,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-08-26.69"
+BUILD = "2026-08-26.70"
 
 
 class Me(BaseModel):
@@ -4444,12 +4444,22 @@ async def exec_signoff(ref: str, body: SignoffIn, u: User = Depends(current_user
     """Record that Alex (CSO) and Dhinesh (COO) have signed off the solution.
 
     The approval itself happens over email for now, this only records that it
-    happened, so the charter can state it and the audit trail is not a gap. Managed
-    accounts only; nothing else needs an executive sign-off."""
+    happened, so the charter can state it and the audit trail is not a gap.
+
+    Gated on big_group(), the SAME test that routes a ticket here (Michael, 2026-08-26).
+    It used to check acct_type against MANAGED_ACCTS, which stopped being the rule on
+    2026-08-13 when Baskoro extended C-level to all three watched groups — Must Win
+    included, "a deal the business has declared it must win is exactly the kind the
+    executives want to see". approval_chain() and proposal_or_signoff() were both updated
+    then; this endpoint was not. So a Must Win deal on a Standard account was routed to
+    C-level by one rule and refused at C-level by another, with no way forward and no way
+    back. Stranded, permanently, and the message blamed the account tier."""
     t = await get_ticket(ref)
-    if t["acct_type"] not in MANAGED_ACCTS:
-        raise HTTPException(400, f"{ref} is {t['acct_type']}; executive sign-off applies "
-                                 f"to {' and '.join(MANAGED_ACCTS)} accounts only")
+    if not big_group(t):
+        raise HTTPException(
+            400, f"{ref} is not a watched deal — executive sign-off is for Hypercare, "
+                 f"Strategic and Must Win. If it reached this gate and has since been "
+                 f"un-flagged in Sales CRM, send it back rather than signing it off.")
     require(u, "markReviewed")
     await execute("UPDATE tickets SET exec_signoff=%s, exec_signoff_by=%s, "
                   "exec_signoff_at=%s WHERE id=%s",

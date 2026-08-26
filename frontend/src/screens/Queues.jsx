@@ -961,7 +961,7 @@ export function ExecSignoff({ me, onOpen, notify }) {
 
   return (
     <Shell title="Review - C-level"
-      sub="Hypercare and Strategic solutions need Alex (CSO) and Dhinesh (COO). Every other approval has already cleared; this is the last gate before the proposal goes out."
+      sub="Watched deals need Alex (CSO) and Dhinesh (COO) — Hypercare, Strategic and Must Win alike. Every other approval has already cleared; this is the last gate before the proposal goes out."
       rows={rows} err={err} empty="Nothing awaiting executive sign-off."
       bar={<FilterBar f={f} set={set} clear={clear} patch={patch} me={me}
         shown={list.length} total={(rows || []).length} rows={rows} />}

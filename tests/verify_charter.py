@@ -24,6 +24,37 @@ exec(compile(ast.fix_missing_locations(ast.Module(body=keep, type_ignores=[])),
 fails = []
 
 # ---------------------------------------------------------------- approval gate
+# The gate that RECORDS a sign-off must accept everything the routing SENDS to it.
+# Michael, 2026-08-26: SOF-4001332 was a Must Win deal on a Standard account. It was
+# routed to Pending Review - C-level by proposal_or_signoff (which asks big_group) and
+# then refused by exec_signoff (which asked acct_type against MANAGED_ACCTS, the rule
+# Baskoro replaced on 2026-08-13). Routed there by one rule, refused there by another:
+# no way forward, no way back, and the error blamed the account tier.
+print("=== the sign-off gate accepts everything routed to it")
+_src = open(os.path.join(_REPO, "backend", "main.py"), encoding="utf-8").read()
+_ep = _src[_src.index("async def exec_signoff"):]
+_ep = _ep[:_ep.index("await audit(")]
+_fails = []
+if "big_group(t)" not in _ep:
+    _fails.append("exec_signoff does not gate on big_group()")
+# The EXPRESSION, not the word: the docstring explains why the old test was replaced,
+# so a bare search for "MANAGED_ACCTS" matches the explanation and fails on a fixed file.
+if 'acct_type"] not in MANAGED_ACCTS' in _ep:
+    _fails.append("exec_signoff still tests acct_type against MANAGED_ACCTS, which is "
+                  "narrower than what proposal_or_signoff routes to it")
+for _t in ({"acct_type": "Hypercare", "must_win": 0, "exec_signoff": 0},
+           {"acct_type": "Strategic", "must_win": 0, "exec_signoff": 0},
+           {"acct_type": "Standard", "must_win": 1, "exec_signoff": 0}):
+    if ns["proposal_or_signoff"](_t) == "Pending Review - C-level" and not ns["big_group"](_t):
+        _fails.append(f"{_t} is routed to C-level but the gate would refuse it")
+for _f in _fails:
+    print("  FAIL " + _f)
+if not _fails:
+    print("  ok   every watched group routed to C-level is accepted there")
+    print("  ok   the gate no longer uses the narrower MANAGED_ACCTS test")
+else:
+    sys.exit(1)
+
 print("=== proposal_or_signoff")
 gate_cases = [
     ({"acct_type": "Strategic", "exec_signoff": 0}, "Pending Review - C-level"),
