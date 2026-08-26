@@ -37,6 +37,15 @@ function Toggles({ options, value, onChange, empty = "Any" }) {
   );
 }
 
+/* Whole days since a YYYY-MM-DD date, or null if it is missing or unparseable — a bad
+   date should read as no date, never as NaN on the row. */
+function ageDays(iso) {
+  if (!iso) return null;
+  const then = Date.parse(`${String(iso).slice(0, 10)}T00:00:00`);
+  if (Number.isNaN(then)) return null;
+  return Math.max(0, Math.floor((Date.now() - then) / 86400000));
+}
+
 /* One line of the list. `children` is where a proposal's status controls go; a pending
    ticket passes none, because what happens to it happens inside the ticket. */
 function Line({ n, t, onOpen, right, children }) {
@@ -52,6 +61,18 @@ function Line({ n, t, onOpen, right, children }) {
         <Pill dot>{t.status}</Pill>
         {t.group && <Pill tone={groupTone(t.group)}>{t.group}</Pill>}
         <span className="text-[12px] text-slate-500">{t.service} &middot; {rp(t.revenue)}</span>
+        {/* When the deal was raised, not when it last moved — on a review list the
+            question behind every row is how long this has been going on. Sales CRM's
+            date where the ticket came from the sync, ours where it was raised here. */}
+        <span className="font-mono text-[11.5px] tabular-nums text-slate-400"
+          title="When this was raised">
+          raised {t.submitted_on}
+          {ageDays(t.submitted_on) != null && (
+            <span className={ageDays(t.submitted_on) >= 30 ? "ml-1 text-amber-600" : "ml-1"}>
+              ({ageDays(t.submitted_on)}d)
+            </span>
+          )}
+        </span>
         <span className="ml-auto text-[12px] text-slate-400">{right}</span>
       </div>
       {children && <div className="mt-2.5">{children}</div>}

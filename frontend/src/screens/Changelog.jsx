@@ -2,6 +2,16 @@ import { Card, Head, Pill } from "../ui";
 
 const ENTRIES = [
   {
+    date: "2026-08-26",
+    title: "Pending and proposals shows when each deal was raised",
+    by: "Michael + Claude",
+    changes: [
+      "Every row now carries the date the ticket was raised, with its age in days beside it. Past 30 days the age turns amber — on a list you walk top to bottom, the question behind most rows is how long this has been going on, and a date alone still makes you do the arithmetic.",
+      "It is the raised date, not the last-moved date. Where the ticket came from the sync it is what Sales CRM says about the opportunity; where it was raised here it is ours. A missing or unreadable date shows as no date rather than as a broken number.",
+    ],
+    overruled: [],
+  },
+  {
     date: "2026-08-21",
     title: "FIXED: live tickets wearing a red “Lost” badge",
     by: "Michael + Claude",
