@@ -181,12 +181,18 @@ export const api = {
     call(`/users/${encodeURIComponent(email)}`, { method: "DELETE" }),
 };
 
-export const SERVICES = ["LTL", "B2BR", "B2C", "FTL on-call", "FTL monthly", "Sameday",
+// Mirrors SERVICES in the backend. "FTL" is the provisional truck line — Sales CRM
+// has no FTL product line yet, so a deal identified by its shipper name lands there
+// for PNS to resolve into on-call or monthly.
+export const SERVICES = ["LTL", "B2BR", "B2C", "FTL", "FTL on-call", "FTL monthly",
+  "Sameday", "Next Day",
   "Fulfillment", "Complex Logistics"];
 
 // Only the FTL lines are priced through a haulage vendor, so only they can wait on
 // vendor cost. Keep in step with VENDOR_SERVICES in the backend.
-export const FTL = ["FTL on-call", "FTL monthly"];
+// Which lines can wait on a vendor quote. The provisional "FTL" is included: a truck
+// deal waits on haulage cost whether or not anyone has said yet which line it is.
+export const FTL = ["FTL", "FTL on-call", "FTL monthly"];
 
 export const STATUSES = [
   "Pending CRM ID", "Open", "Pending Sales", "Pending PNS",

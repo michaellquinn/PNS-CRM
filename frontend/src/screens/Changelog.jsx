@@ -3,6 +3,25 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-08-26",
+    title: "The service line comes from NV Product Line AND Service Level, and FTL is read off the shipper name",
+    by: "Michael + Claude",
+    changes: [
+      "The service line is now a COMBINATION of two Sales CRM fields, not one. Restock alone never said whether a deal was B2BR, Same Day or Next Day — the Service Level does, and the same level means different things under different product lines. Restock/Standard is B2BR, Restock/Same Day is Sameday, Restock/Next Day is Next Day, LTL/Standard is LTL, and the three Last Mile lines (Parcel, Document, Cargo) map by level the same way.",
+      "FTL is identified from the SHIPPER NAME, and that beats the product line. Sales CRM has no FTL category yet, so the name is the only place an FTL deal announces itself; deferring to the product line would mean deferring to a field that currently has no way of carrying the answer. It matches FTL as a whole word, so a shipper called SHIFTLESS is not quietly turned into a truck deal.",
+      "A shipper-name FTL lands on a new provisional line, “FTL” — not on on-call or monthly, because a name cannot say which and guessing put half of them on the wrong team. It carries the same ceilings as both real FTL lines, can wait on a vendor quote like them, and routes to PNS, who is the one who resolves it. The ticket says on its face that the line needs setting, and setting it re-derives the routing. Trucking now lands here too instead of being labelled on-call.",
+      "New Next Day service line. No published 5A ceiling yet, so every band is a decision until Commercial issues one — the same position Fulfillment and Complex Logistics are in.",
+      "Matching is normalised now: case, spacing, and every kind of dash. The sheet writes “Last Mile – Parcel” with an EN DASH where the old map had a hyphen, and matching literally would have stopped that whole product line importing with nothing to say why but one line in the sync report.",
+      "A missing or unpublished Service Level falls back to the product line’s standard reading rather than refusing the deal, and the ticket says it was assumed. A product line nothing recognises is still refused and reported rather than guessed onto a line.",
+      "New verify_service_line suite pins all of it, including the dash, the whole-word FTL match, and that every service the mapping can produce has a pricing ceiling at every band — a missing one falls through to “no published ceiling” and looks deliberate.",
+    ],
+    overruled: [
+      "PRODUCT_MAP read the NV Product Line alone and could not express any of this. Gone, replaced by the combination table plus a product-line-only fallback.",
+      "“Last Mile – Parcel” used to map to B2C. Per the table it is B2BR now, by service level. B2C stays a valid service for the tickets already on it, but nothing in Sales CRM maps to it any more.",
+      "Trucking used to be imported as FTL on-call. The comment justifying that said both FTL lines route identically — which stopped being true when FTL monthly went to PNS at every revenue band, so on-call deals under 30 Mio were going to Sales on a guessed label.",
+    ],
+  },
+  {
+    date: "2026-08-26",
     title: "Pending and proposals shows when each deal was raised",
     by: "Michael + Claude",
     changes: [

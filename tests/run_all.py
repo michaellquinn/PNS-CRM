@@ -32,6 +32,12 @@ Each suite exists because something was actually wrong:
                      import landing in Open, and that the import and the refresh walk
                      the same field map — all three were "built but not wired".
 
+  verify_service_line the service line is a COMBINATION of NV Product Line and Service
+                     Level, and everything downstream keys off the answer: who prices it,
+                     which ceiling applies, who reviews, who owns it. The sheet writes an
+                     EN DASH where the old map had a hyphen, so matching literally stopped
+                     a whole product line importing with nothing to say why.
+
   verify_transitions POST /status took whatever string it was handed, so a status the
                      running code cannot act on could be written straight onto a ticket.
                      Also pins that a "*" row does not let a Lost deal be walked
@@ -44,7 +50,8 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 SUITES = ["verify_rules.py", "verify_assign.py", "verify_charter.py",
           "verify_psp_gate.py", "verify_permissions.py", "verify_review_level.py",
-          "verify_transitions.py", "verify_sync_guards.py", "verify_names.py"]
+          "verify_transitions.py", "verify_sync_guards.py", "verify_names.py",
+          "verify_service_line.py"]
 
 failed = []
 for name in SUITES:

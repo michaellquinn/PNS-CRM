@@ -83,12 +83,16 @@ async def execute(sql: str, args: tuple = ()) -> int:
 
 
 # ------------------------------------------------------------------ business rules
-SERVICES = ["LTL", "B2BR", "B2C", "FTL on-call", "FTL monthly", "Sameday",
+# "FTL" is the PROVISIONAL truck line: Sales CRM has no FTL product line yet, so a
+# deal identified by its shipper name lands here for PNS to resolve into on-call or
+# monthly. "Next Day" arrived with the NV Product Line / Service Level table.
+SERVICES = ["LTL", "B2BR", "B2C", "FTL", "FTL on-call", "FTL monthly", "Sameday",
+            "Next Day",
             "Fulfillment", "Complex Logistics"]
 
 # Vendor cost is a haulage question. Only the FTL lines ever wait on a vendor quote,
 # so the "waiting vendor cost" detour is offered for those and nothing else.
-VENDOR_SERVICES = ("FTL on-call", "FTL monthly")
+VENDOR_SERVICES = ("FTL", "FTL on-call", "FTL monthly")
 
 # Four tiers, on two different levels, which is the whole subtlety.
 #
@@ -328,7 +332,10 @@ def route(acct: str, svc: str, rev: int) -> dict:
     30 Mio and quietly handed the two most complex products to Sales."""
     if acct in MANAGED_ACCTS:
         return {"resp": "PNS", "review": False}
-    if svc in ("FTL monthly", "Sameday"):
+    # "FTL" is provisional and PNS is who resolves it, so it comes to PNS rather than
+    # being priced by Sales against a line nobody has confirmed. Once PNS sets on-call or
+    # monthly the routing is re-derived, and an on-call deal under 30 Mio moves to Sales.
+    if svc in ("FTL", "FTL monthly", "Sameday"):
         return {"resp": "PNS", "review": False}
     if rev >= 30_000_000:
         return {"resp": "Sales", "review": True}
@@ -458,11 +465,18 @@ PRICING_GUARD = {
     # FTL on-call mirrors FTL monthly: same dedicated line, same vendor cost question,
     # so the same ceilings apply. (5A published "Standard rate" for on-call, which left
     # it with no floor to check at all.)
+    # The provisional line carries the ceilings BOTH real FTL lines carry — they are
+    # identical, so a deal waiting to be resolved is priced against the right numbers
+    # rather than falling through to "no published ceiling".
+    "FTL":         {"low": ("margin", 15.0), "mid": ("margin", 10.0), "high": ("manual", None)},
     "FTL on-call": {"low": ("margin", 15.0), "mid": ("margin", 10.0), "high": ("manual", None)},
     "FTL monthly": {"low": ("margin", 15.0), "mid": ("margin", 10.0), "high": ("manual", None)},
     "Sameday":     {"low": ("discount", 20.0), "mid": ("discount", 20.0), "high": ("discount", 20.0)},
     # New lines carried over from Sales CRM. 5A predates them and publishes no ceiling,
     # so every band is a decision until Commercial issues one.
+    # Next Day has no published 5A ceiling yet, same position Fulfillment and Complex
+    # Logistics are in: every band is a decision until Commercial issues one.
+    "Next Day":          {"low": ("manual", None), "mid": ("manual", None), "high": ("manual", None)},
     "Fulfillment":       {"low": ("manual", None), "mid": ("manual", None), "high": ("manual", None)},
     "Complex Logistics": {"low": ("manual", None), "mid": ("manual", None), "high": ("manual", None)},
 }
@@ -1095,7 +1109,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-08-26.67"
+BUILD = "2026-08-26.68"
 
 
 class Me(BaseModel):
@@ -1928,26 +1942,69 @@ SYNC_CONCURRENCY = int(os.getenv("SYNC_CONCURRENCY", "24") or 24)
 # hundreds; revisit if it ever holds thousands.
 SYNC_REFRESH_MAX = int(os.getenv("SYNC_REFRESH_MAX", "400") or 400)
 
-# Sales CRM product line -> our service line.
-PRODUCT_MAP = {
-    "LTL": "LTL",
-    "Restock": "B2BR",
-    "Parcel": "B2C",
-    "Last Mile - Parcel": "B2C",
-    "Fulfillment": "Fulfillment",
-    "Complex Logistics": "Complex Logistics",
-    "Complex Logs": "Complex Logistics",
-    # Sales CRM has one Trucking value covering both FTL lines and cannot say which.
-    # Imported anyway rather than held back, landing on on-call with a flag for Sales to
-    # correct. Safe as a provisional label because the two lines now route identically
-    # (both to PNS) and carry identical ceilings, so only the name is uncertain.
-    "Trucking": "FTL on-call",
+# Sales CRM -> our service line (Michael, 2026-08-26).
+#
+# The service line is a COMBINATION of two Sales CRM fields, NV Product Line and Service
+# Level, not one field. "Restock" alone does not say whether the deal is B2BR, Same Day
+# or Next Day; the level does, and the same level means different things under different
+# product lines. The previous map read the product line alone and therefore could not
+# express any of this.
+#
+# Keys are normalised (see _norm_line / _norm_level) rather than matched literally. The
+# picklist is hand-edited and already writes an EN DASH in "Last Mile – Parcel" where the
+# old map had a hyphen; an exact match against one spelling silently stops importing a
+# whole product line, and nothing says so except a line in the sync report.
+SERVICE_LINE_MAP = {
+    ("Restock", "Standard"):            "B2BR",
+    ("Restock", "Same Day"):            "Sameday",
+    ("Restock", "Next Day"):            "Next Day",
+    ("LTL", "Standard"):                "LTL",
+    # Defunct in Sales CRM but kept: historical opportunities still carry these, and a
+    # deal that stops importing because its product line was retired is a deal nobody
+    # here can see.
+    ("Last Mile - Parcel", "Standard"): "B2BR",
+    ("Last Mile - Parcel", "Same Day"): "Sameday",
+    ("Last Mile - Document", "Standard"): "B2BR",
+    ("Last Mile - Document", "Same Day"): "Sameday",
+    ("Last Mile - Cargo", "Standard"):  "B2BR",
+    # Sales CRM lists no service level against these two.
+    ("Fulfillment", ""):                "Fulfillment",
+    ("Complex Logistics", ""):          "Complex Logistics",
 }
+
+# Used when the level is missing or is one Sales CRM has not published a combination for.
+# The product line's ordinary reading, so a blank level imports as Standard rather than
+# refusing the deal — flagged on the ticket, not assumed silently.
+PRODUCT_LINE_DEFAULT = {
+    "Restock":              "B2BR",
+    "LTL":                  "LTL",
+    "Parcel":               "B2BR",
+    "Last Mile - Parcel":   "B2BR",
+    "Last Mile - Document": "B2BR",
+    "Last Mile - Cargo":    "B2BR",
+    "Fulfillment":          "Fulfillment",
+    "Complex Logistics":    "Complex Logistics",
+    "Complex Logs":         "Complex Logistics",
+    # Sales CRM's single truck value. Provisional, like the shipper-name rule below.
+    "Trucking":             "FTL",
+}
+
+# Michael, 2026-08-26: Sales CRM has NO FTL category yet, so until IT adds one the only
+# place an FTL deal announces itself is the shipper name. This is checked BEFORE the
+# product-line map — his call, and the reason is that the product line cannot currently
+# be right about FTL, so deferring to it would mean deferring to a value that has no way
+# of carrying the answer.
+#
+# Word-boundary, not a substring: "ftl" inside some longer word is not a service line.
+FTL_IN_NAME = re.compile(r"\bftl\b", re.I)
+# The provisional label. Deliberately not FTL on-call or FTL monthly: which one it is
+# cannot be known from a shipper name either, and guessing put half of them on the wrong
+# team. It is flagged on the ticket for PNS to correct, which re-derives the routing.
+FTL_UNSPECIFIED = "FTL"
 FTL_VARIANT_UNKNOWN = "Trucking"
-# Deliberately not mapped. Cold chain and cross-border are out of scope for now.
-# Trucking is different: Sales CRM has one value covering both FTL lines and they route
-# differently, so guessing would put half of them on the wrong team. These are reported
-# as skipped with a reason rather than silently dropped.
+
+# Deliberately not mapped. Cold chain and cross-border are out of scope for now. These
+# are reported as skipped with a reason rather than silently dropped.
 PRODUCT_SKIP = {
     "Cold Chain": "cold chain is not in scope yet",
     "Cold-chain": "cold chain is not in scope yet",
@@ -1955,6 +2012,62 @@ PRODUCT_SKIP = {
     "International": "cross-border is not in scope yet",
     "Air-freight": "air freight is not a PNS service line",
 }
+
+
+def _norm_line(v) -> str:
+    """A product line reduced to what identifies it: case-folded, whitespace collapsed,
+    every kind of dash treated as the same dash and its padding removed. "Last Mile –
+    Parcel", "Last Mile - Parcel" and "last mile-parcel" are one product line."""
+    t = " ".join(str(v or "").split()).lower()
+    for dash in ("–", "—", "−"):
+        t = t.replace(dash, "-")
+    return re.sub(r"\s*-\s*", "-", t)
+
+
+def _norm_level(v) -> str:
+    """A service level reduced the same way, with spaces removed entirely so "Same Day",
+    "SameDay" and "same day" agree. Sales CRM writes "-" where a line has no level."""
+    t = str(v or "").strip().lower()
+    if t in ("-", "--", "n/a", "na", "none", "null", "tbd"):
+        return ""
+    return re.sub(r"\s+", "", t)
+
+
+_LINE_LEVEL = {(_norm_line(a), _norm_level(b)): v for (a, b), v in SERVICE_LINE_MAP.items()}
+_LINE_ONLY = {_norm_line(k): v for k, v in PRODUCT_LINE_DEFAULT.items()}
+_SKIP_N = {_norm_line(k): v for k, v in PRODUCT_SKIP.items()}
+
+
+def service_line_for(product, level, shipper_name=""):
+    """Our service line for one opportunity, and why.
+
+    Returns (service, provisional_reason). `service` is None when nothing maps, and the
+    caller reports it rather than importing a deal onto a guessed line. A non-empty
+    `provisional_reason` means the line is a working answer somebody has to confirm.
+    """
+    if FTL_IN_NAME.search(str(shipper_name or "")):
+        return FTL_UNSPECIFIED, ("the shipper name says FTL and Sales CRM has no FTL "
+                                 "product line yet, so the deal is on a provisional "
+                                 "FTL line. Set FTL on-call or FTL monthly on the Input "
+                                 "tab — it decides who prices it")
+    line, lvl = _norm_line(product), _norm_level(level)
+    if not line:
+        return None, ""
+    hit = _LINE_LEVEL.get((line, lvl))
+    if hit:
+        return hit, ""
+    fallback = _LINE_ONLY.get(line)
+    if not fallback:
+        return None, ""
+    if fallback == FTL_UNSPECIFIED:
+        return fallback, ("Sales CRM records this as Trucking and cannot say whether it "
+                          "is FTL on-call or FTL monthly. Set the line on the Input tab "
+                          "— it decides who prices it")
+    return fallback, (f"Sales CRM gave no service level for {product}, so it was read as "
+                      f"the standard {fallback}. Confirm the level before pricing."
+                      if lvl == "" else
+                      f"Sales CRM has no published combination for {product} / {level}, "
+                      f"so it was read as the standard {fallback}. Confirm before pricing.")
 
 # One sync at a time per process. Ten people pressing the button should produce one
 # sweep, not ten. The UNIQUE key on opportunity_id is what actually prevents duplicate
@@ -2442,9 +2555,11 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
                         and (not SALESCRM_RECORD_TYPE
                              or o.get("record_type_name") == SALESCRM_RECORD_TYPE)
                         and o.get("stage") not in CLOSED_LOST_STAGES
-                        and PRODUCT_MAP.get(
-                            str(_first(o.get("core_product"))
-                                or o.get("nv_product_line") or "").strip()))
+                        # Same resolver the import uses, so this prefetch cannot decide
+                        # a deal is importable on rules the import no longer applies.
+                        and service_line_for(
+                            _first(o.get("nv_product_line")) or _first(o.get("core_product")),
+                            _first(o.get("service_level")), o.get("account_name"))[0])
 
             all_fresh = [o for _, items in batches for o in items if needs_account(o)]
             # Held tickets need their account too, now that a refresh copies the account
@@ -2548,13 +2663,20 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
                                         "why": f"Sales CRM stage is {stage}"})
                         continue
 
-                    raw_product = _first(o.get("core_product")) or o.get("nv_product_line")
-                    service = PRODUCT_MAP.get(str(raw_product or "").strip())
+                    # NV Product Line leads, because that is the column the mapping
+                    # table is written against; core_product is the fallback for a
+                    # record that carries only the older field.
+                    raw_line = (_first(o.get("nv_product_line"))
+                                or _first(o.get("core_product")))
+                    raw_level = _first(o.get("service_level"))
+                    service, provisional = service_line_for(
+                        raw_line, raw_level, o.get("account_name"))
                     if not service:
                         skipped.append({
                             "id": oid, "name": o.get("name"),
-                            "why": PRODUCT_SKIP.get(str(raw_product or "").strip(),
-                                                    f"no service mapping for '{raw_product}'")})
+                            "why": _SKIP_N.get(_norm_line(raw_line),
+                                               f"no service line for '{raw_line}'"
+                                               + (f" / '{raw_level}'" if raw_level else ""))})
                         continue
 
                     try:
@@ -2597,7 +2719,9 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
                         if mw_field:
                             mustwin_fields.add(mw_field)
                         plan["crm_date"] = _crm_date(o)
-                        plan["ftl_unknown"] = str(raw_product or "").strip() == FTL_VARIANT_UNKNOWN
+                        # Any line that needs confirming, not just Trucking: a
+                        # shipper-name FTL and a missing service level both land here.
+                        plan["provisional"] = provisional
                         plan["sales_unknown"] = bool(plan["sales_name"]) and \
                             plan["sales_name"] not in known_people
                         r = route(acct_type, service, revenue)
@@ -2724,8 +2848,9 @@ async def _refresh_from_salescrm(o: dict, account: dict | None = None,
         changed.append(f"potential revenue Rp {int(t.get('potential_rev') or 0):,} "
                        f"to Rp {crm_rev:,}")
 
-    raw_product = _first(o.get("core_product")) or o.get("nv_product_line")
-    crm_service = PRODUCT_MAP.get(str(raw_product or "").strip())
+    raw_line = _first(o.get("nv_product_line")) or _first(o.get("core_product"))
+    crm_service, _prov = service_line_for(raw_line, _first(o.get("service_level")),
+                                          o.get("account_name"))
     new_service = crm_service or t["service_type"]
     if crm_service and crm_service != t["service_type"]:
         changed.append(f"service {t['service_type']} to {crm_service}")
@@ -2926,13 +3051,12 @@ async def _import_opportunity(o: dict, account: dict | None, plan: dict,
     rev_note = ("\n\nNOTE: Sales CRM has no potential revenue on this opportunity, so it "
                 "has been routed at Rp 0. Set the real figure before pricing, it changes "
                 "both the routing and the pricing tier.") if not plan["revenue"] else ""
-    # Sales CRM says only "Trucking". The ticket lands on FTL on-call so it can be worked
-    # immediately, but the line must be confirmed before the charter goes out. Safe as a
-    # provisional label: both FTL lines route to PNS and carry identical ceilings, so only
-    # the name is uncertain, not the handling.
-    ftl_note = ("\n\nNOTE: Sales CRM records this as Trucking and cannot say whether it is "
-                "FTL on-call or FTL monthly. Imported as FTL on-call. Confirm the line "
-                "before the charter is published.") if plan.get("ftl_unknown") else ""
+    # A service line that still needs confirming — a shipper-name FTL, a Trucking value,
+    # or a service level Sales CRM did not give. The sentence comes from
+    # service_line_for() so the note says which of those it was, rather than one
+    # wording stretched over all three.
+    ftl_note = ("" if not plan.get("provisional")
+                else "\n\nNOTE: " + plan["provisional"] + ".")
     # Everything Sales CRM has to say goes in, through the one mapping table the refresh
     # also walks — so a field imported today is still current next week — plus the raw
     # record under `_crm`, so a field nobody has mapped yet is at least *here* rather
@@ -2942,7 +3066,7 @@ async def _import_opportunity(o: dict, account: dict | None, plan: dict,
                   f", {plan['opportunity_name'] or ''}").strip() + rev_note + ftl_note,
         # Also a field, not just prose in the brief, so the whole set can be found and
         # cleared rather than each one being noticed only if somebody reads the note.
-        "ftlVariantNeeded": "Yes" if plan.get("ftl_unknown") else "",
+        "ftlVariantNeeded": "Yes" if plan.get("provisional") else "",
         "shipper": plan["shipper"],
     }, o, account)
     await execute("INSERT INTO ticket_input (ticket_id, payload, updated_by) VALUES (%s,%s,%s)",
