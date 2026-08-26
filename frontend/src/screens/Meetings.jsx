@@ -53,22 +53,32 @@ function Line({ n, t, onOpen, right, children }) {
     <div className="border-b border-slate-100 py-2.5 last:border-0">
       <div className="flex flex-wrap items-center gap-3">
         <span className="w-7 shrink-0 font-mono text-[11px] text-slate-400">{n}.</span>
-        <button onClick={() => onOpen(t.ref)}
-          className="font-mono text-[13px] font-bold text-[#EE1B2C] hover:underline">
-          {t.ref}
-        </button>
-        {/* When the deal was raised, not when it last moved — on a review list the
-            question behind every row is how long this has been going on. Sales CRM's
-            date where the ticket came from the sync, ours where it was raised here. */}
-        <span className="font-mono text-[11.5px] tabular-nums text-slate-400"
-          title="When this was raised">
-          raised {t.submitted_on}
-          {ageDays(t.submitted_on) != null && (
-            <span className={ageDays(t.submitted_on) >= 30 ? "ml-1 text-amber-600" : "ml-1"}>
-              ({ageDays(t.submitted_on)}d)
-            </span>
-          )}
-        </span>
+        {/* Reference and date stacked, so the shipper name still starts near the left
+            of the row instead of being pushed along by a date sitting beside it
+            (Michael, 2026-08-26). The column is fixed-width so the names line up down
+            the list — a ragged left edge is what makes a list like this hard to scan.
+            158px holds the widest it can ever be, "raised 2026-08-26 (365d)", without
+            wrapping the age onto a third line.
+
+            The date is when the deal was RAISED, not when it last moved: on a review
+            list the question behind every row is how long this has been going on.
+            Sales CRM's date where the ticket came from the sync, ours where it was
+            raised here. */}
+        <div className="flex w-[158px] shrink-0 flex-col leading-tight">
+          <button onClick={() => onOpen(t.ref)}
+            className="text-left font-mono text-[13px] font-bold text-[#EE1B2C] hover:underline">
+            {t.ref}
+          </button>
+          <span className="whitespace-nowrap font-mono text-[10.5px] tabular-nums text-slate-400"
+            title="When this was raised">
+            raised {t.submitted_on}
+            {ageDays(t.submitted_on) != null && (
+              <span className={ageDays(t.submitted_on) >= 30 ? " text-amber-600" : ""}>
+                {" "}({ageDays(t.submitted_on)}d)
+              </span>
+            )}
+          </span>
+        </div>
         <b className="text-[13px]">{t.shipper}</b>
         <Pill dot>{t.status}</Pill>
         {t.group && <Pill tone={groupTone(t.group)}>{t.group}</Pill>}
