@@ -2,6 +2,20 @@ import { Card, Head, Pill } from "../ui";
 
 const ENTRIES = [
   {
+    date: "2026-08-27",
+    title: "FIXED: an out-of-scope deal could get in by having “FTL” in its name",
+    by: "Michael + Claude",
+    changes: [
+      "FIXED: SOF-5001324, PT Nawasena Asri Pertiwi - FTL On Call (Ninja Cold), imported as an ordinary FTL ticket even though cold chain is not a line we work. Spotted by Michael, who asked why there was cold chain business in the CRM at all.",
+      "The skip list was being jumped. Cold chain, cross-border and air freight are deliberately held back and reported as skipped with a reason. But that skip only fires when the resolver returns nothing, and yesterday's shipper-name FTL rule was the FIRST thing the resolver did — so any deal with “FTL” in its name got a service line before the product line was ever read, and the skip became unreachable for it. Take that one word out of the name and the same deal was correctly refused.",
+      "Scope is now decided before the name is looked at. An out-of-scope product line is refused whatever the shipper is called, and still appears in the sync report with its reason rather than vanishing.",
+      "The FTL name rule is otherwise untouched: it still fires on every line we do work, blank product lines included.",
+      "Cancelling one of these is permanent — the sync will not re-import a ticket it has already raised, and with this fix it would refuse it a second time anyway.",
+      "Pinned in verify_service_line as outcomes rather than as a reading of the source, so it survives the resolver being rewritten: for every skipped line, no shipper name gets a service out of it. Confirmed it fails 46 checks when the fix is taken out.",
+    ],
+    overruled: [],
+  },
+  {
     date: "2026-08-26",
     title: "FIXED: a Must Win deal could reach C-level and then be refused there",
     by: "Michael + Claude",
