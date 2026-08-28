@@ -207,3 +207,47 @@ if _dupes:
               + "  (the last one wins; the others are dead)")
     sys.exit(1)
 print(f"verify_names.py         {len(_top_defs)} module-level names, none defined twice")
+
+# ------------------------------------------------- audit() arguments vs column widths
+# audit_log is narrow and its widths are invisible at the call site:
+#   entity_id VARCHAR(40), field VARCHAR(60), old_value/new_value VARCHAR(500).
+#
+# A bulk delete passed 200 characters of comma-joined ticket refs into entity_id. MySQL
+# refused it, the exception propagated, and the endpoint returned 500 with all 64 tickets
+# already binned — the worst shape of failure there is, because it invites a retry
+# against a board that has already changed. Two more call sites had the same latent
+# fault, one passing a 400-character slice into field.
+#
+# Only literal `[:N]` slices and plain string literals are checked, which is what the
+# offenders looked like. Anything computed is left alone rather than guessed at.
+_AUDIT_WIDTHS = {3: ("entity_id", 40), 4: ("field", 60), 5: ("old_value", 500),
+                 6: ("new_value", 500)}
+_too_wide = []
+for _n in ast.walk(tree):
+    if not (isinstance(_n, ast.Call) and isinstance(_n.func, ast.Name)
+            and _n.func.id == "audit"):
+        continue
+    for _i, _arg in enumerate(_n.args):
+        if _i not in _AUDIT_WIDTHS:
+            continue
+        _col, _max = _AUDIT_WIDTHS[_i]
+        # x[:N]
+        if (isinstance(_arg, ast.Subscript) and isinstance(_arg.slice, ast.Slice)
+                and _arg.slice.upper is not None
+                and isinstance(_arg.slice.upper, ast.Constant)
+                and isinstance(_arg.slice.upper.value, int)
+                and _arg.slice.upper.value > _max):
+            _too_wide.append((_n.lineno, _col, _max, f"a [:{_arg.slice.upper.value}] slice"))
+        # a bare literal that is already too long
+        elif (isinstance(_arg, ast.Constant) and isinstance(_arg.value, str)
+              and len(_arg.value) > _max):
+            _too_wide.append((_n.lineno, _col, _max,
+                              f"a {len(_arg.value)}-character literal"))
+
+if _too_wide:
+    print("verify_names.py FAILED — audit() argument wider than its column:")
+    for _ln, _col, _max, _what in _too_wide:
+        print(f"  - main.py:{_ln} passes {_what} into {_col} (VARCHAR({_max})) — "
+              f"put the detail in new_value")
+    sys.exit(1)
+print("verify_names.py         audit() arguments fit their columns")

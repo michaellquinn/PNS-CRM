@@ -3,6 +3,20 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-08-28",
+    title: "FIXED: a completed bulk delete reported itself as a failure",
+    by: "Baskoro + Claude",
+    changes: [
+      "FIXED: the first real run of “move unassigned tickets to the recycle bin” binned all 64 tickets correctly and then returned 500. audit_log.entity_id is VARCHAR(40) and the call was putting 200 characters of comma-joined ticket refs into it, so the audit insert raised after the tickets had already been written.",
+      "That is the worst shape a failure can take on a destructive action: it reads as “nothing happened” and invites a retry against a board that has already changed. The count guard would have refused the retry, but nobody should have to rely on that.",
+      "The refs now go in new_value (VARCHAR(500)) and entity_id names the rule rather than trying to hold 64 ticket ids. Everything after the delete is bookkeeping, and bookkeeping can no longer replace the result: a failure there is logged loudly and reported as bookkeeping_ok:false beside the real outcome.",
+      "Two more call sites had the same latent fault and are fixed: queueing more than about three opportunities at once would have overflowed the same column, and saving sync settings passed a 400-character slice into `field`, which is VARCHAR(60).",
+      "verify_names now checks audit() arguments against the audit_log column widths. Those widths are invisible at the call site, which is exactly why three call sites had it wrong. Confirmed it fails on the shape that shipped.",
+      "The 64 tickets from that first run are in the recycle bin and restorable as normal. Its audit row and its notification were the part that failed, so that one clear-out is not in the audit log — the tickets themselves, and who binned them, are recorded on the tickets.",
+    ],
+    overruled: [],
+  },
+  {
+    date: "2026-08-28",
     title: "Sales say what to import, the Head sets the rules, and six other asks",
     by: "Baskoro + Claude",
     changes: [

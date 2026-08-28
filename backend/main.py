@@ -1134,7 +1134,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-08-28.74"
+BUILD = "2026-08-28.75"
 
 
 class Me(BaseModel):
@@ -2354,8 +2354,12 @@ async def add_to_queue(body: QueueIn, u: User = Depends(current_user)):
                                  "short number from each opportunity's URL, for example "
                                  "906031 — one per line, commas, or the URLs themselves.")
     if res.added:
-        await audit(u.name, "queue", "sync_queue", ",".join(res.added)[:200],
-                    f"{len(res.added)} queued for import")
+        # entity_id is VARCHAR(40), so the ids go in new_value (VARCHAR(500)) and this
+        # names what was acted on. Queueing eleven deals at once would otherwise have
+        # overflowed the column and 500'd a request that had already succeeded — the
+        # same fault the bulk delete hit live.
+        await audit(u.name, "queue", "sync_queue", "import_queue",
+                    "added", str(len(res.added)), ",".join(res.added)[:500])
     return res
 
 
@@ -2414,7 +2418,11 @@ async def set_settings(body: SettingsIn, u: User = Depends(current_user)):
                       "updated_by=VALUES(updated_by)", (name, val, u.name))
         changed.append(f"{name}={val}")
     if changed:
-        await audit(u.name, "settings", "app_settings", "sync", "; ".join(changed)[:400])
+        # The detail goes in new_value (VARCHAR(500)). The 5th argument is `field`, which
+        # is VARCHAR(60) — a 400-character slice there overflows and 500s a request that
+        # has already written every setting.
+        await audit(u.name, "settings", "app_settings", "sync",
+                    "sync settings", None, "; ".join(changed)[:500])
     return {"ok": True}
 
 
@@ -5317,16 +5325,34 @@ async def bulk_delete_pns_unassigned(body: BulkDeleteIn, u: User = Depends(curre
     marks = ",".join(["%s"] * len(ids))
     await execute(f"UPDATE tickets SET deleted_at=NOW(), deleted_by=%s "
                   f"WHERE id IN ({marks})", (u.name, *ids))
-    await audit(u.email, "bulk-delete", "ticket", ",".join(refs)[:200],
-                "pns_unassigned", None, str(len(refs)))
-    # Said out loud to PNS and Sales. Two thirds of the board going to the bin is not a
-    # quiet housekeeping act, and the people whose deals these were should not have to
-    # work out where they went.
-    await notify(f"{u.name} moved {len(refs)} unassigned tickets to the recycle bin "
-                 f"(no PNS PIC{'' if body.include_decided else ', live work only'}). "
-                 f"They can be restored from Recycle bin.",
-                 groups=["PNS", "Commercial"])
-    return {"ok": True, "deleted": len(refs), "refs": refs}
+    # The tickets are already in the bin by this line. Everything below is bookkeeping,
+    # and bookkeeping must not be able to report a completed destructive action as a
+    # failure: the first run of this returned 500 with all 64 tickets correctly binned,
+    # because audit_log.entity_id is VARCHAR(40) and 200 characters of comma-joined refs
+    # went into it. A caller who reads that as "it did not work" retries against a board
+    # that has already changed, which is a far worse outcome than a missing audit row.
+    #
+    # So: the refs go in new_value (VARCHAR(500)), entity_id names the RULE rather than
+    # trying to hold 64 ticket ids, and a failure here is logged loudly and reported in
+    # the response instead of replacing it.
+    bookkeeping_ok = True
+    try:
+        await audit(u.email, "bulk-delete", "ticket", "pns_unassigned",
+                    "include_decided" if body.include_decided else "live_only",
+                    str(len(refs)), ",".join(refs)[:500])
+        # Said out loud to PNS and Sales. Two thirds of the board going to the bin is not
+        # a quiet housekeeping act, and the people whose deals these were should not have
+        # to work out where they went.
+        await notify(f"{u.name} moved {len(refs)} unassigned tickets to the recycle bin "
+                     f"(no PNS PIC{'' if body.include_decided else ', live work only'}). "
+                     f"They can be restored from Recycle bin.",
+                     groups=["PNS", "Commercial"])
+    except Exception:                                   # noqa: BLE001 - see above
+        log.exception("bulk delete bookkeeping failed after %d tickets were binned",
+                      len(refs))
+        bookkeeping_ok = False
+    return {"ok": True, "deleted": len(refs), "refs": refs,
+            "bookkeeping_ok": bookkeeping_ok}
 
 
 @app.post("/api/tickets/{ref}/restore", response_model=Ok)
