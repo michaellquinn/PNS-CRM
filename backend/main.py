@@ -1109,7 +1109,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-08-26.70"
+BUILD = "2026-08-28.71"
 
 
 class Me(BaseModel):
@@ -2632,10 +2632,24 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
                             if not body.dry_run:
                                 acct_for_refresh = crm._accounts.get(
                                     str(o.get("account_id") or ""))
-                                n = await _refresh_from_salescrm(
-                                    o, acct_for_refresh,
-                                    await crm.tier_for(acct_for_refresh)
-                                    if acct_for_refresh else None)
+                                # One ticket must never end the sweep. Refreshing is a
+                                # per-deal job and the sweep's whole value is that it
+                                # covers the book; letting one record's failure propagate
+                                # meant every ticket behind it in the pool silently
+                                # stopped being refreshed, with the Sync screen reporting
+                                # a single error and no hint that the run had been cut
+                                # short. Recorded against the id, same as any other
+                                # per-opportunity failure, and the sweep continues.
+                                try:
+                                    n = await _refresh_from_salescrm(
+                                        o, acct_for_refresh,
+                                        await crm.tier_for(acct_for_refresh)
+                                        if acct_for_refresh else None)
+                                except Exception as e:              # noqa: BLE001
+                                    log.exception("refresh failed for %s", oid)
+                                    errors.append({"id": oid, "name": o.get("name"),
+                                                   "error": f"refresh failed: {e}"[:300]})
+                                    n = None
                                 if n:
                                     refreshed.append({"id": oid, "name": o.get("name"),
                                                       "stage": o.get("stage"),
@@ -2674,8 +2688,21 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
                     new_on_this_page += 1
                     # The floor. Checked before anything else is done with the record so
                     # an out-of-range opportunity costs nothing but the line that says so.
+                    #
+                    # Naming an id explicitly overrides it (Baskoro, 2026-08-28). The
+                    # floor exists to stop a careless wide window dragging the whole
+                    # history of the book onto the board — it is a guard against a
+                    # SWEEP, not a rule about which deals belong here. Typing an
+                    # opportunity id is a person saying "this specific deal, I mean it",
+                    # and refusing that left the one deliberate, single-record path
+                    # unable to import an older deal at all, with no way round it but an
+                    # env var nobody outside a deploy can change. Sweeps still obey the
+                    # floor; `ids` runs no longer do, and the note on the ticket records
+                    # that it came in over the floor and who asked.
                     raised = _crm_date(o)
-                    if SYNC_MIN_DATE and raised and str(raised) < SYNC_MIN_DATE:
+                    over_floor = bool(body.ids) and oid in {str(i) for i in body.ids}
+                    if (SYNC_MIN_DATE and raised and str(raised) < SYNC_MIN_DATE
+                            and not over_floor):
                         skipped.append({"id": oid, "name": o.get("name"),
                                         "why": f"raised {raised}, before the {SYNC_MIN_DATE} "
                                                f"floor this app imports from"})
@@ -2742,6 +2769,13 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
                         if mw_field:
                             mustwin_fields.add(mw_field)
                         plan["crm_date"] = _crm_date(o)
+                        # Recorded on the ticket rather than left implicit: a deal older
+                        # than the floor is on the board because somebody named its id,
+                        # and whoever picks it up should be able to see that rather than
+                        # wonder why the floor did not hold.
+                        plan["over_floor"] = over_floor and bool(
+                            SYNC_MIN_DATE and plan["crm_date"]
+                            and str(plan["crm_date"]) < SYNC_MIN_DATE)
                         # Any line that needs confirming, not just Trucking: a
                         # shipper-name FTL and a missing service level both land here.
                         plan["provisional"] = provisional
@@ -2851,6 +2885,16 @@ async def _refresh_from_salescrm(o: dict, account: dict | None = None,
     #
     # The by-hand endpoint (POST /must-win) still exists for tagging a deal before Sales
     # CRM catches up; it says plainly that the next sync wins, and now it really does.
+    # Declared before its first use. It used to be initialised further down, after the
+    # Must Win branch had already appended to it: `changed` is assigned somewhere in this
+    # function, so Python treats it as local THROUGHOUT, and the append raised
+    # UnboundLocalError the moment a ticket's Must Win flag disagreed with Sales CRM.
+    # Nothing catches that, so one such ticket killed the whole sweep — the auto-sync ran
+    # every five minutes, refreshed the ~25 tickets ahead of the offender and died,
+    # leaving every ticket behind it stale for a week (906885 sat on a service line the
+    # current mapping table does not even produce). py_compile and verify_names both pass
+    # it: the name IS assigned in the function, just not before it is read.
+    changed = []
     if mw != bool(t.get("must_win")):
         changed.append(f"Must Win {'off' if not mw else 'on'}"
                        + (f" (Sales CRM {mw_field})" if mw_field else " (not tagged in Sales CRM)"))
@@ -2861,7 +2905,6 @@ async def _refresh_from_salescrm(o: dict, account: dict | None = None,
     # Each is applied only when Sales CRM actually stated it: revenue > 0, a product this
     # app can map, a tier that was resolved. A missing value is not an instruction to
     # zero ours out.
-    changed = []
     try:
         crm_rev = int(float(o.get("total_potential_revenue_mth") or 0))
     except (TypeError, ValueError):
@@ -3080,13 +3123,21 @@ async def _import_opportunity(o: dict, account: dict | None, plan: dict,
     # wording stretched over all three.
     ftl_note = ("" if not plan.get("provisional")
                 else "\n\nNOTE: " + plan["provisional"] + ".")
+    # Imported over the import floor because its id was named by hand. Said out loud, so
+    # a deal raised months before the floor does not look like the floor having failed.
+    floor_note = ("" if not plan.get("over_floor")
+                  else f"\n\nNOTE: raised {plan.get('crm_date')}, before the "
+                       f"{SYNC_MIN_DATE} import floor. It is here because its Sales CRM "
+                       f"opportunity id was entered by hand, which imports a deal "
+                       f"whatever its age.")
     # Everything Sales CRM has to say goes in, through the one mapping table the refresh
     # also walks — so a field imported today is still current next week — plus the raw
     # record under `_crm`, so a field nobody has mapped yet is at least *here* rather
     # than needing a fresh sync run once somebody notices it exists.
     payload = merge_crm_payload({
         "brief": (f"Imported from Sales CRM opportunity {plan['opportunity_id']}"
-                  f", {plan['opportunity_name'] or ''}").strip() + rev_note + ftl_note,
+                  f", {plan['opportunity_name'] or ''}").strip()
+                 + rev_note + ftl_note + floor_note,
         # Also a field, not just prose in the brief, so the whole set can be found and
         # cleared rather than each one being noticed only if somebody reads the note.
         "ftlVariantNeeded": "Yes" if plan.get("provisional") else "",

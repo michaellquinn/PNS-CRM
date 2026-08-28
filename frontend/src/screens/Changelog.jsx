@@ -2,6 +2,32 @@ import { Card, Head, Pill } from "../ui";
 
 const ENTRIES = [
   {
+    date: "2026-08-28",
+    title: "FIXED: the automatic sync has been dying a quarter of the way through every run for a week",
+    by: "Baskoro + Claude",
+    changes: [
+      "Baskoro asked why 906885 (PT Saint-Gobain Abrasives Diamas) still showed B2C when its Sales CRM product line and service level had both been changed. The ticket was the symptom; the sync being dead was the cause.",
+      "FIXED: `changed.append(...)` in the refresh sat nine lines ABOVE `changed = []`. Python decides a name is local to the whole function the moment it is assigned anywhere in it, so that append raised UnboundLocalError — but only on a ticket whose Must Win flag disagreed with Sales CRM, which is why it looked intermittent rather than broken.",
+      "Nothing caught it. The refresh was called with no try/except, so one bad ticket ended the entire sweep: the five-minute timer ran, refreshed the 25 tickets ahead of the offender, threw, and every ticket behind it went untouched. Sync → Auto has been reporting last_ok: false with that error on all 17 runs; nobody was reading it.",
+      "So 906885 was stale for a reason that had nothing to do with the service line. The current mapping reads Restock / Same Day as Sameday and would have corrected it — the run just never got that far. Its history shows the old mapping writing “service Sameday to B2C” twice on 21 August, over the top of corrections by Sandrina and Michael, and then nothing at all for a week.",
+      "One ticket can no longer end a sweep. A refresh that throws is recorded against that opportunity id, like any other per-deal failure, and the run carries on.",
+      "verify_names now walks every function for a local read before it is bound, which is the class of bug this was and the class `_crm_date` was. Confirmed it fails on the original code, not just that it passes on the fix. It skips loops, except/finally and comprehensions, where “before” is not a straight line through the source.",
+    ],
+    overruled: [],
+  },
+  {
+    date: "2026-08-28",
+    title: "The deal name leads, and a named opportunity id imports whatever its age",
+    by: "Baskoro + Claude",
+    changes: [
+      "Every board now leads with the OPPORTUNITY name and carries the account name as a small tag beside it. One account routinely runs several deals at once — there were five rows reading “PT Daya Kobelco Construction Machinery Indonesia” and nothing on any of them said which deal it was. Where Sales CRM has named the opportunity after its account the tag is left off rather than printing the same words twice, and a ticket raised here by hand still shows the account name, which is all it has.",
+      "Sales CRM leaves a trailing separator on a composed name when a part is empty (“PT Saint-Gobain Abrasives Diamas - Sameday (B2BR) - ”). Trimmed on display.",
+      "The CSV export gained an Opportunity column, in the same position. An export whose columns disagree with the board on screen is worse than no export.",
+      "Entering a Sales CRM opportunity id by hand now imports the deal whatever its age. The 1 August floor exists to stop a careless wide window dragging the whole history of the book onto the board — it is a guard against a SWEEP, not a rule about which deals belong here, and typing an id is somebody saying “this one, I mean it”. Sweeps still obey the floor. The ticket records that it came in over the floor and when the deal was actually raised, so an old deal on the board does not look like the floor having failed.",
+    ],
+    overruled: [],
+  },
+  {
     date: "2026-08-26",
     title: "FIXED: a Must Win deal could reach C-level and then be refused there",
     by: "Michael + Claude",

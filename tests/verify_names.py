@@ -15,7 +15,8 @@ import os, ast, sys, builtins
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _REPO = os.path.dirname(_HERE)
-SRC = os.path.join(_REPO, "backend", "main.py")
+# Overridable so the suite can be pointed at a fixture to prove it still bites.
+SRC = os.environ.get("VERIFY_NAMES_SRC") or os.path.join(_REPO, "backend", "main.py")
 tree = ast.parse(open(SRC, encoding="utf-8").read())
 
 defined = set(dir(builtins))
@@ -93,3 +94,90 @@ if _offenders:
         print(f"  - main.py:{_ln}  {_txt}")
     sys.exit(1)
 print("verify_names.py         no hand-counted IN(...) placeholder runs")
+
+# ------------------------------------------------- locals read before they are bound
+# The sibling of the `_crm_date` bug above, and it cost a week of stale data before
+# anyone saw it. In `_refresh_from_salescrm`, `changed.append(...)` sat nine lines ABOVE
+# `changed = []`. Python decides a name is local to the WHOLE function the moment it is
+# assigned anywhere in it, so that append raised UnboundLocalError — but only on the
+# tickets that took the branch, so it looked intermittent. Nothing caught it, so the
+# five-minute auto-sync died a quarter of the way through every single run and every
+# ticket behind the offender silently stopped being refreshed.
+#
+# py_compile is happy (valid syntax) and the module-scope check above is happy (the name
+# IS assigned in the function). Only ORDER catches it.
+#
+# Deliberately conservative — a false alarm here trains people to ignore the suite. A
+# name is reported only when EVERY binding of it in the function is below EVERY read,
+# and never when the read sits in a loop, an `except`/`finally`, or a nested scope,
+# where "before" is not a straight line through the source.
+def _scope_bindings_and_loads(fn):
+    """(bindings, loads) by name for one function, nested scopes excluded."""
+    binds, loads, skip = {}, {}, set()
+    for child in ast.walk(fn):
+        # Comprehensions are their own scope in Python 3, and a multi-line one reads its
+        # target above the `for` that binds it — ordinary, not a bug.
+        if child is not fn and isinstance(
+                child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef,
+                        ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)):
+            for sub in ast.walk(child):
+                skip.add(id(sub))
+    # Reads inside a loop, an except handler or a finally block are not ordered against
+    # the rest of the body in any way this check can reason about.
+    unordered = set()
+    for child in ast.walk(fn):
+        if isinstance(child, (ast.For, ast.AsyncFor, ast.While, ast.ExceptHandler)):
+            for sub in ast.walk(child):
+                unordered.add(id(sub))
+        elif isinstance(child, ast.Try):
+            for blk in child.finalbody:
+                for sub in ast.walk(blk):
+                    unordered.add(id(sub))
+    for child in ast.walk(fn):
+        if id(child) in skip or not isinstance(child, ast.Name):
+            continue
+        if isinstance(child.ctx, (ast.Store, ast.Del)):
+            binds.setdefault(child.id, []).append(child.lineno)
+        elif isinstance(child.ctx, ast.Load) and id(child) not in unordered:
+            loads.setdefault(child.id, []).append(child.lineno)
+    # Non-Name bindings that still make the name local.
+    for child in ast.walk(fn):
+        if id(child) in skip:
+            continue
+        if isinstance(child, ast.ExceptHandler) and child.name:
+            binds.setdefault(child.name, []).append(child.lineno)
+        elif isinstance(child, (ast.Import, ast.ImportFrom)):
+            for a in child.names:
+                binds.setdefault((a.asname or a.name).split(".")[0], []).append(child.lineno)
+        elif isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) \
+                and child is not fn:
+            binds.setdefault(child.name, []).append(child.lineno)
+    return binds, loads
+
+
+_early = []
+for _fn in ast.walk(tree):
+    if not isinstance(_fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        continue
+    _safe = {a.arg for a in [*_fn.args.args, *_fn.args.kwonlyargs, *_fn.args.posonlyargs]}
+    if _fn.args.vararg:
+        _safe.add(_fn.args.vararg.arg)
+    if _fn.args.kwarg:
+        _safe.add(_fn.args.kwarg.arg)
+    for _n in ast.walk(_fn):
+        if isinstance(_n, (ast.Global, ast.Nonlocal)):
+            _safe.update(_n.names)
+    _binds, _loads = _scope_bindings_and_loads(_fn)
+    for _name, _blines in _binds.items():
+        if _name in _safe or _name not in _loads:
+            continue
+        if min(_loads[_name]) < min(_blines):
+            _early.append((_fn.name, _name, min(_loads[_name]), min(_blines)))
+
+if _early:
+    print("verify_names.py FAILED — local read before it is assigned (UnboundLocalError):")
+    for _f, _name, _read, _bound in _early:
+        print(f"  - {_name!r} read at main.py:{_read} but first assigned at :{_bound}"
+              f"  (in {_f}())")
+    sys.exit(1)
+print("verify_names.py         no locals read before assignment")

@@ -273,3 +273,28 @@ export const groupTone = (g) =>
 // asking for acct_type="Must Win" returns nothing at all.
 export const groupFilter = (g) =>
   g === "Must Win" ? { must_win: true } : g ? { acct_type: g } : {};
+
+// Two deals on one account are told apart by the OPPORTUNITY name, not the account name
+// (Baskoro, 2026-08-28). An account routinely runs several opportunities at once — the
+// board carried five rows reading "PT Daya Kobelco Construction Machinery Indonesia" and
+// nothing on the row said which deal each one was. The opportunity name is the field
+// that differs, so it leads; the account name stays as a small tag beside it, because
+// "which customer is this?" is still the second question anyone asks.
+//
+// Sales CRM composes the opportunity name from parts and leaves the separator in when a
+// part is empty ("PT Saint-Gobain Abrasives Diamas - Sameday (B2BR) - "), so trailing
+// punctuation is trimmed. A ticket raised here by hand has no opportunity name at all
+// and falls back to the account name, which is all it has.
+export const dealName = (t) =>
+  String(t?.opportunity_name || "").replace(/[\s\-–—·,;:|/]+$/, "").trim()
+  || t?.shipper || "";
+
+// Whether the account tag would say anything the deal name has not already said. Sales
+// CRM often names an opportunity after its account, and printing the same words twice on
+// one row is noise, not context.
+export const accountDiffers = (t) => {
+  const a = String(t?.shipper || "").trim();
+  if (!a) return false;
+  const d = dealName(t).toLowerCase();
+  return d !== a.toLowerCase() && !d.startsWith(a.toLowerCase());
+};

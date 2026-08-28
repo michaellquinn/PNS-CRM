@@ -2,7 +2,7 @@
 // reserved for brand and actions, so a filled red thing always means "act on me".
 
 import { useEffect, useRef, useState } from "react";
-import { api } from "./api";
+import { api, dealName, accountDiffers } from "./api";
 
 // Who a ticket or CAPA can be assigned to. Read from the users table rather than a
 // hardcoded list, so registering someone in Administration puts them in the dropdowns.
@@ -296,7 +296,16 @@ export function TicketCard({ t, badges = [], children, onOpen }) {
             )}
             {badges}
           </div>
-          <h3 className="truncate text-[15px] font-semibold">{t.shipper}</h3>
+          {/* The opportunity name leads and the account name is the small tag beside it
+              (Baskoro, 2026-08-28) — see dealName() for why round that way. */}
+          <h3 className="truncate text-[15px] font-semibold">{dealName(t)}</h3>
+          {accountDiffers(t) && (
+            <p className="mt-0.5 truncate text-[11.5px] text-slate-400">
+              <span className="rounded bg-slate-100 px-1.5 py-px font-medium text-slate-500">
+                {t.shipper}
+              </span>
+            </p>
+          )}
           <p className="mt-0.5 text-[12px] text-slate-500">
             {t.service} &middot; {t.acct_type} &middot; {t.revenue.toLocaleString("id-ID")} &middot; {t.region}
             {t.sales && <> &middot; sales {t.sales}</>}
