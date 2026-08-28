@@ -3,6 +3,21 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-08-28",
+    title: "Sales raise a request with just the Sales CRM ID; the Import queue is Admin's",
+    by: "Baskoro + Claude",
+    changes: [
+      "New request now opens with the short way in: paste the Sales CRM opportunity ID and nothing else, and the ticket is built here within about five minutes from the record Sales already filled in — shipper, account tier, service line, revenue and salesperson all come across. The full form stays underneath for a deal that is not in Sales CRM yet.",
+      "The five minutes is read from the sync's actual interval, not written into the sentence. An admin can change how often the sync runs, and a hardcoded number would become a lie the moment they did.",
+      "Every outcome is said plainly rather than only the happy one: already on the board, already queued, or not a valid ID each get their own answer. Silently showing “on its way” for a deal that is already there would have people waiting five minutes for a ticket that exists.",
+      "The Import queue menu is Admin only now. Sales never needed the screen — queueing their own deal happens on New request, which is the only part of it that was ever their job. Reading the whole queue, removing other people's rows and changing what the sync imports is administration.",
+    ],
+    overruled: [
+      "The Import queue entry was visible to anyone who could queue (Commercial, PNS, Sales Planning). Admin only from now on. Submitting an ID is unchanged and still open to all of them, through New request.",
+      "editSyncSettings was the PNS Head's. It is Admin's, alongside the screen those controls live on — a setting nobody can reach is not a permission, it is a dead end.",
+    ],
+  },
+  {
+    date: "2026-08-28",
     title: "FIXED: a completed bulk delete reported itself as a failure",
     by: "Baskoro + Claude",
     changes: [

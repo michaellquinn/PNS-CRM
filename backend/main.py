@@ -896,10 +896,16 @@ def can(u: User, action: str, t: dict | None = None) -> bool:
         # whole book are different acts. PNS and Sales Planning are in because during the
         # rollout they are the ones entering most of it on Sales' behalf.
         "queueSync":        u.group in ("Commercial", "PNS", "Sales Planning") or admin,
+        # The Import queue SCREEN, and the list/remove behind it. Admin only (Baskoro,
+        # 2026-08-28). Deliberately narrower than queueSync: submitting your own deal is
+        # everyday Sales work and happens on the New request form, but reading the whole
+        # queue, removing other people's rows and changing what the sync imports is
+        # administration. Sales never need the screen to use the queue.
+        "manageImportQueue": admin,
         # What the automatic sync is allowed to import. It decides what lands on
-        # everyone's board, so it sits with the Head of PNS and Admin, not with whoever
-        # can queue a deal.
-        "editSyncSettings": pns_head,
+        # everyone's board. Admin, alongside the screen these controls live on — a
+        # setting nobody can reach is not a permission, it is a dead end.
+        "editSyncSettings": admin,
         # Bulk-removing tickets nobody in PNS owns. The PNS Head can already delete one
         # ticket at a time (deleteTicket); this is the same right exercised over a list,
         # and it soft-deletes to the bin like the single-ticket path does.
@@ -1134,7 +1140,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-08-28.75"
+BUILD = "2026-08-28.76"
 
 
 class Me(BaseModel):
@@ -1149,6 +1155,11 @@ class Me(BaseModel):
     # True only in the unsafe combination: SSO did not identify this request, so the
     # DEV_USER_EMAIL fallback did. The frontend shows a banner; clear the variable.
     dev_fallback: bool = False
+    # How often the sync runs, so the New request form can promise a real number instead
+    # of a hardcoded "5 minutes" that becomes a lie the moment an admin changes the
+    # interval. Sent to everyone: it is not a setting they can change, it is the answer
+    # to "when will my ticket appear?", which is Sales' question, not an admin's.
+    sync_every_minutes: int = 5
 
 
 class Ticket(BaseModel):
@@ -1322,10 +1333,14 @@ async def me(u: User = Depends(current_user)):
                "capaClose", "capaSubmit", "manageUsers", "grantAdmin", "setPricedBy",
                "pspAssign", "pspOverride", "allowPsp", "syncSalesCrm",
                "pspHeadDecide", "manageIgnored",
-               "queueSync", "editSyncSettings", "bulkDelete"]
+               "queueSync", "editSyncSettings", "bulkDelete", "manageImportQueue"]
     return Me(email=u.email, name=u.name, group=u.group, level=u.level, team=u.team,
               permissions={a: can(u, a) for a in actions},
-              sso=u.sso, dev_fallback=not u.sso and bool(DEV_USER))
+              sso=u.sso, dev_fallback=not u.sso and bool(DEV_USER),
+              # setting() falls back to the env default if the read fails, so this
+              # cannot break /api/me — which every screen depends on.
+              sync_every_minutes=await setting_int(
+                  "sync.every_minutes", 1, 1440, AUTO_SYNC_MINUTES or 5))
 
 
 def shape(t: dict, u: User) -> Ticket:
@@ -2277,7 +2292,7 @@ _OID_IN_URL = re.compile(r"/records/(\d+)")
 
 @app.get("/api/sync/queue", response_model=QueueList)
 async def list_queue(u: User = Depends(current_user)):
-    require(u, "queueSync")
+    require(u, "manageImportQueue")
     rows = await q("SELECT opportunity_id, added_by, added_by_name, note, state, detail, "
                    "ticket_ref, created_at, resolved_at FROM sync_queue "
                    "ORDER BY (state='pending') DESC, created_at DESC, id DESC LIMIT 500")
@@ -2365,7 +2380,7 @@ async def add_to_queue(body: QueueIn, u: User = Depends(current_user)):
 
 @app.delete("/api/sync/queue/{oid}", response_model=Ok)
 async def remove_from_queue(oid: str, u: User = Depends(current_user)):
-    require(u, "queueSync")
+    require(u, "manageImportQueue")
     await execute("DELETE FROM sync_queue WHERE opportunity_id=%s", (str(oid).strip(),))
     return {"ok": True}
 
@@ -2377,9 +2392,10 @@ class SettingsIn(BaseModel):
 
 @app.get("/api/settings")
 async def get_settings(u: User = Depends(current_user)):
-    """What the automatic sync is allowed to import. Readable by anyone who can queue,
-    because "why has my deal not appeared?" is answered by these values."""
-    require(u, "queueSync")
+    """What the automatic sync is allowed to import. Admin, with the screen it is shown
+    on — Sales do not need it: the New request form tells them when their deal will
+    appear, which is the only part of this that was ever their question."""
+    require(u, "manageImportQueue")
     return {"settings": await all_settings(),
             "editable": can(u, "editSyncSettings"),
             "rules": {k: (v if isinstance(v, str) else list(v))

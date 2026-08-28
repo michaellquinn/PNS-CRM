@@ -61,10 +61,11 @@ const NAV = [
     // A ticket is per opportunity; an account normally runs several at once.
     { id: "accounts", label: "Accounts", icon: "🏢",
       keywords: "account group shipper parent grouped duplicates opportunities" },
-    // Queueing a deal is Sales' everyday job; running the sweep is the sync owner's.
-    // Different permissions, so different entries — see ImportQueue.
+    // Admin only (Baskoro, 2026-08-28). Sales queue their own deal from the New request
+    // form, which is the only part of this they need; reading the whole queue, removing
+    // other people's rows and changing what the sync imports is administration.
     { id: "import-queue", label: "Import queue", icon: "⇪",
-      when: (m) => m.permissions.queueSync },
+      when: (m) => m.permissions.manageImportQueue },
     { id: "sync", label: "Sync", icon: "⇄", when: (m) => m.permissions.syncSalesCrm },
   ]],
   // The step back from any single ticket: walking an agenda, reading capacity, and the
