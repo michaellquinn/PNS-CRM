@@ -1134,7 +1134,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-08-28.73"
+BUILD = "2026-08-28.74"
 
 
 class Me(BaseModel):
@@ -5232,7 +5232,7 @@ async def soft_delete(ref: str, u: User = Depends(current_user)):
 # readable BEFORE it is acted on, and the delete then requires the caller to echo the
 # count they were shown, so a preview that has gone stale refuses instead of taking a
 # bigger bite than the person agreed to.
-class BulkRow(BaseModel):
+class UnassignedRow(BaseModel):
     ref: str
     shipper: str
     opportunity_name: str | None = None
@@ -5246,8 +5246,8 @@ class BulkRow(BaseModel):
     decided: bool
 
 
-class BulkPreview(BaseModel):
-    rows: list[BulkRow]
+class UnassignedPreview(BaseModel):
+    rows: list[UnassignedRow]
     total: int
     decided: int
     # Live work that is out with the shipper or sitting in an approval gate. The number
@@ -5262,7 +5262,7 @@ PNS_UNASSIGNED_SQL = (
 DECIDED_STATUSES = ("Lost", "Cancel", "Proposal Accepted / Ready to Ship")
 
 
-@app.get("/api/diagnostics/pns-unassigned", response_model=BulkPreview)
+@app.get("/api/diagnostics/pns-unassigned", response_model=UnassignedPreview)
 async def pns_unassigned(u: User = Depends(current_user)):
     """Every live ticket with no PNS PIC. Read-only; this is what the bulk delete
     would take."""
@@ -5271,13 +5271,13 @@ async def pns_unassigned(u: User = Depends(current_user)):
         "SELECT t.ticket_ref, s.name AS shipper, t.opportunity_name, t.status, "
         "t.service_type, t.potential_rev, t.stage, t.sales_name "
         + PNS_UNASSIGNED_SQL + " ORDER BY t.status, t.ticket_ref")
-    out = [BulkRow(
+    out = [UnassignedRow(
         ref=r["ticket_ref"], shipper=r["shipper"],
         opportunity_name=r["opportunity_name"], status=r["status"],
         service=r["service_type"], revenue=int(r["potential_rev"] or 0),
         stage=r["stage"], sales=r["sales_name"],
         decided=r["status"] in DECIDED_STATUSES) for r in rows]
-    return BulkPreview(
+    return UnassignedPreview(
         rows=out, total=len(out),
         decided=sum(1 for r in out if r.decided),
         in_flight=sum(1 for r in out if not r.decided

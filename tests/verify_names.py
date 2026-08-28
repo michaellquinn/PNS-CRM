@@ -181,3 +181,29 @@ if _early:
               f"  (in {_f}())")
     sys.exit(1)
 print("verify_names.py         no locals read before assignment")
+
+# ------------------------------------------------- module-level names defined twice
+# main.py is ~7,000 lines and two people add to it from separate clones. A second
+# `class BulkRow` was added near the top while one already existed near the bottom;
+# Python simply kept the last, so the endpoint's annotation captured one class and its
+# body constructed the OTHER, and the route 500'd on every call with no clue why.
+#
+# py_compile is happy, the resolver check above is happy (the name exists, twice), and
+# it only shows at run time as a validation error on a route nobody has hit yet.
+#
+# Conditional definitions are a real pattern (try/except ImportError, if TYPE_CHECKING),
+# so only definitions at the TOP level of the module body count -- nested ones are the
+# author choosing between alternatives, not two names colliding by accident.
+_top_defs: dict[str, list[int]] = {}
+for _node in tree.body:
+    if isinstance(_node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+        _top_defs.setdefault(_node.name, []).append(_node.lineno)
+
+_dupes = {n: ls for n, ls in _top_defs.items() if len(ls) > 1}
+if _dupes:
+    print("verify_names.py FAILED — defined more than once at module level:")
+    for _n, _ls in sorted(_dupes.items()):
+        print(f"  - {_n!r} at main.py:" + ", :".join(str(x) for x in _ls)
+              + "  (the last one wins; the others are dead)")
+    sys.exit(1)
+print(f"verify_names.py         {len(_top_defs)} module-level names, none defined twice")
