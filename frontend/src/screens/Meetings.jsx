@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, PENDING, groupTone, rp } from "../api";
-import { Btn, Card, Head, MultiSelect, Pill, useSticky } from "../ui";
+import { Btn, Card, Head, MultiSelect, Pill, inputCls, useSticky } from "../ui";
 import { ProposalActions } from "./Queues";
 
 // Pending & proposals, run by region. Pick the regions in the room, and both people
@@ -97,7 +97,72 @@ function Line({ n, t, onOpen, right, children }) {
    Defined at module scope, NOT inside the screen: a component declared inside render is
    a different type on every render, so React throws away its subtree and rebuilds it —
    which would wipe whatever somebody had half-typed into a proposal's reason box. */
-function Block({ label, sub, rows, tone, offset, onOpen, actions }) {
+/* A comment raised from the row, without opening the ticket (Baskoro, 2026-08-28).
+ *
+ * This screen is walked ticket by ticket on a call, and the one thing people actually
+ * want to do mid-walk is record what was just said. Opening the ticket to do it unmounts
+ * the list and loses your place in a walk of forty rows, so most of what gets said never
+ * got written down at all.
+ *
+ * Each quick comment STARTS ITS OWN THREAD rather than landing in the general pile,
+ * which is what Baskoro asked for and is also the right shape: a point raised in a review
+ * is a point somebody has to answer, and a thread is the thing that can be answered and
+ * then closed. The title is the first few words of the comment, so the thread list reads
+ * as a list of points rather than "Thread 4", "Thread 5".
+ *
+ * It posts as a QUESTION, so it lands in the unanswered count and shows up as work owed
+ * rather than as a remark nobody has to do anything about.
+ */
+function QuickComment({ t, notify, onDone }) {
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState(false);
+
+  const send = async () => {
+    const body = text.trim();
+    if (!body) return;
+    setBusy(true);
+    try {
+      // The title is a label for the thread, not a second message: first line, first
+      // few words, and the full text is the comment itself either way.
+      const first = body.split("\n")[0];
+      const title = first.slice(0, 60) + (first.length > 60 ? "…" : "");
+      await api.addComment(t.ref, {
+        body, is_question: true, new_thread_title: title,
+      });
+      setText("");
+      setOpen(false);
+      notify(`Raised on ${t.ref}`);
+      await onDone?.();
+    } catch (e) { notify(e.message); }
+    finally { setBusy(false); }
+  };
+
+  if (!open) {
+    return (
+      <button type="button" onClick={() => setOpen(true)}
+        className="rounded-lg border border-slate-300 px-2.5 py-1 text-[12px] text-slate-600 hover:border-slate-400">
+        + Note
+      </button>
+    );
+  }
+  return (
+    <div className="flex w-full flex-wrap items-center gap-2">
+      <input className={`${inputCls} min-w-[220px] flex-1`} autoFocus value={text}
+        placeholder={`What came up on ${t.ref}? Starts a thread.`}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+          if (e.key === "Escape") { setOpen(false); setText(""); }
+        }} />
+      <Btn kind="primary" disabled={busy || !text.trim()} onClick={send}>Raise</Btn>
+      <Btn onClick={() => { setOpen(false); setText(""); }}>Cancel</Btn>
+    </div>
+  );
+}
+
+
+function Block({ label, sub, rows, tone, offset, onOpen, actions, notify, onDone }) {
   return (
     <Card>
       <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
@@ -115,6 +180,7 @@ function Block({ label, sub, rows, tone, offset, onOpen, actions }) {
           <Line key={t.ref} n={offset + i + 1} t={t} onOpen={onOpen}
             right={`${t.region} · ${t.sales || "no sales PIC"} · PNS ${t.owner || "unassigned"}`}>
             {actions ? actions(t) : null}
+            <QuickComment t={t} notify={notify} onDone={onDone} />
           </Line>
         ))}
       </div>
@@ -268,10 +334,11 @@ export function ReviewMeeting({ me, onOpen, notify }) {
       <div className="flex flex-col gap-4">
         <Block label="Proposals submitted" sub="Out with the shipper. Record the outcome here."
           rows={propRows} tone="bg-teal-50 text-teal-700" offset={0} onOpen={onOpen}
-          actions={(t) => <ProposalActions t={t} me={me} notify={notify} onDone={load} />} />
-        <Block label="All pending" sub="Still open. Open the ticket and take it up in its discussion."
+          actions={(t) => <ProposalActions t={t} me={me} notify={notify} onDone={load} />}
+          notify={notify} onDone={load} />
+        <Block label="All pending" sub="Still open. Raise a point here, or open the ticket for the full discussion."
           rows={pendRows} tone="bg-amber-50 text-amber-700" offset={propRows.length}
-          onOpen={onOpen} />
+          onOpen={onOpen} notify={notify} onDone={load} />
       </div>
     </>
   );

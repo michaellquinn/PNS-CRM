@@ -3,6 +3,26 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-08-28",
+    title: "Sales say what to import, the Head sets the rules, and six other asks",
+    by: "Baskoro + Claude",
+    changes: [
+      "NEW — Import queue. Sales paste the Sales CRM opportunity ids they want worked, in bulk: one per line, commas, or the record URLs straight from your browser tabs. Turn on “Only import what is queued” and the automatic sync creates a ticket only for a queued deal and discovers nothing on its own. Off by default, so nothing changes until it is switched on deliberately, and the screen says plainly when it is not yet governing.",
+      "Refreshing tickets ALREADY on the board is deliberately not governed by the queue and never will be. A deal that is here has to keep learning that it was won, lost or repriced in Sales CRM; stopping that to honour a queue would trade one kind of staleness for a worse one.",
+      "A queued id is closed out by the sweep with what happened to it — imported and which ticket, skipped and why, or failed and the error. An id the run never saw stays waiting rather than being marked failed: Sales CRM may not have the record yet. A failed or skipped row can simply be queued again once the record is fixed.",
+      "NEW — the automatic sync's rules are editable, no deploy. How often it runs, how far back it looks, the import floor, watched-groups-only, and whether the queue governs. Stored in the DATABASE rather than in environment variables, and that detail matters: this app runs on more than one replica, so a value held in one server's memory would apply to whichever server happened to answer you. Setting them is the Head of PNS's; reading them is open to anyone who can queue, because “why has my deal not appeared?” is answered by these values.",
+      "Notifications are clickable. One about a ticket opens that ticket; one about a discussion thread opens the ticket ON that thread, marked “you were tagged here”, with the reply box already pointed at it. Being tagged in one of eight threads and landing on the ticket in general told you almost nothing. A broadcast with no ticket behind it stays plain text rather than looking like a dead link.",
+      "Pending & proposals: raise a point from the row with “+ Note”, without opening the ticket. The screen is walked ticket by ticket on a call and opening one unmounts the list, so most of what got said was never written down. Each note STARTS ITS OWN THREAD, titled from its first line, and posts as a question so it lands in the unanswered count — a point raised in a review is a point somebody has to answer.",
+      "The price can be attached and corrected from inside the ticket, not only from Awaiting price. Once a ticket moved past that queue it was not on it at all, which made the price effectively uneditable. It is the same component in both places on purpose: the margin and discount here are what the 5A ceiling and the below-floor gate are checked against, and two copies drifting apart would be a routing bug wearing a UI costume.",
+      "NEW — Data checks lists every live ticket with no PNS PIC and can move them to the recycle bin in one go. It is a SOFT delete, the same act as the per-ticket button, so Restore stays available; purge is still separate, Admin-only and one at a time. Settled business — won, lost, cancelled — is excluded unless you tick it in. The list is shown before it can be acted on, and the delete carries the count you were shown, so a list that moved underneath you refuses rather than taking a bigger bite.",
+      "Migration V26 adds the queue and settings tables and records which thread a notification is about. V25 was the highest before it.",
+    ],
+    overruled: [
+      "AUTO_SYNC_MINUTES, AUTO_SYNC_DAYS and SYNC_MIN_DATE are now DEFAULTS, not the answer. A database that has never been written to behaves exactly as before; once a setting is saved, the setting wins.",
+      "The auto-sync timer used to start only when AUTO_SYNC_MINUTES was set. It now always starts and asks the settings on each tick — otherwise “run the sync automatically” would have been a switch you could turn on in the portal with no effect until somebody redeployed.",
+    ],
+  },
+  {
+    date: "2026-08-28",
     title: "FIXED: the automatic sync has been dying a quarter of the way through every run for a week",
     by: "Baskoro + Claude",
     changes: [

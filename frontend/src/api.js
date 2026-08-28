@@ -106,6 +106,25 @@ export const api = {
   // Whether the 5-minute timer is on, and what it did last. A failing timer is silent
   // by nature, so the Sync screen reads this and says so.
   autoSync: () => call("/sync/auto"),
+  // The import queue. Sales paste the Sales CRM opportunity ids they want worked and
+  // the automatic sync imports those and nothing else — see sync.queue_only.
+  syncQueue: () => call("/sync/queue"),
+  queueSync: (ids, note) =>
+    call("/sync/queue", { method: "POST", body: JSON.stringify({ ids, note }) }),
+  unqueueSync: (oid) =>
+    call(`/sync/queue/${encodeURIComponent(oid)}`, { method: "DELETE" }),
+  // What the automatic sync is allowed to import. Stored in the database, not in env
+  // vars: this app runs on more than one replica and a module global is per-pod.
+  settings: () => call("/settings"),
+  setSettings: (values) =>
+    call("/settings", { method: "POST", body: JSON.stringify({ values }) }),
+  // Every live ticket with no PNS PIC, and the bulk soft-delete that clears them. The
+  // preview is read first and its count is echoed back on the delete, so a list that
+  // has moved underneath you refuses rather than taking a bigger bite.
+  pnsUnassigned: () => call("/diagnostics/pns-unassigned"),
+  bulkDeletePnsUnassigned: (expect, include_decided) =>
+    call("/tickets/bulk-delete/pns-unassigned",
+      { method: "POST", body: JSON.stringify({ expect, include_decided }) }),
   syncSalesCrm: (body) =>
     call("/sync/salescrm", { method: "POST", body: JSON.stringify(body || {}) }),
   pspAssign: (ref, assignee) =>

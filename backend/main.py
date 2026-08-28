@@ -49,7 +49,12 @@ async def lifespan(app: FastAPI):
     global _pool
     if os.getenv("DATABASE_URL"):
         _pool = await asyncmy.create_pool(**_dsn(), autocommit=True)
-    task = asyncio.create_task(_auto_sync_loop()) if AUTO_SYNC_MINUTES else None
+    # The loop always starts and asks the settings whether to run on each tick. It used
+    # to start only when AUTO_SYNC_MINUTES was set, which would have made
+    # `sync.auto_enabled` a setting you could turn on in the portal with no effect until
+    # somebody redeployed — exactly the thing moving these out of env vars was for.
+    # A pod with no database is the one case with nothing to read, so no timer.
+    task = asyncio.create_task(_auto_sync_loop()) if _pool is not None else None
     yield
     if task:
         task.cancel()
@@ -884,6 +889,21 @@ def can(u: User, action: str, t: dict | None = None) -> bool:
         # it stays with one named owner, otherwise the same sync returns different
         # results depending on who pressed the button.
         "syncSalesCrm":     u.email.lower() == SYNC_OWNER_EMAIL or admin,
+        # Queueing an opportunity for import is Sales' own job (Baskoro, 2026-08-28):
+        # they raise the deal in Sales CRM, so they are the ones who know its id and
+        # when it is ready to be worked. Deliberately wider than syncSalesCrm, which
+        # RUNS the sweep under one person's API key — asking for a deal and pulling the
+        # whole book are different acts. PNS and Sales Planning are in because during the
+        # rollout they are the ones entering most of it on Sales' behalf.
+        "queueSync":        u.group in ("Commercial", "PNS", "Sales Planning") or admin,
+        # What the automatic sync is allowed to import. It decides what lands on
+        # everyone's board, so it sits with the Head of PNS and Admin, not with whoever
+        # can queue a deal.
+        "editSyncSettings": pns_head,
+        # Bulk-removing tickets nobody in PNS owns. The PNS Head can already delete one
+        # ticket at a time (deleteTicket); this is the same right exercised over a list,
+        # and it soft-deletes to the bin like the single-ticket path does.
+        "bulkDelete":       pns_head,
         # PSP works one shared, unassigned queue. There is no PIC: naming one only
         # created a second question ("who has this?") on top of the one that matters
         # ("has it been decided?"), and any PSP member may decide any ticket anyway.
@@ -1013,16 +1033,21 @@ async def log_status(ticket_id: int, status: str, actor: str, note: str = "") ->
 
 
 async def notify(body: str, groups=(), roles=(), people=(), ticket_ref: str | None = None,
-                 subject: str | None = None) -> None:
+                 subject: str | None = None, thread_key: str | None = None) -> None:
     """Record a notification, and email it if it names specific people.
 
     `people` is the "this is aimed at you" channel, assigned, tagged, sent back. Those
     become email. `groups` and `roles` are broadcast and stay in-app only, which is the
-    whole reason the mailbox stays readable."""
+    whole reason the mailbox stays readable.
+
+    `thread_key` is which discussion thread it is about, when it is about one. Being
+    tagged in a thread and landing on a ticket with eight of them is the complaint this
+    answers -- see the Bell, which opens the ticket ON that thread. NULL means the ticket
+    as a whole, which is most notifications."""
     await execute(
-        "INSERT INTO notifications (body, ticket_ref, to_groups, to_roles, to_people) "
-        "VALUES (%s,%s,%s,%s,%s)",
-        (body[:500], ticket_ref,
+        "INSERT INTO notifications (body, ticket_ref, thread_key, to_groups, to_roles, "
+        "to_people) VALUES (%s,%s,%s,%s,%s,%s)",
+        (body[:500], ticket_ref, thread_key,
          ",".join(groups) or None, ",".join(roles) or None, ",".join(people) or None))
     if people:
         await email_people(list(people), subject or (ticket_ref or "Ninja PNS"), body,
@@ -1109,7 +1134,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-08-28.72"
+BUILD = "2026-08-28.73"
 
 
 class Me(BaseModel):
@@ -1296,7 +1321,8 @@ async def me(u: User = Depends(current_user)):
                "acceptProposal", "sendBackProposal", "seeMargin", "capaRaise",
                "capaClose", "capaSubmit", "manageUsers", "grantAdmin", "setPricedBy",
                "pspAssign", "pspOverride", "allowPsp", "syncSalesCrm",
-               "pspHeadDecide", "manageIgnored"]
+               "pspHeadDecide", "manageIgnored",
+               "queueSync", "editSyncSettings", "bulkDelete"]
     return Me(email=u.email, name=u.name, group=u.group, level=u.level, team=u.team,
               permissions={a: can(u, a) for a in actions},
               sso=u.sso, dev_fallback=not u.sso and bool(DEV_USER))
@@ -2186,6 +2212,212 @@ class SalesCrm:
         return "Standard"
 
 
+# ------------------------------------------------------------------ the import queue
+# Sales raise the deal in Sales CRM, then paste its opportunity id here. The automatic
+# sync imports what is queued and discovers nothing on its own — that is the whole point
+# (Baskoro, 2026-08-28). Before this the sweep imported everything it could map from the
+# last two days, so the board filled with deals nobody had asked PNS to look at.
+def clean_opportunity_id(raw: str) -> str:
+    """One id, or an explanation of why it is not one.
+
+    The same rule the CRM-id field on a ticket applies, in one place so the two cannot
+    drift: current ids are short numbers (906031); a long zero-padded one is the retired
+    Salesforce id and will never match, so it is refused with the reason rather than
+    left to fail later as "no opportunity with this id"."""
+    oid = str(raw or "").strip()
+    if not oid:
+        raise ValueError("blank")
+    if len(oid) > 10 and oid.lstrip("0").isdigit():
+        raise ValueError(f"{oid} looks like the old Salesforce id — Sales CRM now uses "
+                         f"the short number from the record URL, for example 906031")
+    if not oid.isdigit():
+        raise ValueError(f"{oid} is not a Sales CRM opportunity id — it is the number at "
+                         f"the end of the opportunity's URL, for example 906031")
+    return oid
+
+
+class QueueRow(BaseModel):
+    opportunity_id: str
+    added_by: str
+    added_by_name: str | None = None
+    note: str | None = None
+    state: str
+    detail: str | None = None
+    ticket_ref: str | None = None
+    created_at: str
+    resolved_at: str | None = None
+
+
+class QueueList(BaseModel):
+    queue: list[QueueRow]
+    pending: int
+    # Whether the queue is actually governing imports. A screen full of queued deals on
+    # an app that is still importing everything it finds would be a lie of omission.
+    queue_only: bool
+
+
+class QueueIn(BaseModel):
+    # Bulk by design: Sales work a list, not one deal at a time. Accepts anything
+    # paste-shaped — newlines, commas, spaces, or whole record URLs.
+    ids: str
+    note: str | None = None
+
+
+class QueueResult(BaseModel):
+    added: list[str] = []
+    already: list[str] = []
+    rejected: list[str] = []
+    # Ids that are already tickets here. Not an error — it means the deal arrived by
+    # some other route — but queueing it would do nothing, so it is said plainly.
+    existing: list[str] = []
+
+
+_OID_IN_URL = re.compile(r"/records/(\d+)")
+
+
+@app.get("/api/sync/queue", response_model=QueueList)
+async def list_queue(u: User = Depends(current_user)):
+    require(u, "queueSync")
+    rows = await q("SELECT opportunity_id, added_by, added_by_name, note, state, detail, "
+                   "ticket_ref, created_at, resolved_at FROM sync_queue "
+                   "ORDER BY (state='pending') DESC, created_at DESC, id DESC LIMIT 500")
+    return {
+        "queue": [QueueRow(
+            opportunity_id=str(r["opportunity_id"]), added_by=r["added_by"],
+            added_by_name=r["added_by_name"], note=r["note"], state=r["state"],
+            detail=r["detail"], ticket_ref=r["ticket_ref"],
+            created_at=str(r["created_at"]),
+            resolved_at=str(r["resolved_at"]) if r["resolved_at"] else None)
+            for r in rows],
+        "pending": sum(1 for r in rows if r["state"] == "pending"),
+        "queue_only": await setting_bool("sync.queue_only"),
+    }
+
+
+@app.post("/api/sync/queue", status_code=201, response_model=QueueResult)
+async def add_to_queue(body: QueueIn, u: User = Depends(current_user)):
+    """Queue one or many Sales CRM opportunity ids for import.
+
+    Takes a paste. People will arrive here with a column copied out of a spreadsheet or a
+    handful of record URLs from browser tabs, and asking them to reformat that into
+    something this endpoint prefers is work the computer should do."""
+    require(u, "queueSync")
+    raw = str(body.ids or "")
+    # Pull ids out of full record URLs first, then split whatever is left on any
+    # separator a paste might carry.
+    found = _OID_IN_URL.findall(raw)
+    leftover = _OID_IN_URL.sub(" ", raw)
+    found += [p for p in re.split(r"[\s,;|]+", leftover) if p]
+
+    res = QueueResult()
+    seen: set[str] = set()
+    for part in found:
+        try:
+            oid = clean_opportunity_id(part)
+        except ValueError as e:
+            if str(e) != "blank":
+                res.rejected.append(str(e))
+            continue
+        if oid in seen:
+            continue
+        seen.add(oid)
+        held = await q("SELECT ticket_ref FROM tickets WHERE opportunity_id=%s "
+                       "AND deleted_at IS NULL", (oid,), one=True)
+        if held:
+            res.existing.append(f"{oid} is already {held['ticket_ref']}")
+            continue
+        # Asked before writing, not inferred from the write. execute() returns lastrowid,
+        # NOT a row count, so "did this insert or update?" cannot be read off the result —
+        # and an ON DUPLICATE KEY UPDATE that reported the wrong answer would tell Sales
+        # their deal was newly queued when it had been sitting there for a week.
+        prior = await q("SELECT state FROM sync_queue WHERE opportunity_id=%s",
+                        (oid,), one=True)
+        # ON DUPLICATE ... state='pending' deliberately RE-OPENS a row that failed or was
+        # skipped before. Asking again after fixing the record in Sales CRM is the normal
+        # way to use this, and a permanently-failed row you cannot retry would send people
+        # to the ignore list to clear it, which is a much bigger hammer.
+        await execute(
+            "INSERT INTO sync_queue (opportunity_id, added_by, added_by_name, note) "
+            "VALUES (%s,%s,%s,%s) ON DUPLICATE KEY UPDATE "
+            "state=IF(state='imported','imported','pending'), "
+            "note=VALUES(note), added_by=VALUES(added_by), "
+            "added_by_name=VALUES(added_by_name), detail=NULL, resolved_at=NULL",
+            (oid, u.email, u.name, (body.note or "").strip()[:255] or None))
+        # A row that was already waiting is "already"; one that had failed or been
+        # skipped and is now re-opened is a fresh request, and reads better as added.
+        if prior and prior["state"] == "pending":
+            res.already.append(oid)
+        else:
+            res.added.append(oid)
+    if not (res.added or res.already or res.existing or res.rejected):
+        raise HTTPException(400, "no Sales CRM opportunity ids found in that. Paste the "
+                                 "short number from each opportunity's URL, for example "
+                                 "906031 — one per line, commas, or the URLs themselves.")
+    if res.added:
+        await audit(u.name, "queue", "sync_queue", ",".join(res.added)[:200],
+                    f"{len(res.added)} queued for import")
+    return res
+
+
+@app.delete("/api/sync/queue/{oid}", response_model=Ok)
+async def remove_from_queue(oid: str, u: User = Depends(current_user)):
+    require(u, "queueSync")
+    await execute("DELETE FROM sync_queue WHERE opportunity_id=%s", (str(oid).strip(),))
+    return {"ok": True}
+
+
+# ------------------------------------------------------------------ settings
+class SettingsIn(BaseModel):
+    values: dict[str, str]
+
+
+@app.get("/api/settings")
+async def get_settings(u: User = Depends(current_user)):
+    """What the automatic sync is allowed to import. Readable by anyone who can queue,
+    because "why has my deal not appeared?" is answered by these values."""
+    require(u, "queueSync")
+    return {"settings": await all_settings(),
+            "editable": can(u, "editSyncSettings"),
+            "rules": {k: (v if isinstance(v, str) else list(v))
+                      for k, v in SETTING_RULES.items()}}
+
+
+@app.post("/api/settings", response_model=Ok)
+async def set_settings(body: SettingsIn, u: User = Depends(current_user)):
+    """Change them. Validated against SETTING_RULES rather than written as given — a
+    settings table is an easy hole to widen by accident, and "whatever key you POST"
+    is how that happens."""
+    require(u, "editSyncSettings")
+    changed = []
+    for name, raw in (body.values or {}).items():
+        rule = SETTING_RULES.get(name)
+        if not rule:
+            raise HTTPException(400, f"{name} is not a setting this app has")
+        val = str(raw).strip()
+        if rule == "bool":
+            val = "1" if val.lower() in ("1", "true", "yes", "on") else "0"
+        elif rule == "date_or_blank":
+            if val and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", val):
+                raise HTTPException(400, f"{name} must be YYYY-MM-DD, or blank for no "
+                                         f"floor at all")
+        else:
+            kind, low, high = rule
+            try:
+                n = int(val)
+            except (TypeError, ValueError):
+                raise HTTPException(400, f"{name} must be a whole number")
+            if not low <= n <= high:
+                raise HTTPException(400, f"{name} must be between {low} and {high}")
+            val = str(n)
+        await execute("INSERT INTO app_settings (name, value, updated_by) VALUES (%s,%s,%s) "
+                      "ON DUPLICATE KEY UPDATE value=VALUES(value), "
+                      "updated_by=VALUES(updated_by)", (name, val, u.name))
+        changed.append(f"{name}={val}")
+    if changed:
+        await audit(u.name, "settings", "app_settings", "sync", "; ".join(changed)[:400])
+    return {"ok": True}
+
+
 # ------------------------------------------------------------------ sync ignore list
 class IgnoredRow(BaseModel):
     opportunity_id: str
@@ -2285,6 +2517,16 @@ class SyncIn(BaseModel):
     # been fetched, not as a query parameter. That is why it lives here and not in the
     # request to Sales CRM.
     groups: list[str] = []
+    # The import queue (Baskoro, 2026-08-28). When set, the sweep may CREATE a ticket
+    # only for an opportunity named here — everything else it discovers is reported as
+    # skipped rather than imported.
+    #
+    # Deliberately not `ids`. `ids` means "this run is only about these", which switches
+    # the day sweep and the held-ticket refresh off entirely; queue mode has to keep
+    # refreshing what is already on the board, because a queue is about what ARRIVES,
+    # not about forgetting what is here. Empty list with queue mode on means nothing new
+    # is imported, which is the correct reading of an empty queue.
+    queue_ids: list[str] | None = None
 
 
 # ------------------------------------------------------------------ automatic sync
@@ -2324,6 +2566,108 @@ AUTO_SYNC_DAYS = int(os.getenv("AUTO_SYNC_DAYS", "2") or 2)
 # Set empty to remove the floor entirely.
 SYNC_MIN_DATE = os.getenv("SYNC_MIN_DATE", "2026-08-01").strip()
 
+
+# ------------------------------------------------------------------ settings
+# The env vars above are now DEFAULTS, not the answer. Baskoro asked to be able to change
+# what the automatic sync imports without a deploy (2026-08-28), and the values live in
+# `app_settings` because this app serves from more than one replica: a module global is
+# per-pod, so a value set at runtime would apply to whichever pod served the request and
+# a portal change would need every pod restarted. One row is one answer for the fleet.
+#
+# Read on every use rather than cached. A sync tick is five minutes apart and a settings
+# read is one indexed row — caching it would buy nothing and cost the one property that
+# makes this worth doing, which is that a change takes effect NOW.
+SETTING_DEFAULTS = {
+    "sync.auto_enabled":  lambda: "1" if AUTO_SYNC_MINUTES else "0",
+    "sync.every_minutes": lambda: str(AUTO_SYNC_MINUTES or 5),
+    "sync.days":          lambda: str(AUTO_SYNC_DAYS),
+    "sync.min_date":      lambda: SYNC_MIN_DATE,
+    # Import only what Sales has queued. Off by default so this deploy changes nothing
+    # until it is turned on deliberately.
+    "sync.queue_only":    lambda: "0",
+    # Narrow the sweep to the watched groups. Already a per-run option; this makes it
+    # the standing setting for the automatic run too.
+    "sync.watched_only":  lambda: "0",
+}
+
+# Which settings a person may write, and how each is validated. Anything not in here is
+# not settable through the API at all — a settings table is a nice hole to widen by
+# accident, and "whatever key you POST" is how that happens.
+SETTING_RULES = {
+    "sync.auto_enabled":  "bool",
+    "sync.every_minutes": ("int", 1, 1440),
+    "sync.days":          ("int", 1, 60),
+    "sync.min_date":      "date_or_blank",
+    "sync.queue_only":    "bool",
+    "sync.watched_only":  "bool",
+}
+
+
+async def setting(name: str) -> str:
+    """One setting, falling back to the env-var default when there is no answer.
+
+    A failed READ falls back too, it does not raise. The auto-sync loop reads settings to
+    decide its own interval, and that read happens outside the loop's try — so a query
+    that raised here would kill the timer task outright and the app would go on serving
+    with the sync silently dead, which is the exact failure this whole loop exists to
+    prevent. It is also the state the pod is in between starting and Flyway applying
+    V26: the table genuinely does not exist yet, and "use the env default for a few
+    seconds" is the right answer to that, not "stop syncing until someone redeploys"."""
+    try:
+        row = await q("SELECT value FROM app_settings WHERE name=%s", (name,), one=True)
+    except Exception:                                   # noqa: BLE001 - see docstring
+        log.warning("settings unreadable, using the default for %s", name)
+        row = None
+    if row and row["value"] is not None:
+        return str(row["value"])
+    d = SETTING_DEFAULTS.get(name)
+    return d() if d else ""
+
+
+async def setting_int(name: str, low: int, high: int, fallback: int) -> int:
+    """An int setting, clamped. A junk row must not be able to stop the sync running:
+    the settings table is data, and data can be wrong."""
+    try:
+        return max(low, min(high, int(str(await setting(name)).strip())))
+    except (TypeError, ValueError):
+        return fallback
+
+
+async def setting_bool(name: str) -> bool:
+    return str(await setting(name)).strip().lower() in ("1", "true", "yes", "on")
+
+
+async def all_settings() -> dict[str, str]:
+    """Every setting the app understands, with defaults filled in for absent rows, so
+    the screen renders the same before and after anyone has ever pressed Save."""
+    rows = await q("SELECT name, value FROM app_settings")
+    stored = {r["name"]: r["value"] for r in rows}
+    out = {}
+    for name, default in SETTING_DEFAULTS.items():
+        v = stored.get(name)
+        out[name] = str(v) if v is not None else default()
+    return out
+
+
+# ------------------------------------------------------------------ the import queue
+async def pending_queue_ids() -> list[str]:
+    """Opportunity ids Sales has asked for and the sweep has not yet resolved."""
+    rows = await q("SELECT opportunity_id FROM sync_queue WHERE state='pending' "
+                   "ORDER BY created_at, id")
+    return [str(r["opportunity_id"]) for r in rows]
+
+
+async def resolve_queue(oid: str, state: str, detail: str = "",
+                        ticket_ref: str | None = None) -> None:
+    """Record what the sweep did with a queued id.
+
+    Rows are updated rather than deleted. "Did my request go through?" is the question
+    Sales will actually ask, and a row that disappears on success cannot answer it —
+    which would make a working queue indistinguishable from one that lost the request."""
+    await execute("UPDATE sync_queue SET state=%s, detail=%s, ticket_ref=%s, "
+                  "resolved_at=NOW() WHERE opportunity_id=%s AND state='pending'",
+                  (state, (detail or "")[:500], ticket_ref, str(oid)))
+
 # What the last automatic run did, for the Sync screen. In memory on purpose: it is
 # operational state about this process, not a fact about the business, and a restart
 # genuinely does mean "no automatic run has happened yet".
@@ -2342,18 +2686,39 @@ async def _auto_sync_loop() -> None:
     # have settled before anything reaches out to a third party.
     await asyncio.sleep(30)
     while True:
+        # Read every tick, not once at import. The interval, the window, the floor and
+        # whether the queue governs imports are all settings now (Baskoro, 2026-08-28),
+        # and the whole point of moving them out of env vars is that a change takes
+        # effect without a deploy. Defaults come from the env vars, so a database that
+        # has never been written to behaves exactly as before.
+        every = await setting_int("sync.every_minutes", 1, 1440, AUTO_SYNC_MINUTES or 5)
         try:
-            if not SALESCRM_API_KEY:
-                _auto_sync.update(last_at=str(datetime.now())[:19], last_ok=False,
+            if not await setting_bool("sync.auto_enabled"):
+                _auto_sync.update(enabled=False, every_minutes=every)
+                log.info("auto-sync: switched off in settings")
+            elif not SALESCRM_API_KEY:
+                _auto_sync.update(enabled=True, every_minutes=every,
+                                  last_at=str(datetime.now())[:19], last_ok=False,
                                   last_error="SALESCRM_API_KEY is not set")
             elif _sync_lock.locked():
                 log.info("auto-sync: a sync is already running, skipping this tick")
             else:
                 owner = User(email=SYNC_OWNER_EMAIL, name="Sales CRM sync",
                              group="Admin", level="head", team=None, sso=False)
-                r = await sync_salescrm(
-                    SyncIn(days=AUTO_SYNC_DAYS, refresh=True, dry_run=False), owner)
-                _auto_sync.update(last_at=str(datetime.now())[:19], last_ok=True,
+                body = SyncIn(days=await setting_int("sync.days", 1, 60, AUTO_SYNC_DAYS),
+                              refresh=True, dry_run=False)
+                if await setting_bool("sync.watched_only"):
+                    body.groups = list(MANAGED_ACCTS) + ["Must Win"]
+                # Queue mode: the sweep imports the ids Sales asked for and discovers
+                # nothing on its own. `queue_ids` is separate from `ids` on purpose --
+                # `ids` means "this run is ONLY about these", which would stop held
+                # tickets being refreshed, and refreshing them is the half of the sweep
+                # that must never stop.
+                if await setting_bool("sync.queue_only"):
+                    body.queue_ids = await pending_queue_ids()
+                r = await sync_salescrm(body, owner)
+                _auto_sync.update(enabled=True, every_minutes=every,
+                                  last_at=str(datetime.now())[:19], last_ok=True,
                                   last_error=None, last_counts=r.get("counts"),
                                   runs=_auto_sync["runs"] + 1)
                 log.info("auto-sync: %s", r.get("counts"))
@@ -2363,7 +2728,7 @@ async def _auto_sync_loop() -> None:
             _auto_sync.update(last_at=str(datetime.now())[:19], last_ok=False,
                               last_error=str(e)[:300])
             log.exception("auto-sync failed")
-        await asyncio.sleep(AUTO_SYNC_MINUTES * 60)
+        await asyncio.sleep(every * 60)
 
 
 @app.get("/api/sync/auto")
@@ -2404,6 +2769,16 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
     # button nothing at all. Partial results with a stated reason are far more useful.
     deadline = time.monotonic() + SYNC_BUDGET_S
     truncated = False
+    # The import floor is a setting now, so a run reads it rather than trusting the
+    # module global it was started with (Baskoro, 2026-08-28). The env var remains the
+    # default for a database nobody has written a setting into.
+    min_date = (await setting("sync.min_date")).strip()
+    # Queue mode. `queue_ids` present means "only import what is in this list"; None
+    # means the caller is not using the queue at all, which is every manual run unless
+    # somebody asks otherwise. An EMPTY list is a real instruction — an empty queue
+    # imports nothing — so this tests for None, not for falsiness.
+    queue_only = body.queue_ids is not None
+    queued = {str(i).strip() for i in (body.queue_ids or [])}
 
     async with _sync_lock:
         # Only these watched groups, when asked for. Validated rather than trusted: a
@@ -2476,6 +2851,53 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
                     else:
                         batches.append((f"id {oid}", [got]))
                 wanted = []          # an id run asks for nothing else
+
+            # 0b. Queue mode fetches the queued ids DIRECTLY, in addition to whatever
+            #     window the run asks for. Without this a queued deal raised outside the
+            #     last two days would sit pending forever: the gate below would never
+            #     refuse it, because the sweep would simply never have fetched the record
+            #     to refuse. Already-held ids are left out — they are tickets, the
+            #     refresh half covers them, and the queue is about what arrives.
+            elif queue_only:
+                # `queue_only`, not `queued` — an EMPTY queue is a real instruction to
+                # import nothing, and testing the set's truthiness would have quietly
+                # fallen through to the day window and swept as normal.
+                fresh_q = sorted(queued - known)[:200]
+                sem_q = asyncio.Semaphore(SYNC_CONCURRENCY)
+
+                async def queued_by_id(oid: str):
+                    async with sem_q:
+                        try:
+                            d = await crm.records("Opportunity", id=oid)
+                            items = d.get("items") or []
+                            return oid, (items[0] if items else None)
+                        except Exception as e:
+                            return oid, e
+
+                for oid, got in await asyncio.gather(
+                        *(queued_by_id(i) for i in fresh_q)):
+                    if isinstance(got, Exception):
+                        errors.append({"id": oid, "name": None,
+                                       "error": f"could not be read: {str(got)[:120]}"})
+                    elif got is None:
+                        skipped.append({"id": oid, "name": None,
+                                        "why": "no opportunity with this id in Sales CRM"})
+                    else:
+                        batches.append((f"queued {oid}", [got]))
+                # Already a ticket before the sweep got to it — the request is satisfied,
+                # so close it rather than leaving it pending against a deal that is here.
+                for oid in sorted(queued & known):
+                    row = await q("SELECT ticket_ref FROM tickets WHERE opportunity_id=%s",
+                                  (oid,), one=True)
+                    if row and not body.dry_run:
+                        await resolve_queue(oid, "imported", "already on the board",
+                                            row["ticket_ref"])
+                # The queue IS the discovery mechanism now, so the day window is not
+                # asked for: every record it returned would meet the gate below and be
+                # refused, which is a round trip per day spent to reach a foregone
+                # conclusion. The held-ticket refresh still runs — that half is
+                # untouched by queue mode, and is the half that must never stop.
+                wanted = []
 
             # 1. Recent days. new_date is a plain date, it is populated on every
             #    opportunity, and exact match on it is one of the few filters this API
@@ -2695,6 +3117,18 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
                         continue
 
                     new_on_this_page += 1
+                    # The import queue. When it is governing, a deal becomes a ticket
+                    # only because somebody asked for it by id — everything else the
+                    # sweep finds is reported as seen-and-not-taken rather than silently
+                    # dropped, so "why is my deal not on the board?" has an answer on
+                    # the Sync screen. Held tickets are refreshed regardless; this gate
+                    # is only ever reached by an opportunity that is not a ticket yet.
+                    if queue_only and oid not in queued:
+                        skipped.append({
+                            "id": oid, "name": o.get("name"),
+                            "why": "not in the import queue — Sales adds the "
+                                   "opportunity id on Sync / Import queue"})
+                        continue
                     # The floor. Checked before anything else is done with the record so
                     # an out-of-range opportunity costs nothing but the line that says so.
                     #
@@ -2709,11 +3143,15 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
                     # floor; `ids` runs no longer do, and the note on the ticket records
                     # that it came in over the floor and who asked.
                     raised = _crm_date(o)
-                    over_floor = bool(body.ids) and oid in {str(i) for i in body.ids}
-                    if (SYNC_MIN_DATE and raised and str(raised) < SYNC_MIN_DATE
+                    # Both deliberate paths clear the floor: naming an id on a run, and
+                    # queueing one. They are the same act — a person saying "this deal,
+                    # I mean it" — and the floor is only ever about a sweep picking up
+                    # history nobody asked for.
+                    over_floor = (oid in {str(i) for i in body.ids}) or (oid in queued)
+                    if (min_date and raised and str(raised) < min_date
                             and not over_floor):
                         skipped.append({"id": oid, "name": o.get("name"),
-                                        "why": f"raised {raised}, before the {SYNC_MIN_DATE} "
+                                        "why": f"raised {raised}, before the {min_date} "
                                                f"floor this app imports from"})
                         continue
                     stage = o.get("stage")
@@ -2782,9 +3220,10 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
                         # than the floor is on the board because somebody named its id,
                         # and whoever picks it up should be able to see that rather than
                         # wonder why the floor did not hold.
+                        plan["min_date"] = min_date
                         plan["over_floor"] = over_floor and bool(
-                            SYNC_MIN_DATE and plan["crm_date"]
-                            and str(plan["crm_date"]) < SYNC_MIN_DATE)
+                            min_date and plan["crm_date"]
+                            and str(plan["crm_date"]) < min_date)
                         # Any line that needs confirming, not just Trucking: a
                         # shipper-name FTL and a missing service level both land here.
                         plan["provisional"] = provisional
@@ -2810,6 +3249,27 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
 
     if not body.dry_run:
         await audit(u.email, "sync", "salescrm", None, "created", None, str(len(created)))
+    # Close the loop on anything Sales queued. Reconciled from the run's own results
+    # rather than marked inline at each branch: a queued id can be created, skipped for
+    # any of six reasons, error, or simply not be found in the window the run asked for,
+    # and one reconciliation that reads the outcomes cannot fall out of step with the
+    # branches the way six scattered calls would.
+    #
+    # An id the run never saw stays PENDING on purpose. Sales CRM may not have the record
+    # yet, or it sits outside this run's window — either way the next sweep should try
+    # again, and marking it failed would quietly drop a real request.
+    if queued and not body.dry_run:
+        by_id = {str(c.get("opportunity_id") or c.get("id")): c for c in created}
+        skips = {str(s["id"]): s.get("why") or "" for s in skipped if s.get("id")}
+        errs = {str(e["id"]): e.get("error") or "" for e in errors if e.get("id")}
+        for oid in queued:
+            if oid in by_id:
+                await resolve_queue(oid, "imported", "imported by the sync",
+                                    by_id[oid].get("ref"))
+            elif oid in errs:
+                await resolve_queue(oid, "failed", errs[oid])
+            elif oid in skips:
+                await resolve_queue(oid, "skipped", skips[oid])
     # Salespeople Sales CRM names but this app has never heard of. Reported rather than
     # registered: creating a login is a permission grant, not a data import.
     unknown_sales = sorted({c["sales_name"] for c in created if c.get("sales_unknown")})
@@ -3136,9 +3596,10 @@ async def _import_opportunity(o: dict, account: dict | None, plan: dict,
     # a deal raised months before the floor does not look like the floor having failed.
     floor_note = ("" if not plan.get("over_floor")
                   else f"\n\nNOTE: raised {plan.get('crm_date')}, before the "
-                       f"{SYNC_MIN_DATE} import floor. It is here because its Sales CRM "
-                       f"opportunity id was entered by hand, which imports a deal "
-                       f"whatever its age.")
+                       f"{plan.get('min_date') or SYNC_MIN_DATE} import floor. It is here "
+                       f"because its Sales CRM opportunity id was asked for by name — "
+                       f"queued, or entered by hand — which imports a deal whatever "
+                       f"its age.")
     # Everything Sales CRM has to say goes in, through the one mapping table the refresh
     # also walks — so a field imported today is still current next week — plus the raw
     # record under `_crm`, so a field nobody has mapped yet is at least *here* rather
@@ -4757,6 +5218,117 @@ async def soft_delete(ref: str, u: User = Depends(current_user)):
     return {"ok": True, "ref": ref}
 
 
+# ---------------------------------------------------- bulk delete: PNS unassigned
+# Baskoro, 2026-08-28: "delete all tickets in CRM without PNS (or PNS Unassigned
+# status)". Asked twice and confirmed, so the rule is exactly that — every live ticket
+# with no PNS PIC.
+#
+# It is a SOFT delete to the recycle bin, the same act as the per-ticket button, because
+# on the live board this rule currently catches roughly two thirds of the book including
+# won deals and live proposals. Restore stays available; purge is still a separate,
+# Admin-only, one-at-a-time decision. Nothing here erases anything.
+#
+# The preview is a real endpoint rather than a number in the UI: the list has to be
+# readable BEFORE it is acted on, and the delete then requires the caller to echo the
+# count they were shown, so a preview that has gone stale refuses instead of taking a
+# bigger bite than the person agreed to.
+class BulkRow(BaseModel):
+    ref: str
+    shipper: str
+    opportunity_name: str | None = None
+    status: str
+    service: str
+    revenue: int
+    stage: str | None = None
+    sales: str | None = None
+    # Whether this one is settled business — won, lost or cancelled. Broken out because
+    # it is the group most likely to be a surprise.
+    decided: bool
+
+
+class BulkPreview(BaseModel):
+    rows: list[BulkRow]
+    total: int
+    decided: int
+    # Live work that is out with the shipper or sitting in an approval gate. The number
+    # worth reading twice.
+    in_flight: int
+
+
+PNS_UNASSIGNED_SQL = (
+    "FROM tickets t JOIN shippers s ON s.id=t.shipper_id "
+    "WHERE t.deleted_at IS NULL AND (t.owner_name IS NULL OR TRIM(t.owner_name)='')")
+
+DECIDED_STATUSES = ("Lost", "Cancel", "Proposal Accepted / Ready to Ship")
+
+
+@app.get("/api/diagnostics/pns-unassigned", response_model=BulkPreview)
+async def pns_unassigned(u: User = Depends(current_user)):
+    """Every live ticket with no PNS PIC. Read-only; this is what the bulk delete
+    would take."""
+    require(u, "bulkDelete")
+    rows = await q(
+        "SELECT t.ticket_ref, s.name AS shipper, t.opportunity_name, t.status, "
+        "t.service_type, t.potential_rev, t.stage, t.sales_name "
+        + PNS_UNASSIGNED_SQL + " ORDER BY t.status, t.ticket_ref")
+    out = [BulkRow(
+        ref=r["ticket_ref"], shipper=r["shipper"],
+        opportunity_name=r["opportunity_name"], status=r["status"],
+        service=r["service_type"], revenue=int(r["potential_rev"] or 0),
+        stage=r["stage"], sales=r["sales_name"],
+        decided=r["status"] in DECIDED_STATUSES) for r in rows]
+    return BulkPreview(
+        rows=out, total=len(out),
+        decided=sum(1 for r in out if r.decided),
+        in_flight=sum(1 for r in out if not r.decided
+                      and (r.status.startswith("Pending Review")
+                           or r.status == "Proposal Submitted")))
+
+
+class BulkDeleteIn(BaseModel):
+    # The count the caller was shown. Not a formality: the board moves under you — the
+    # sync imports every few minutes — and a preview read ten minutes ago can describe a
+    # smaller set than the delete would take.
+    expect: int
+    # Leave the settled business alone. Defaults to keeping it, because "delete the
+    # unassigned ones" is nearly always about clearing working clutter, and a won deal
+    # is the one row nobody means to include.
+    include_decided: bool = False
+
+
+@app.post("/api/tickets/bulk-delete/pns-unassigned")
+async def bulk_delete_pns_unassigned(body: BulkDeleteIn, u: User = Depends(current_user)):
+    require(u, "bulkDelete")
+    sql = PNS_UNASSIGNED_SQL
+    args: tuple = ()
+    if not body.include_decided:
+        marks = ",".join(["%s"] * len(DECIDED_STATUSES))
+        sql += f" AND t.status NOT IN ({marks})"
+        args = DECIDED_STATUSES
+    rows = await q("SELECT t.id, t.ticket_ref " + sql, args)
+    if len(rows) != body.expect:
+        raise HTTPException(
+            409, f"the list has changed since you looked: {len(rows)} tickets match now, "
+                 f"you confirmed {body.expect}. Re-read the preview and try again.")
+    if not rows:
+        return {"ok": True, "deleted": 0, "refs": []}
+    refs = [r["ticket_ref"] for r in rows]
+    ids = [r["id"] for r in rows]
+    marks = ",".join(["%s"] * len(ids))
+    await execute(f"UPDATE tickets SET deleted_at=NOW(), deleted_by=%s "
+                  f"WHERE id IN ({marks})", (u.name, *ids))
+    await audit(u.email, "bulk-delete", "ticket", ",".join(refs)[:200],
+                "pns_unassigned", None, str(len(refs)))
+    # Said out loud to PNS and Sales. Two thirds of the board going to the bin is not a
+    # quiet housekeeping act, and the people whose deals these were should not have to
+    # work out where they went.
+    await notify(f"{u.name} moved {len(refs)} unassigned tickets to the recycle bin "
+                 f"(no PNS PIC{'' if body.include_decided else ', live work only'}). "
+                 f"They can be restored from Recycle bin.",
+                 groups=["PNS", "Commercial"])
+    return {"ok": True, "deleted": len(refs), "refs": refs}
+
+
 @app.post("/api/tickets/{ref}/restore", response_model=Ok)
 async def restore(ref: str, u: User = Depends(current_user)):
     require(u, "restoreTicket")
@@ -5764,7 +6336,7 @@ async def add_comment(ref: str, body: NewComment, u: User = Depends(current_user
     kind = "asked a question on" if body.is_question else "commented on"
     if people:
         await notify(f"{u.name} {kind} {ref}, {t['shipper']}: {text[:180]}",
-                     people=sorted(people), ticket_ref=ref)
+                     people=sorted(people), ticket_ref=ref, thread_key=thread_key)
 
     found = {r["email"].lower() for r in tagged}
     unknown = sorted(e for e in wanted if e not in found)
@@ -5958,6 +6530,10 @@ class Note(BaseModel):
     id: int
     body: str
     ticket_ref: str | None
+    # Which discussion thread this is about, when it is about one. The Bell uses it to
+    # open the ticket ON that thread rather than dropping the reader on a ticket with
+    # eight threads and no clue which one wanted them.
+    thread_key: str | None = None
     at: str
     unread: bool
 
@@ -6004,6 +6580,7 @@ async def notifications(u: User = Depends(current_user)):
             keep = addressed and (r["ticket_ref"] is None or r["ticket_ref"] in mine)
         if keep:
             out.append(Note(id=r["id"], body=r["body"], ticket_ref=r["ticket_ref"],
+                            thread_key=r.get("thread_key"),
                             at=str(r["created_at"]), unread=r["read_at"] is None))
         if len(out) >= 60:
             break

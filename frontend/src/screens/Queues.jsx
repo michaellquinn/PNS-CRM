@@ -240,14 +240,113 @@ function RateCard({ service }) {
 // One component, two menu entries (Michael, 2026-08-18). `side` cuts the queue to who
 // attaches the price NOW — resp, not isPnsWork(), because a Sales-priced deal PNS
 // reviews later is still Sales' to price today. Left unset it is the whole queue.
+/* Attaching or replacing the price, wherever the person happens to be.
+ *
+ * Baskoro, 2026-08-28: "allow update rate card also inside the ticket, not only through
+ * Awaiting price menu". Pricing was reachable from exactly one screen, so correcting a
+ * link or a margin meant leaving the ticket you were reading, finding it again in a
+ * queue, and hoping the queue still held it — a ticket past Awaiting price was not on
+ * that queue at all, which made the price effectively uneditable after it moved on.
+ *
+ * Extracted rather than copied: the margin and discount here are what the 5A ceiling and
+ * the below-floor gate are checked against, and two forms drifting apart on that would
+ * be a routing bug wearing a UI costume. The queue keeps its own side actions (escalate,
+ * vendor, cancel) — those are queue work, not pricing.
+ *
+ * State is local and seeded from the ticket, so opening the form shows what is currently
+ * attached rather than a blank box that looks like nothing has been priced.
+ */
+export function PriceForm({ t, me, notify, onDone, compact = false }) {
+  const [link, setLink] = useState(t.price_url || "");
+  const [label, setLabel] = useState(t.price_file || "");
+  const [margin, setMargin] = useState(t.margin ?? "");
+  const [disc, setDisc] = useState(t.discount_pct ?? "");
+  const [below, setBelow] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const submit = async () => {
+    const url = link.trim();
+    if (url && !/^https?:\/\//i.test(url))
+      return notify("The link must start with http:// or https://");
+    const num = (v) => (v === "" || v == null ? null : Number(v));
+    setBusy(true);
+    try {
+      await api.price(t.ref, {
+        // A bare link with no label still needs something to show in lists.
+        price_file: label.trim() || "Pricing spreadsheet",
+        price_url: url || null,
+        margin_pct: num(margin),
+        discount_pct: num(disc),
+        below_bottom: !!below,
+      });
+      notify("Price updated");
+      await onDone?.();
+    } catch (e) { notify(e.message); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <>
+      {!compact && <RateCard service={t.service} />}
+      {(t.price_file || t.price_url) && (
+        <p className="mb-3 text-[12.5px]">
+          <span className="text-slate-500">Currently attached: </span>
+          <PriceChip file={t.price_file} url={t.price_url} />
+        </p>
+      )}
+      <div className="mb-2 grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+        <input className={inputCls} type="url" inputMode="url"
+          placeholder="Link to the pricing spreadsheet — https://docs.google.com/spreadsheets/…"
+          value={link} onChange={(e) => setLink(e.target.value)} />
+        <input className={inputCls} placeholder="Label (optional)"
+          value={label} onChange={(e) => setLabel(e.target.value)} />
+      </div>
+      <p className="mb-3 text-[11px] text-slate-400">
+        Share the sheet with whoever needs it in Drive first; this app stores the link
+        and cannot grant access. Keep cost and margin workings out of any sheet a
+        shipper or Commercial will open.
+      </p>
+      {/* The 5A tier ceiling is checked against these. Leaving one blank is not a
+          breach, since a standard rate card has nothing to declare, but then
+          nothing is checked either. */}
+      <div className="mb-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <input className={inputCls} type="number" step="0.1" min="0" max="100"
+          placeholder="Margin % (leave blank if standard)"
+          value={margin} onChange={(e) => setMargin(e.target.value)} />
+        <input className={inputCls} type="number" step="0.1" min="0" max="100"
+          placeholder="Discount % (leave blank if none)"
+          value={disc} onChange={(e) => setDisc(e.target.value)} />
+      </div>
+      {BOTTOM_MARGIN[t.service] != null && (
+        <p className="mb-2 text-[11px] text-slate-400">
+          {t.service} floor is {BOTTOM_MARGIN[t.service]}%, so a margin of{" "}
+          {Math.max(0, BOTTOM_MARGIN[t.service] - 1)}% would be below it.
+        </p>
+      )}
+      <div className="flex flex-wrap items-center gap-2">
+        {BOTTOM_MARGIN[t.service] != null && (
+          <label className="flex items-center gap-2 rounded-lg bg-amber-50 px-3 py-1.5 text-[12.5px] font-medium text-amber-800">
+            <input type="checkbox" checked={below}
+              onChange={(e) => setBelow(e.target.checked)} />
+            Below bottom rate ({BOTTOM_MARGIN[t.service]}% floor)
+          </label>
+        )}
+        <Btn kind="primary" className="ml-auto"
+          disabled={busy || !(link.trim() || label.trim())}
+          onClick={submit}>
+          {t.price_file || t.price_url ? "Update price" : "Attach price"}
+        </Btn>
+      </div>
+    </>
+  );
+}
+
+
 export function AwaitingPrice({ me, onOpen, notify, side }) {
   const [all, err, reload] = useTickets({ awaiting: true });
   const rows = side ? (all || []).filter((t) => t.priced_by === side) : all;
-  const [file, setFile] = useState({});
-  const [link, setLink] = useState({});
-  const [below, setBelow] = useState({});
-  const [margin, setMargin] = useState({});
-  const [disc, setDisc] = useState({});
+  // Only `drop` is still keyed by ref: the pricing fields moved into PriceForm, which
+  // holds its own state per ticket and seeds it from what is already attached.
   const [drop, setDrop] = useState({});
   const [busy, setBusy] = useState(null);
   const [list, f, set, clear, patch] = useFilter(rows, { resp: [], review: [] }, "awaiting");
@@ -322,52 +421,14 @@ export function AwaitingPrice({ me, onOpen, notify, side }) {
             </div>
           ) : (
             <>
-          <RateCard service={t.service} />
-          {(t.price_file || t.price_url) && (
-            <p className="mb-3 text-[12.5px]">
-              <span className="text-slate-500">Currently attached: </span>
-              <PriceChip file={t.price_file} url={t.price_url} />
-            </p>
-          )}
-          <div className="mb-2 grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-            <input className={inputCls} type="url" inputMode="url"
-              placeholder="Link to the pricing spreadsheet — https://docs.google.com/spreadsheets/…"
-              value={link[t.ref] ?? ""} onChange={(e) => setLink({ ...link, [t.ref]: e.target.value })} />
-            <input className={inputCls} placeholder="Label (optional)"
-              value={file[t.ref] ?? ""} onChange={(e) => setFile({ ...file, [t.ref]: e.target.value })} />
-          </div>
-          <p className="mb-3 text-[11px] text-slate-400">
-            Share the sheet with whoever needs it in Drive first; this app stores the link
-            and cannot grant access. Keep cost and margin workings out of any sheet a
-            shipper or Commercial will open.
-          </p>
-          {/* The 5A tier ceiling is checked against these. Leaving one blank is not a
-              breach, since a standard rate card has nothing to declare, but then
-              nothing is checked either. */}
-          <div className="mb-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-            <input className={inputCls} type="number" step="0.1" min="0" max="100"
-              placeholder="Margin % (leave blank if standard)"
-              value={margin[t.ref] ?? ""}
-              onChange={(e) => setMargin({ ...margin, [t.ref]: e.target.value })} />
-            <input className={inputCls} type="number" step="0.1" min="0" max="100"
-              placeholder="Discount % (leave blank if none)"
-              value={disc[t.ref] ?? ""}
-              onChange={(e) => setDisc({ ...disc, [t.ref]: e.target.value })} />
-          </div>
-          {BOTTOM_MARGIN[t.service] != null && (
-            <p className="mb-2 text-[11px] text-slate-400">
-              {t.service} floor is {BOTTOM_MARGIN[t.service]}%, so a margin of{" "}
-              {Math.max(0, BOTTOM_MARGIN[t.service] - 1)}% would be below it.
-            </p>
-          )}
-          <div className="flex flex-wrap items-center gap-2">
-            {BOTTOM_MARGIN[t.service] != null && (
-              <label className="flex items-center gap-2 rounded-lg bg-amber-50 px-3 py-1.5 text-[12.5px] font-medium text-amber-800">
-                <input type="checkbox" checked={!!below[t.ref]}
-                  onChange={(e) => setBelow({ ...below, [t.ref]: e.target.checked })} />
-                Below bottom rate ({BOTTOM_MARGIN[t.service]}% floor)
-              </label>
-            )}
+          {/* One pricing form, shared with the ticket screen (Baskoro, 2026-08-28).
+              The margin and discount here are what the 5A ceiling and the below-floor
+              gate are checked against, so a second copy of this form drifting apart
+              from the first would be a routing bug wearing a UI costume. */}
+          <PriceForm t={t} me={me} notify={notify} onDone={reload} />
+          {/* Queue work, not pricing: these move the ticket somewhere else rather
+              than putting a number on it, so they sit below the form on their own. */}
+          <div className="mt-3 flex flex-wrap items-center gap-2">
             {/* A button, not a checkbox tied to Attach price: escalating is its own
                 immediate action, not something that only takes effect once the price
                 form is also filled in and submitted — so it shows up on PSP's Pending
@@ -409,26 +470,6 @@ export function AwaitingPrice({ me, onOpen, notify, side }) {
                 </Btn>
               </>
             )}
-            <Btn kind="primary" className="ml-auto"
-              disabled={busy === t.ref
-                || !((link[t.ref] || "").trim() || (file[t.ref] || "").trim())}
-              onClick={() => {
-                const url = (link[t.ref] || "").trim();
-                const label = (file[t.ref] || "").trim();
-                if (url && !/^https?:\/\//i.test(url))
-                  return notify("The link must start with http:// or https://");
-                const num = (v) => (v === "" || v == null ? null : Number(v));
-                act(t.ref, () => api.price(t.ref, {
-                  // A bare link with no label still needs something to show in lists.
-                  price_file: label || "Pricing spreadsheet",
-                  price_url: url || null,
-                  margin_pct: num(margin[t.ref]),
-                  discount_pct: num(disc[t.ref]),
-                  below_bottom: !!below[t.ref],
-                }));
-              }}>
-              Attach price
-            </Btn>
           </div>
           <div className="mt-3 border-t border-slate-100 pt-3">
             <OwnerBar t={t} me={me} notify={notify} onDone={reload} />
