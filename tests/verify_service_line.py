@@ -143,6 +143,43 @@ route = ns["route"]
 check("FTL routes to PNS, who is the one who resolves it",
       route("Standard", FTL, 5_000_000)["resp"] == "PNS")
 
+# ---------------------------------------------------- scope beats the shipper name
+# The FTL name rule used to be the FIRST thing service_line_for did, which made the
+# out-of-scope list unreachable for any deal whose name contained "FTL" - the name rule
+# returned a service, so the import never saw the None that triggers the skip. That is
+# how SOF-5001324, a Ninja Cold deal named "... - FTL On Call (Ninja Cold)", arrived as
+# an ordinary truck ticket. Cross-border and air freight had the identical hole.
+#
+# Checked as OUTCOMES rather than by reading the source, so the guard survives the
+# function being rewritten: for every skipped line, no name gets a service out of it.
+print()
+print("an out-of-scope product line is refused whatever the shipper is called")
+_SKIP_N = ns["_SKIP_N"]
+NAMES = [
+    "PT Nawasena Asri Pertiwi - FTL On Call (Ninja Cold)",
+    "PT Anything - FTL",
+    "FTL Logistics Indonesia",
+    "PT Ordinary Shipper",
+]
+for raw in ns["PRODUCT_SKIP"]:
+    for nm in NAMES:
+        for lvl in ("Standard", "Same Day", ""):
+            got, _ = service_line_for(raw, lvl, nm)
+            check(f"{raw} / {lvl or '(no level)'} / {nm[:30]:30} -> refused",
+                  got is None, f"got {got!r} - the skip list is being bypassed")
+    check(f"{raw} still carries a stated reason for the sync report",
+          bool(_SKIP_N.get(ns["_norm_line"](raw))))
+
+# The other half of the same rule: the name rule must still fire for every line that is
+# NOT out of scope, or fixing the hole would have quietly disabled FTL detection.
+print()
+print("...and the FTL name rule still fires on every in-scope line")
+for line, lvl in [("Restock", "Standard"), ("LTL", "Standard"),
+                  ("Last Mile - Parcel", "Same Day"), ("Trucking", ""), ("", "")]:
+    got, why = service_line_for(line, lvl, "PT Anything - FTL - Jabo")
+    check(f"{line or '(blank)'} / {lvl or '(none)'} -> FTL", got == FTL, f"got {got!r}")
+    check(f"{line or '(blank)'} says the line is provisional", bool(why))
+
 print()
 if fails:
     print("FAILED %d check(s):" % len(fails))

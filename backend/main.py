@@ -1109,7 +1109,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-08-28.71"
+BUILD = "2026-08-28.72"
 
 
 class Me(BaseModel):
@@ -2045,12 +2045,21 @@ def service_line_for(product, level, shipper_name=""):
     caller reports it rather than importing a deal onto a guessed line. A non-empty
     `provisional_reason` means the line is a working answer somebody has to confirm.
     """
+    line, lvl = _norm_line(product), _norm_level(level)
+    # Out of scope beats everything, the shipper name included (Michael, 2026-08-27).
+    # This used to sit BELOW the FTL check, which made it unreachable for any deal whose
+    # name contained "FTL": the name rule returned a service, so the caller never saw the
+    # None that triggers the skip. A cold chain opportunity called "... - FTL On Call
+    # (Ninja Cold)" imported as an ordinary truck deal. Cross-border and air freight had
+    # the same hole. Whether we work a line is a scope decision and the product line is
+    # what states it; a name cannot overrule it.
+    if line in _SKIP_N:
+        return None, ""
     if FTL_IN_NAME.search(str(shipper_name or "")):
         return FTL_UNSPECIFIED, ("the shipper name says FTL and Sales CRM has no FTL "
                                  "product line yet, so the deal is on a provisional "
                                  "FTL line. Set FTL on-call or FTL monthly on the Input "
                                  "tab — it decides who prices it")
-    line, lvl = _norm_line(product), _norm_level(level)
     if not line:
         return None, ""
     hit = _LINE_LEVEL.get((line, lvl))
