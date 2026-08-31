@@ -3,6 +3,24 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-08-27",
+    title: "FIXED: parking a deal in Sales CRM was killing the PNS ticket",
+    by: "Michael + Claude",
+    changes: [
+      "FIXED: “Future Opportunity” was being read as a loss. It is not one — Closed-Lost means the shipper walked away, Future Opportunity means ask again next quarter. They shared one list.",
+      "This was not a labelling problem, it destroyed the ticket. Our status went to Lost, and the refresh will not move a ticket out of Lost, Cancel or accepted — right for a decided deal, but it makes terminal a door the sync cannot reopen. So when Sales revived the opportunity, nothing brought the ticket back. It stayed Lost through Negotiation, Proposal Submitted and Agreed to Ship alike, invisible to everyone, because nobody reads the Lost list looking for live work.",
+      "A parked stage now decides nothing about our status, exactly like Negotiation. The ticket keeps its status and its place in the queue and carries on by itself when Sales moves the stage. The Sales CRM pill beside the status already reads “Future Opportunity”, so nothing new had to be invented to make the park visible.",
+      "A price still cannot be attached while a deal is parked. Parked work should not have a new number put in front of the shipper — but that stops the one act that reaches the shipper, not the ticket.",
+      "Parked opportunities are now IMPORTED instead of skipped (Michael). The deal exists here with its Sales CRM id from the start, so Sales can pick it back up and it simply revives, rather than having to be raised from scratch.",
+      "Closed-Lost is untouched and still terminal.",
+      "Every stage test now compares normalised. Three of the four compared raw, so a trailing space or a lower-case letter silently changed what a stage did — the status mapping would call a deal lost while the import and the pricing guard treated it as ordinary. The picklist is hand-edited; the misspelt “Future Oppurtunity” already in the list is the proof.",
+      "New verify_stages suite: parked decides nothing, a real loss stays terminal, no test compares against the raw tuples (checked over the AST, since that is the form the bug took), and the full park-then-revive round trip ends where Sales ended it. Confirmed it fails both ways — 8 checks when a park is treated as a loss again, 3 when a single raw comparison is put back.",
+    ],
+    overruled: [
+      "Baskoro, 2026-08-11: terminal stages move our status, with Future Opportunity counted as terminal. The rule stands for Closed-Lost. Future Opportunity is a park and now moves nothing — the tickets it was closing were being revived in Sales CRM and shipped while this app still called them Lost.",
+    ],
+  },
+  {
+    date: "2026-08-27",
     title: "FIXED: an out-of-scope deal could get in by having “FTL” in its name",
     by: "Michael + Claude",
     changes: [

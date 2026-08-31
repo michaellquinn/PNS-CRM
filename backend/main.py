@@ -290,7 +290,7 @@ TRANSITIONS = [
     ("Cancel", "any pending status", "Sales puts the deal back in the pipeline",
      "any Commercial user", "POST /tickets/{ref}/reopen"),
 
-    ("*", "Lost", "Sales CRM moves the opportunity to Closed-Lost or Future Opportunity",
+    ("*", "Lost", "Sales CRM moves the opportunity to Closed-Lost",
      "the sync — Sales CRM leads on stage", "sync"),
     ("*", "Proposal Accepted / Ready to Ship",
      "Sales CRM moves the opportunity to Agreed to Ship, Onboarding or Closed-Won",
@@ -484,8 +484,23 @@ PRICING_GUARD = {
 
 # Sales CRM stage -> what it means here. Anything before the shipper accepts is still
 # an open solutioning job, so it does not force our status; routing decides that.
-# Future Opportunity is a loss for PNS purposes: the deal is not being solutioned now.
-CLOSED_LOST_STAGES = ("Closed-Lost", "Closed Lost", "Future Opportunity", "Future Oppurtunity")
+CLOSED_LOST_STAGES = ("Closed-Lost", "Closed Lost")
+# Parked, NOT lost (Michael, 2026-08-27). "Future Opportunity" means budget moved or the
+# shipper is not ready — ask again next quarter — which is the opposite of Closed-Lost,
+# and the two shared one list until now.
+#
+# Treating it as a loss did not just mislabel the ticket, it destroyed it. Our status went
+# to Lost, and the refresh skips any ticket sitting in Lost (see _refresh_from_salescrm),
+# so when Sales revived the opportunity nothing brought the ticket back — it stayed Lost
+# through Negotiation, Proposal Submitted and Agreed to Ship alike, invisible to everyone
+# because nobody reads the Lost list.
+#
+# So a parked stage now decides nothing about our status, exactly like Negotiation. A
+# ticket keeps its place in the queue and simply carries on when Sales picks the deal
+# back up. What it still does is block PRICING, via stage_blocks_work: parked work should
+# not have a new number put in front of the shipper. The stage is already on screen as
+# its own pill beside our status, so "this is parked" needs no new vocabulary here.
+PARKED_STAGES = ("Future Opportunity", "Future Oppurtunity")
 ACCEPTED_STAGES = ("Agreed to Ship", "Onboarding", "Ready to Ship", "Closed-Won", "Closed Won")
 # The one NON-terminal stage that follows ours (Michael, 2026-08-18). Every other
 # mid-funnel stage describes what Sales is doing and leaves our status alone; this one
@@ -503,21 +518,31 @@ def _norm_stage(s: str | None) -> str:
 
 
 _LOST_N = {_norm_stage(s) for s in CLOSED_LOST_STAGES}
+_PARKED_N = {_norm_stage(s) for s in PARKED_STAGES}
 _ACCEPTED_N = {_norm_stage(s) for s in ACCEPTED_STAGES}
 _SUBMITTED_N = {_norm_stage(s) for s in SUBMITTED_STAGES}
 
 
 def stage_blocks_work(t: dict) -> str | None:
-    """Sales CRM outranks us. If the opportunity is dead there, no PNS work proceeds.
+    """Sales CRM outranks us. If the opportunity is dead or parked there, no PNS work
+    proceeds.
 
-    Sales owns the commercial reality: if the shipper walked away or the deal was parked
-    as a future opportunity, solutioning it is wasted effort and a priced proposal would
-    be misleading. Returns the reason to refuse, or None to allow."""
-    stage = t.get("stage")
-    if stage in CLOSED_LOST_STAGES:
-        return (f"Sales CRM has this opportunity at '{stage}'. Reopen it there first: "
-                f"Sales CRM leads on stage and this ticket follows it.")
+    Sales owns the commercial reality: if the shipper walked away, or the deal is parked
+    for a later quarter, putting a fresh price in front of them is wasted effort at best
+    and misleading at worst. A parked ticket keeps its status and its place in the queue
+    — this stops the one act that reaches the shipper, not the ticket's existence.
+
+    Returns the reason to refuse, or None to allow."""
+    s = _norm_stage(t.get("stage"))
+    if s in _LOST_N:
+        return (f"Sales CRM has this opportunity at '{t.get('stage')}'. Reopen it there "
+                f"first: Sales CRM leads on stage and this ticket follows it.")
+    if s in _PARKED_N:
+        return (f"Sales CRM has this opportunity parked at '{t.get('stage')}'. The ticket "
+                f"stays where it is and will carry on by itself when Sales moves the "
+                f"stage, but a price should not go out while the deal is parked.")
     return None
+
 
 
 def status_for_stage(stage: str | None, resp: str) -> str | None:
@@ -532,7 +557,13 @@ def status_for_stage(stage: str | None, resp: str) -> str | None:
     than looser: ACCEPTED_STAGES has always overridden our status from any open state, so
     "the shipper accepted" was allowed to jump every gate while the weaker "the proposal
     went out" was not. Where a ticket was still in an approval gate, the sync records the
-    gates it bypassed rather than moving it quietly — see _refresh_from_salescrm()."""
+    gates it bypassed rather than moving it quietly — see _refresh_from_salescrm().
+
+    PARKED_STAGES deliberately imply NOTHING here (Michael, 2026-08-27). They used
+    to be read as a loss, which was terminal, and terminal is a door the sync
+    cannot reopen — so a parked deal stayed Lost even after Sales revived it.
+    A parked ticket now keeps its status and follows the stage back up by itself.
+    stage_blocks_work() still refuses to let a price go out while it is parked."""
     if not stage:
         return None
     # Compared normalised — case-folded and inner whitespace collapsed. Sales CRM's
@@ -1109,7 +1140,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-08-27.71"
+BUILD = "2026-08-27.72"
 
 
 class Me(BaseModel):
@@ -2581,7 +2612,10 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
                         and str(o.get("id")) not in ignored
                         and (not SALESCRM_RECORD_TYPE
                              or o.get("record_type_name") == SALESCRM_RECORD_TYPE)
-                        and o.get("stage") not in CLOSED_LOST_STAGES
+                        # Normalised, like every other stage test: the picklist
+                        # is hand-edited and a trailing space is not a new stage.
+                        # Parked deals are NOT excluded here - they import now.
+                        and _norm_stage(o.get("stage")) not in _LOST_N
                         # Same resolver the import uses, so this prefetch cannot decide
                         # a deal is importable on rules the import no longer applies.
                         and service_line_for(
@@ -2690,7 +2724,11 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
                                                f"floor this app imports from"})
                         continue
                     stage = o.get("stage")
-                    if stage in CLOSED_LOST_STAGES:
+                    # Only a real loss is held back. A parked opportunity is
+                    # imported (Michael, 2026-08-27) so the deal exists here with
+                    # its Sales CRM id and revives by itself when Sales picks it
+                    # back up, instead of having to be raised from scratch.
+                    if _norm_stage(stage) in _LOST_N:
                         skipped.append({"id": oid, "name": o.get("name"),
                                         "why": f"Sales CRM stage is {stage}"})
                         continue
@@ -2816,7 +2854,7 @@ async def _refresh_from_salescrm(o: dict, account: dict | None = None,
     would wipe good data every morning.
 
     Terminal stages DO move our status (Baskoro, 2026-08-11): a deal that closed in
-    Sales CRM must not sit open here. Closed-Lost/Future Opportunity -> Lost; the
+    Sales CRM must not sit open here. Closed-Lost -> Lost; the
     accepted stages -> Ready to Ship. When the move lands on a ticket whose onboarding
     fields are still blank, PNS and Sales are flagged to fill them, because Ops cannot
     onboard a shipper the account systems cannot find. Returns what happened, or None
@@ -6193,10 +6231,19 @@ async def status_flow(u: User = Depends(current_user)):
         "stage_rules": [
             StageRule(
                 stages=list(CLOSED_LOST_STAGES), becomes="Lost",
-                why="The shipper walked away or the deal was parked as a future "
-                    "opportunity. Solutioning it further is wasted effort, and a priced "
-                    "proposal would be misleading. Recorded with loss reason "
-                    "“Closed in Sales CRM”."),
+                why="The shipper walked away. Solutioning it further is wasted "
+                    "effort, and a priced proposal would be misleading. Recorded "
+                    "with Sales CRM’s own loss reason."),
+            StageRule(
+                stages=list(PARKED_STAGES), becomes=None,
+                why="Parked, not lost — budget moved, or the shipper is not ready "
+                    "yet. The ticket keeps its status and its place in the queue, "
+                    "and carries on by itself when Sales moves the stage. Until "
+                    "then a price cannot be attached: parked work should not have "
+                    "a new number put in front of the shipper. These stages were "
+                    "read as a loss until 2026-08-27, which killed the ticket "
+                    "outright — the sync never touches a Lost ticket again, so "
+                    "it stayed dead even after Sales revived the deal."),
             StageRule(
                 stages=list(ACCEPTED_STAGES), becomes="Proposal Accepted / Ready to Ship",
                 why="The shipper accepted. If the onboarding fields are still blank when "
@@ -6220,8 +6267,8 @@ async def status_flow(u: User = Depends(current_user)):
                 why="Left alone on purpose. Sales CRM owns the COMMERCIAL stage; this app "
                     "owns the SOLUTIONING status, and they answer different questions. A "
                     "deal can sit at Negotiation there while PNS is still pricing here, "
-                    "and neither is wrong. What overrides ours is the two terminal stages "
-                    "plus Proposal Submitted, and nothing else."),
+                    "and neither is wrong. What overrides ours is Closed-Lost, the "
+                    "accepted stages and Proposal Submitted, and nothing else."),
         ],
     }
 

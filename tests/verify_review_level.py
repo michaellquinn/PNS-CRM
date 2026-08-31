@@ -170,9 +170,16 @@ print(f"verify_review_level.py  {len(CHAINS)} approval chains PASSED")
 # argument that ACCEPTED_STAGES had always done exactly that and the inconsistency was
 # the bug. Anything mid-funnel must still leave our status alone — a ticket must not jump
 # to Proposal Submitted because Sales moved the deal to Negotiation.
+#
+# It moved again on 2026-08-27: "Future Opportunity" is a PARK, not a loss, and now
+# implies nothing. It was expected to be "Lost" right here, which is worth keeping in
+# mind about pinned expectations - this suite faithfully protected the behaviour that
+# was destroying tickets. Lost is terminal, the refresh will not move a ticket out of
+# a terminal status, so a parked deal stayed Lost even after Sales revived it. The
+# park is covered in full by verify_stages.py, including the revival round trip.
 STAGES = [
     ("Closed-Lost",        "Lost"),
-    ("Future Opportunity", "Lost"),
+    ("Future Opportunity", None),      # parked — our status is left alone
     ("Agreed to Ship",     "Proposal Accepted / Ready to Ship"),
     ("Closed-Won",         "Proposal Accepted / Ready to Ship"),
     ("Proposal Submitted", "Proposal Submitted"),

@@ -319,9 +319,13 @@ export default function Sync({ notify }) {
                 it in Sales CRM. Since 18 August the go-live date comes from Sales CRM's
                 <i>target start date</i> rather than its close date — the field that
                 actually answers the question. A <b>closed</b> stage
-                also moves our status: Closed-Lost and Future Opportunity become Lost;
-                the accepted stages become Ready to Ship, and if the onboarding fields are
-                still blank, PNS and Sales are told which ones. Service and account tier
+                also moves our status: Closed-Lost becomes Lost; the accepted stages
+                become Ready to Ship, and if the onboarding fields are still blank,
+                PNS and Sales are told which ones. <b>Future Opportunity</b> is a
+                park, not a loss — since 27 August it leaves our status alone, so the
+                ticket keeps its place and carries on by itself when Sales moves the
+                stage. A price cannot be attached while it is parked.
+                Service and account tier
                 <br />
                 Whenever revenue, service or tier changes, the <b>routing is re-derived</b>
                 on the corrected facts and the change is written to the ticket history,

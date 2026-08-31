@@ -38,6 +38,13 @@ Each suite exists because something was actually wrong:
                      EN DASH where the old map had a hyphen, so matching literally stopped
                      a whole product line importing with nothing to say why.
 
+  verify_stages      "Future Opportunity" was read as a loss until 2026-08-27. Lost is
+                     terminal, and the refresh will not move a ticket out of a terminal
+                     status, so parking a deal killed the PNS ticket outright: it stayed
+                     Lost even after Sales revived the opportunity and shipped it. Also
+                     pins that every stage test compares NORMALISED - three of the four
+                     compared raw, so a trailing space changed what a stage did.
+
   verify_transitions POST /status took whatever string it was handed, so a status the
                      running code cannot act on could be written straight onto a ticket.
                      Also pins that a "*" row does not let a Lost deal be walked
@@ -51,7 +58,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SUITES = ["verify_rules.py", "verify_assign.py", "verify_charter.py",
           "verify_psp_gate.py", "verify_permissions.py", "verify_review_level.py",
           "verify_transitions.py", "verify_sync_guards.py", "verify_names.py",
-          "verify_service_line.py"]
+          "verify_service_line.py", "verify_stages.py"]
 
 failed = []
 for name in SUITES:
