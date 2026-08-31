@@ -106,6 +106,25 @@ export const api = {
   // Whether the 5-minute timer is on, and what it did last. A failing timer is silent
   // by nature, so the Sync screen reads this and says so.
   autoSync: () => call("/sync/auto"),
+  // The import queue. Sales paste the Sales CRM opportunity ids they want worked and
+  // the automatic sync imports those and nothing else — see sync.queue_only.
+  syncQueue: () => call("/sync/queue"),
+  queueSync: (ids, note) =>
+    call("/sync/queue", { method: "POST", body: JSON.stringify({ ids, note }) }),
+  unqueueSync: (oid) =>
+    call(`/sync/queue/${encodeURIComponent(oid)}`, { method: "DELETE" }),
+  // What the automatic sync is allowed to import. Stored in the database, not in env
+  // vars: this app runs on more than one replica and a module global is per-pod.
+  settings: () => call("/settings"),
+  setSettings: (values) =>
+    call("/settings", { method: "POST", body: JSON.stringify({ values }) }),
+  // Every live ticket with no PNS PIC, and the bulk soft-delete that clears them. The
+  // preview is read first and its count is echoed back on the delete, so a list that
+  // has moved underneath you refuses rather than taking a bigger bite.
+  pnsUnassigned: () => call("/diagnostics/pns-unassigned"),
+  bulkDeletePnsUnassigned: (expect, include_decided) =>
+    call("/tickets/bulk-delete/pns-unassigned",
+      { method: "POST", body: JSON.stringify({ expect, include_decided }) }),
   syncSalesCrm: (body) =>
     call("/sync/salescrm", { method: "POST", body: JSON.stringify(body || {}) }),
   pspAssign: (ref, assignee) =>
@@ -273,3 +292,28 @@ export const groupTone = (g) =>
 // asking for acct_type="Must Win" returns nothing at all.
 export const groupFilter = (g) =>
   g === "Must Win" ? { must_win: true } : g ? { acct_type: g } : {};
+
+// Two deals on one account are told apart by the OPPORTUNITY name, not the account name
+// (Baskoro, 2026-08-28). An account routinely runs several opportunities at once — the
+// board carried five rows reading "PT Daya Kobelco Construction Machinery Indonesia" and
+// nothing on the row said which deal each one was. The opportunity name is the field
+// that differs, so it leads; the account name stays as a small tag beside it, because
+// "which customer is this?" is still the second question anyone asks.
+//
+// Sales CRM composes the opportunity name from parts and leaves the separator in when a
+// part is empty ("PT Saint-Gobain Abrasives Diamas - Sameday (B2BR) - "), so trailing
+// punctuation is trimmed. A ticket raised here by hand has no opportunity name at all
+// and falls back to the account name, which is all it has.
+export const dealName = (t) =>
+  String(t?.opportunity_name || "").replace(/[\s\-–—·,;:|/]+$/, "").trim()
+  || t?.shipper || "";
+
+// Whether the account tag would say anything the deal name has not already said. Sales
+// CRM often names an opportunity after its account, and printing the same words twice on
+// one row is noise, not context.
+export const accountDiffers = (t) => {
+  const a = String(t?.shipper || "").trim();
+  if (!a) return false;
+  const d = dealName(t).toLowerCase();
+  return d !== a.toLowerCase() && !d.startsWith(a.toLowerCase());
+};

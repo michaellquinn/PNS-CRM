@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api, SERVICES, rp } from "../api";
 import { charterHtml, charterText, copyRich } from "../charter";
 import Discussion from "./Discussion";
+import { PriceForm } from "./Queues";
 import Attachments from "./Attachments";
 import {
   Btn, Card, Combo, Confirm, Head, Pill, PriceChip, Sla, inputCls,
@@ -68,11 +69,14 @@ function Row({ label, children }) {
 }
 
 // The prop is `ticketRef`, not `ref` — React reserves `ref` on components.
-export default function TicketDetail({ ticketRef: initialRef, me, notify, onBack }) {
+export default function TicketDetail({ ticketRef: initialRef, me, notify, onBack,
+                                       focusThread = null }) {
   const [ref, setRef] = useState(initialRef);
   const [d, setD] = useState(null);
   const [err, setErr] = useState(null);
-  const [tab, setTab] = useState("charter");
+  // Arriving from a notification about a discussion thread opens ON the discussion,
+  // not on the charter the reader did not ask for.
+  const [tab, setTab] = useState(focusThread ? "discussion" : "charter");
   const [all, setAll] = useState([]);
   const [draft, setDraft] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -662,6 +666,26 @@ export default function TicketDetail({ ticketRef: initialRef, me, notify, onBack
               <Row label="Price spreadsheet">
                 <PriceChip file={d.price_file} url={d.price_url} />
               </Row>
+              {/* Pricing from the ticket itself (Baskoro, 2026-08-28). It used to live
+                  only on Awaiting price, so correcting a link or a margin meant leaving
+                  the ticket, finding it again in a queue, and hoping the queue still
+                  held it — once a ticket moved past Awaiting price it was not on that
+                  queue at all, which made the price effectively uneditable.
+
+                  The same component the queue uses, so the margin and discount the 5A
+                  ceiling is checked against cannot come out different depending on where
+                  they were typed. Shown to whoever may attach a price on this ticket,
+                  which is the side that owes it. */}
+              {["PNS", "Commercial", "Admin"].includes(me.group) && (
+                <div className="mt-4 border-t border-slate-100 pt-4">
+                  <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                    Update the price
+                  </p>
+                  <PriceForm t={{ ...t, price_file: d.price_file, price_url: d.price_url,
+                                  margin: d.margin, discount_pct: d.discount_pct }}
+                    me={me} notify={notify} onDone={async () => { await load(); }} compact />
+                </div>
+              )}
               {p.seeMargin ? (
                 <>
                   <Row label="Margin">{d.margin == null ? "—" : <b className="font-mono">{d.margin}%</b>}</Row>
@@ -686,7 +710,8 @@ export default function TicketDetail({ ticketRef: initialRef, me, notify, onBack
           )}
 
           {tab === "discussion" && (
-            <Discussion ticketRef={ref} me={me} notify={notify} onCountChange={setQCount} />
+            <Discussion ticketRef={ref} me={me} notify={notify} onCountChange={setQCount}
+              focusThread={focusThread} />
           )}
 
           {tab === "history" && (

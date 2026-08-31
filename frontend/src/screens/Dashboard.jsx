@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { api, SERVICES, STATUSES, isPnsWork, rp } from "../api";
+import { api, SERVICES, STATUSES, isPnsWork, rp, dealName, accountDiffers } from "../api";
 import { Head, MultiSelect, Pill, Sla, StagePill, Tile, usePnsTeam, useSticky } from "../ui";
 
 const EMPTY = { search: "", status: [], service: [], acct: [], owner: "", sales: "",
@@ -280,7 +280,7 @@ export default function Dashboard({ me, onOpen, view = "all" }) {
   // Export exactly what is on screen, and only the columns this role may see — margin
   // stays out of the file for anyone without seeMargin, same rule as the table.
   const exportCsv = () => {
-    const head = ["Ticket", "CRM ID", "Submitted", "First synced", "Shipper", "Account type", "Region",
+    const head = ["Ticket", "CRM ID", "Submitted", "First synced", "Opportunity", "Shipper", "Account type", "Region",
                   "Service", "Revenue", "Status", "Sales CRM stage", "Priced by",
                   "PNS review", "Days in status", "SLA target",
                   ...(canSeeMargin ? ["Margin %"] : []), "PNS PIC", "Sales PIC"];
@@ -289,7 +289,7 @@ export default function Dashboard({ me, onOpen, view = "all" }) {
       return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
     };
     const lines = [head.join(",")].concat(sorted.map((t) => [
-      t.ref, t.opportunity_id || "", t.submitted_on, t.first_synced_on || "", t.shipper, t.acct_type, t.region,
+      t.ref, t.opportunity_id || "", t.submitted_on, t.first_synced_on || "", dealName(t), t.shipper, t.acct_type, t.region,
       t.service, t.revenue, t.status, t.stage || "", t.priced_by,
       t.needs_review ? "yes" : "no", t.sla_elapsed, t.sla_target,
       ...(canSeeMargin ? [t.margin ?? ""] : []), t.owner || "", t.sales || "",
@@ -492,12 +492,22 @@ export default function Dashboard({ me, onOpen, view = "all" }) {
                       Agroveta Husada Dharma - LTL (B2BR)" — and truncating them hid the
                       part that tells two tickets apart. The name wraps in full instead. */}
                   <td className="min-w-[260px] px-4 py-3.5 font-medium">
-                    {t.shipper}
+                    {/* The deal, not the customer. Five rows on this board read
+                        "PT Daya Kobelco Construction Machinery Indonesia" and only the
+                        opportunity name tells them apart — see dealName(). */}
+                    {dealName(t)}
                     <span className={`ml-2 rounded px-1.5 text-[11px] font-semibold ${
                       t.acct_type === "Hypercare" ? "bg-fuchsia-50 text-fuchsia-700"
                       : t.acct_type === "Strategic" ? "bg-violet-50 text-violet-700"
                       : "font-normal text-slate-400"}`}>{t.acct_type}</span>
                     <span className="ml-1.5 text-[11.5px] font-normal text-slate-400">{t.region}</span>
+                    {accountDiffers(t) && (
+                      <div className="mt-1 text-[11.5px] font-normal">
+                        <span className="rounded bg-slate-100 px-1.5 py-px font-medium text-slate-500">
+                          {t.shipper}
+                        </span>
+                      </div>
+                    )}
                   </td>
                   <td className="whitespace-nowrap px-4 py-3.5">{t.service}</td>
                   <td className="whitespace-nowrap px-4 py-3.5 text-right font-mono tabular-nums">{rp(t.revenue)}</td>

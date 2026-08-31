@@ -35,7 +35,8 @@ function Body({ text }) {
   );
 }
 
-export default function Discussion({ ticketRef, me, notify, onCountChange }) {
+export default function Discussion({ ticketRef, me, notify, onCountChange,
+                                     focusThread = null }) {
   const [data, setData] = useState(null);
   const [err, setErr] = useState(null);
   const [text, setText] = useState("");
@@ -48,6 +49,15 @@ export default function Discussion({ ticketRef, me, notify, onCountChange }) {
   // makes "what is still open" unanswerable without reading everything.
   const [thread, setThread] = useState("");
   const [newTitle, setNewTitle] = useState("");
+  // Arriving from a tag notification: reply where you were tagged, without hunting for
+  // the thread first. Set once from the prop rather than on every render, so choosing a
+  // different thread afterwards is not undone the next time this component re-renders.
+  useEffect(() => { if (focusThread) setThread(focusThread); }, [focusThread]);
+  const focusRef = useRef(null);
+  useEffect(() => {
+    if (focusThread && focusRef.current)
+      focusRef.current.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [focusThread, data]);
   const people = useDirectory();
   const box = useRef(null);
 
@@ -133,12 +143,16 @@ export default function Discussion({ ticketRef, me, notify, onCountChange }) {
       {data.comments.length === 0 && <Empty>No questions on this ticket yet.</Empty>}
 
       {groups.map((g) => (
-        <div key={g.key} className="mb-5">
+        <div key={g.key} className="mb-5"
+          ref={focusThread && g.key === focusThread ? focusRef : null}>
           <div className="mb-2 flex flex-wrap items-center gap-2 border-b border-slate-200 pb-1.5">
             <span className="text-[10.5px] font-bold uppercase tracking-wider text-slate-400">
               {g.key ? "Thread" : "Ticket"}
             </span>
             <b className="text-[13.5px]">{g.title}</b>
+            {focusThread && g.key === focusThread && (
+              <Pill tone="bg-violet-50 text-violet-700">you were tagged here</Pill>
+            )}
             <span className="text-[11.5px] text-slate-400">
               {g.items.length} post{g.items.length === 1 ? "" : "s"}
             </span>

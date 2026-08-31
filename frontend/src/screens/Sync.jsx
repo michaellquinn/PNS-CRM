@@ -322,7 +322,7 @@ export default function Sync({ notify }) {
                 also moves our status: Closed-Lost becomes Lost; the accepted stages
                 become Ready to Ship, and if the onboarding fields are still blank,
                 PNS and Sales are told which ones. <b>Future Opportunity</b> is a
-                park, not a loss — since 27 August it leaves our status alone, so the
+                park, not a loss — since 31 August it leaves our status alone, so the
                 ticket keeps its place and carries on by itself when Sales moves the
                 stage. A price cannot be attached while it is parked.
                 Service and account tier

@@ -2,7 +2,7 @@ import { Card, Head, Pill } from "../ui";
 
 const ENTRIES = [
   {
-    date: "2026-08-27",
+    date: "2026-08-31",
     title: "FIXED: parking a deal in Sales CRM was killing the PNS ticket",
     by: "Michael + Claude",
     changes: [
@@ -18,6 +18,81 @@ const ENTRIES = [
     overruled: [
       "Baskoro, 2026-08-11: terminal stages move our status, with Future Opportunity counted as terminal. The rule stands for Closed-Lost. Future Opportunity is a park and now moves nothing — the tickets it was closing were being revived in Sales CRM and shipped while this app still called them Lost.",
     ],
+  },
+  {
+    date: "2026-08-28",
+    title: "Sales raise a request with just the Sales CRM ID; the Import queue is Admin's",
+    by: "Baskoro + Claude",
+    changes: [
+      "New request now opens with the short way in: paste the Sales CRM opportunity ID and nothing else, and the ticket is built here within about five minutes from the record Sales already filled in — shipper, account tier, service line, revenue and salesperson all come across. The full form stays underneath for a deal that is not in Sales CRM yet.",
+      "The five minutes is read from the sync's actual interval, not written into the sentence. An admin can change how often the sync runs, and a hardcoded number would become a lie the moment they did.",
+      "Every outcome is said plainly rather than only the happy one: already on the board, already queued, or not a valid ID each get their own answer. Silently showing “on its way” for a deal that is already there would have people waiting five minutes for a ticket that exists.",
+      "The Import queue menu is Admin only now. Sales never needed the screen — queueing their own deal happens on New request, which is the only part of it that was ever their job. Reading the whole queue, removing other people's rows and changing what the sync imports is administration.",
+    ],
+    overruled: [
+      "The Import queue entry was visible to anyone who could queue (Commercial, PNS, Sales Planning). Admin only from now on. Submitting an ID is unchanged and still open to all of them, through New request.",
+      "editSyncSettings was the PNS Head's. It is Admin's, alongside the screen those controls live on — a setting nobody can reach is not a permission, it is a dead end.",
+    ],
+  },
+  {
+    date: "2026-08-28",
+    title: "FIXED: a completed bulk delete reported itself as a failure",
+    by: "Baskoro + Claude",
+    changes: [
+      "FIXED: the first real run of “move unassigned tickets to the recycle bin” binned all 64 tickets correctly and then returned 500. audit_log.entity_id is VARCHAR(40) and the call was putting 200 characters of comma-joined ticket refs into it, so the audit insert raised after the tickets had already been written.",
+      "That is the worst shape a failure can take on a destructive action: it reads as “nothing happened” and invites a retry against a board that has already changed. The count guard would have refused the retry, but nobody should have to rely on that.",
+      "The refs now go in new_value (VARCHAR(500)) and entity_id names the rule rather than trying to hold 64 ticket ids. Everything after the delete is bookkeeping, and bookkeeping can no longer replace the result: a failure there is logged loudly and reported as bookkeeping_ok:false beside the real outcome.",
+      "Two more call sites had the same latent fault and are fixed: queueing more than about three opportunities at once would have overflowed the same column, and saving sync settings passed a 400-character slice into `field`, which is VARCHAR(60).",
+      "verify_names now checks audit() arguments against the audit_log column widths. Those widths are invisible at the call site, which is exactly why three call sites had it wrong. Confirmed it fails on the shape that shipped.",
+      "The 64 tickets from that first run are in the recycle bin and restorable as normal. Its audit row and its notification were the part that failed, so that one clear-out is not in the audit log — the tickets themselves, and who binned them, are recorded on the tickets.",
+    ],
+    overruled: [],
+  },
+  {
+    date: "2026-08-28",
+    title: "Sales say what to import, the Head sets the rules, and six other asks",
+    by: "Baskoro + Claude",
+    changes: [
+      "NEW — Import queue. Sales paste the Sales CRM opportunity ids they want worked, in bulk: one per line, commas, or the record URLs straight from your browser tabs. Turn on “Only import what is queued” and the automatic sync creates a ticket only for a queued deal and discovers nothing on its own. Off by default, so nothing changes until it is switched on deliberately, and the screen says plainly when it is not yet governing.",
+      "Refreshing tickets ALREADY on the board is deliberately not governed by the queue and never will be. A deal that is here has to keep learning that it was won, lost or repriced in Sales CRM; stopping that to honour a queue would trade one kind of staleness for a worse one.",
+      "A queued id is closed out by the sweep with what happened to it — imported and which ticket, skipped and why, or failed and the error. An id the run never saw stays waiting rather than being marked failed: Sales CRM may not have the record yet. A failed or skipped row can simply be queued again once the record is fixed.",
+      "NEW — the automatic sync's rules are editable, no deploy. How often it runs, how far back it looks, the import floor, watched-groups-only, and whether the queue governs. Stored in the DATABASE rather than in environment variables, and that detail matters: this app runs on more than one replica, so a value held in one server's memory would apply to whichever server happened to answer you. Setting them is the Head of PNS's; reading them is open to anyone who can queue, because “why has my deal not appeared?” is answered by these values.",
+      "Notifications are clickable. One about a ticket opens that ticket; one about a discussion thread opens the ticket ON that thread, marked “you were tagged here”, with the reply box already pointed at it. Being tagged in one of eight threads and landing on the ticket in general told you almost nothing. A broadcast with no ticket behind it stays plain text rather than looking like a dead link.",
+      "Pending & proposals: raise a point from the row with “+ Note”, without opening the ticket. The screen is walked ticket by ticket on a call and opening one unmounts the list, so most of what got said was never written down. Each note STARTS ITS OWN THREAD, titled from its first line, and posts as a question so it lands in the unanswered count — a point raised in a review is a point somebody has to answer.",
+      "The price can be attached and corrected from inside the ticket, not only from Awaiting price. Once a ticket moved past that queue it was not on it at all, which made the price effectively uneditable. It is the same component in both places on purpose: the margin and discount here are what the 5A ceiling and the below-floor gate are checked against, and two copies drifting apart would be a routing bug wearing a UI costume.",
+      "NEW — Data checks lists every live ticket with no PNS PIC and can move them to the recycle bin in one go. It is a SOFT delete, the same act as the per-ticket button, so Restore stays available; purge is still separate, Admin-only and one at a time. Settled business — won, lost, cancelled — is excluded unless you tick it in. The list is shown before it can be acted on, and the delete carries the count you were shown, so a list that moved underneath you refuses rather than taking a bigger bite.",
+      "Migration V26 adds the queue and settings tables and records which thread a notification is about. V25 was the highest before it.",
+    ],
+    overruled: [
+      "AUTO_SYNC_MINUTES, AUTO_SYNC_DAYS and SYNC_MIN_DATE are now DEFAULTS, not the answer. A database that has never been written to behaves exactly as before; once a setting is saved, the setting wins.",
+      "The auto-sync timer used to start only when AUTO_SYNC_MINUTES was set. It now always starts and asks the settings on each tick — otherwise “run the sync automatically” would have been a switch you could turn on in the portal with no effect until somebody redeployed.",
+    ],
+  },
+  {
+    date: "2026-08-28",
+    title: "FIXED: the automatic sync has been dying a quarter of the way through every run for a week",
+    by: "Baskoro + Claude",
+    changes: [
+      "Baskoro asked why 906885 (PT Saint-Gobain Abrasives Diamas) still showed B2C when its Sales CRM product line and service level had both been changed. The ticket was the symptom; the sync being dead was the cause.",
+      "FIXED: `changed.append(...)` in the refresh sat nine lines ABOVE `changed = []`. Python decides a name is local to the whole function the moment it is assigned anywhere in it, so that append raised UnboundLocalError — but only on a ticket whose Must Win flag disagreed with Sales CRM, which is why it looked intermittent rather than broken.",
+      "Nothing caught it. The refresh was called with no try/except, so one bad ticket ended the entire sweep: the five-minute timer ran, refreshed the 25 tickets ahead of the offender, threw, and every ticket behind it went untouched. Sync → Auto has been reporting last_ok: false with that error on all 17 runs; nobody was reading it.",
+      "So 906885 was stale for a reason that had nothing to do with the service line. The current mapping reads Restock / Same Day as Sameday and would have corrected it — the run just never got that far. Its history shows the old mapping writing “service Sameday to B2C” twice on 21 August, over the top of corrections by Sandrina and Michael, and then nothing at all for a week.",
+      "One ticket can no longer end a sweep. A refresh that throws is recorded against that opportunity id, like any other per-deal failure, and the run carries on.",
+      "verify_names now walks every function for a local read before it is bound, which is the class of bug this was and the class `_crm_date` was. Confirmed it fails on the original code, not just that it passes on the fix. It skips loops, except/finally and comprehensions, where “before” is not a straight line through the source.",
+    ],
+    overruled: [],
+  },
+  {
+    date: "2026-08-28",
+    title: "The deal name leads, and a named opportunity id imports whatever its age",
+    by: "Baskoro + Claude",
+    changes: [
+      "Every board now leads with the OPPORTUNITY name and carries the account name as a small tag beside it. One account routinely runs several deals at once — there were five rows reading “PT Daya Kobelco Construction Machinery Indonesia” and nothing on any of them said which deal it was. Where Sales CRM has named the opportunity after its account the tag is left off rather than printing the same words twice, and a ticket raised here by hand still shows the account name, which is all it has.",
+      "Sales CRM leaves a trailing separator on a composed name when a part is empty (“PT Saint-Gobain Abrasives Diamas - Sameday (B2BR) - ”). Trimmed on display.",
+      "The CSV export gained an Opportunity column, in the same position. An export whose columns disagree with the board on screen is worse than no export.",
+      "Entering a Sales CRM opportunity id by hand now imports the deal whatever its age. The 1 August floor exists to stop a careless wide window dragging the whole history of the book onto the board — it is a guard against a SWEEP, not a rule about which deals belong here, and typing an id is somebody saying “this one, I mean it”. Sweeps still obey the floor. The ticket records that it came in over the floor and when the deal was actually raised, so an old deal on the board does not look like the floor having failed.",
+    ],
+    overruled: [],
   },
   {
     date: "2026-08-27",

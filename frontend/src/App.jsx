@@ -8,6 +8,7 @@ import TicketDetail from "./screens/TicketDetail";
 import Workload from "./screens/Workload";
 import Mine from "./screens/Mine";
 import Sync from "./screens/Sync";
+import ImportQueue from "./screens/ImportQueue";
 import Changelog from "./screens/Changelog";
 import Guide from "./screens/Guide";
 import { Onboarding, ToHandOver } from "./screens/Onboarding";
@@ -60,6 +61,11 @@ const NAV = [
     // A ticket is per opportunity; an account normally runs several at once.
     { id: "accounts", label: "Accounts", icon: "🏢",
       keywords: "account group shipper parent grouped duplicates opportunities" },
+    // Admin only (Baskoro, 2026-08-28). Sales queue their own deal from the New request
+    // form, which is the only part of this they need; reading the whole queue, removing
+    // other people's rows and changing what the sync imports is administration.
+    { id: "import-queue", label: "Import queue", icon: "⇪",
+      when: (m) => m.permissions.manageImportQueue },
     { id: "sync", label: "Sync", icon: "⇄", when: (m) => m.permissions.syncSalesCrm },
   ]],
   // The step back from any single ticket: walking an agenda, reading capacity, and the
@@ -280,7 +286,7 @@ function GlobalSearch({ me, onOpenTicket, onGo }) {
   );
 }
 
-function Bell({ notes, onRead }) {
+function Bell({ notes, onRead, onOpen }) {
   const [open, setOpen] = useState(false);
   const [prefs, setPrefs] = useState(null);
 
@@ -314,14 +320,39 @@ function Bell({ notes, onRead }) {
           {notes.notes.length === 0 && (
             <p className="p-6 text-center text-sm text-slate-400">Nothing new for you.</p>
           )}
-          {notes.notes.map((n) => (
-            <div key={n.id} className={`border-b border-slate-100 px-4 py-3 ${n.unread ? "bg-rose-50/40" : ""}`}>
-              <p className="text-[13px] leading-snug">{n.body}</p>
-              <p className="mt-1 font-mono text-[11px] text-slate-400">
-                {n.at}{n.ticket_ref ? ` · ${n.ticket_ref}` : ""}
-              </p>
-            </div>
-          ))}
+          {/* A notification about a ticket now GOES to that ticket (Baskoro,
+              2026-08-28). Reading "Annisa asked a question on SOF-4001340" and then
+              having to search for the ticket by hand is the whole distance between a
+              notification and a working inbox. Where the notification names a discussion
+              thread, the ticket opens on that thread rather than on the ticket in
+              general — being tagged in one of eight threads and landing on the ticket
+              tells you almost nothing.
+
+              A notification with no ticket behind it (a sync summary, a broadcast) is
+              not clickable, and is rendered as plain text so it does not look like a
+              dead link. */}
+          {notes.notes.map((n) => {
+            const body = (
+              <>
+                <p className="text-[13px] leading-snug">{n.body}</p>
+                <p className="mt-1 font-mono text-[11px] text-slate-400">
+                  {n.at}{n.ticket_ref ? ` · ${n.ticket_ref}` : ""}
+                  {n.thread_key ? " · thread" : ""}
+                </p>
+              </>
+            );
+            const cls = `block w-full border-b border-slate-100 px-4 py-3 text-left ${
+              n.unread ? "bg-rose-50/40" : ""}`;
+            return n.ticket_ref ? (
+              <button key={n.id} type="button"
+                className={`${cls} hover:bg-slate-50`}
+                onClick={() => { setOpen(false); onOpen?.(n.ticket_ref, n.thread_key || null); }}>
+                {body}
+              </button>
+            ) : (
+              <div key={n.id} className={cls}>{body}</div>
+            );
+          })}
 
           {prefs?.email_configured && (
             <label className="sticky bottom-0 flex items-start gap-2.5 border-t border-slate-200 bg-slate-50 px-4 py-3 text-[12.5px]">
@@ -410,6 +441,9 @@ export default function App() {
   const [counts, setCounts] = useState({});
   const [toast, setToast] = useState(null);
   const [navOpen, setNavOpen] = useState(false);
+  // Cleared whenever a ticket is opened without one, so a thread from an earlier
+  // notification cannot follow the reader onto the next ticket they open.
+  const [focusThread, setFocusThread] = useState(null);
   const [tick, setTick] = useState(0);
 
   const notify = useCallback((msg) => {
@@ -480,7 +514,15 @@ export default function App() {
       .catch(() => {});
   }, [me, tick]);
 
-  const open = (ref) => { setTicketRef(ref); setScreen("detail"); setNavOpen(false); };
+  // `thread` is which discussion thread to land on, when the caller knows. A tag
+  // notification names one; opening the ticket and leaving the reader to guess which of
+  // eight threads wanted them is the complaint this answers (Baskoro, 2026-08-28).
+  const open = (ref, thread = null) => {
+    setTicketRef(ref);
+    setFocusThread(thread);
+    setScreen("detail");
+    setNavOpen(false);
+  };
   const go = (id) => { setScreen(id); setNavOpen(false); };
 
   if (err)
@@ -507,6 +549,7 @@ export default function App() {
     mine: <Mine me={me} onOpen={open} />,
     workload: <Workload />,
     sync: <Sync notify={notify} />,
+    "import-queue": <ImportQueue me={me} notify={notify} onOpen={open} />,
     new: <NewRequest me={me} notify={notify} onCreated={open} />,
     open: <Open me={me} notify={notify} onOpen={open} />,
     "open-pns": <OpenPns me={me} notify={notify} onOpen={open} />,
@@ -530,9 +573,10 @@ export default function App() {
     "g-strategic": <Watched me={me} notify={notify} onOpen={open} group="Strategic" />,
     "g-mustwin": <Watched me={me} notify={notify} onOpen={open} group="Must Win" />,
     statusflow: <StatusFlow />,
-    checks: <DataChecks me={me} onOpen={open} />,
+    checks: <DataChecks me={me} onOpen={open} notify={notify} />,
     cancelled: <Cancelled me={me} notify={notify} onOpen={open} />,
-    detail: <TicketDetail ticketRef={ticketRef} me={me} notify={notify} onBack={() => go("dashboard")} />,
+    detail: <TicketDetail ticketRef={ticketRef} me={me} notify={notify}
+              focusThread={focusThread} onBack={() => go("dashboard")} />,
     "capa-all": <Capa view="all" me={me} notify={notify} onRaise={() => go("capa-raise")} />,
     "capa-new": <Capa view="new" me={me} notify={notify} onRaise={() => go("capa-raise")} />,
     "capa-submitted": <Capa view="submitted" me={me} notify={notify} onRaise={() => go("capa-raise")} />,
@@ -611,7 +655,8 @@ export default function App() {
           <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">
             {me.group}{me.level === "head" ? " · Head" : ""}
           </span>
-          <Bell notes={notes} onRead={() => api.markRead().then(refreshNotes)} />
+          <Bell notes={notes} onRead={() => api.markRead().then(refreshNotes)}
+            onOpen={open} />
         </div>
       </header>
 

@@ -16,6 +16,92 @@ function Section({ label, children }) {
   );
 }
 
+/* Raise a request by pasting the Sales CRM opportunity id, and nothing else.
+ *
+ * The sync reads the record Sales already filled in — shipper, account tier, product
+ * line, revenue, salesperson — and builds the ticket from it on its next run. Typing all
+ * of that a second time into the form below produces the same ticket and a chance to
+ * disagree with Sales CRM, which the sync would overwrite anyway.
+ *
+ * The interval comes from /api/me rather than being written into the sentence: an admin
+ * can change how often the sync runs, and a hardcoded "5 minutes" becomes a lie the
+ * moment they do.
+ */
+function QuickFromCrm({ me, notify }) {
+  const [id, setId] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(null);
+  const mins = me?.sync_every_minutes || 5;
+
+  if (!me?.permissions?.queueSync) return null;
+
+  const send = async () => {
+    const v = id.trim();
+    if (!v) return;
+    setBusy(true);
+    try {
+      const r = await api.queueSync(v, "raised from New request");
+      setId("");
+      // Every outcome is said plainly. "Already on the board" and "already queued" are
+      // not failures, but silently showing the success line for them would have people
+      // waiting five minutes for a ticket that is either already there or already
+      // coming.
+      if (r.added.length) {
+        setDone({ ok: true, msg: `${r.added.join(", ")} queued. Your ticket will be here `
+                                 + `within about ${mins} minute${mins === 1 ? "" : "s"}.` });
+        notify("Queued");
+      } else if (r.existing.length) {
+        setDone({ ok: true, msg: r.existing.join("; ") + " — it is already on the board." });
+      } else if (r.already.length) {
+        setDone({ ok: true, msg: `${r.already.join(", ")} was already queued and is on its way.` });
+      } else {
+        setDone({ ok: false, msg: r.rejected.join("; ") || "That is not a Sales CRM opportunity id." });
+      }
+    } catch (e) {
+      setDone({ ok: false, msg: e.message });
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <Card className="mb-4 max-w-4xl border-emerald-200 bg-emerald-50/60 p-5">
+      <h2 className="text-[14px] font-semibold text-emerald-900">
+        Already raised it in Sales CRM? Just put the opportunity ID in.
+      </h2>
+      <p className="mt-1 text-[13px] leading-relaxed text-emerald-900/80">
+        You do not need to fill in the form below. Paste the Sales CRM opportunity ID and
+        your ticket will be created here <b>within about {mins} minute{mins === 1 ? "" : "s"}</b>,
+        built from the record you already filled in — shipper, account, service and
+        revenue all come straight from Sales CRM.
+      </p>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <input className={`${inputCls} min-w-[220px] max-w-[320px] flex-1 font-mono`}
+          value={id} onChange={(e) => setId(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); send(); } }}
+          placeholder="e.g. 906031" />
+        <Btn kind="primary" disabled={busy || !id.trim()} onClick={send}>
+          Create my ticket
+        </Btn>
+      </div>
+      <p className="mt-2 text-[11.5px] text-emerald-900/70">
+        The ID is the 6-digit number at the end of the opportunity&rsquo;s URL, starting
+        with 9. A long 000000… number is the old Salesforce ID and will not match.
+        You can paste the whole URL too.
+      </p>
+      {done && (
+        <p className={`mt-2 text-[12.5px] font-medium ${
+          done.ok ? "text-emerald-800" : "text-rose-700"}`}>
+          {done.msg}
+        </p>
+      )}
+      <p className="mt-3 border-t border-emerald-200 pt-2.5 text-[11.5px] text-emerald-900/70">
+        Use the form below only when the deal is <b>not in Sales CRM yet</b>. A ticket
+        raised without an opportunity ID parks in <b>Pending CRM ID</b> and cannot move
+        until one is added.
+      </p>
+    </Card>
+  );
+}
+
 /* ---------------------------------------------------------------- new request */
 export function NewRequest({ me, notify, onCreated }) {
   const [f, setF] = useState({
@@ -83,6 +169,18 @@ export function NewRequest({ me, notify, onCreated }) {
         sub="One service per request. The Project Charter is generated once PNS clears the input."
         right={<span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">🔒 Template v1.0</span>}
       />
+      {/* The short way in (Baskoro, 2026-08-28). Sales have already typed all of this
+          into Sales CRM — the opportunity, the account, the product line, the revenue.
+          Asking them to type it a second time here is the reason intake was the slowest
+          part of the pipeline. Paste the id and the sync builds the ticket from the
+          record they already filled in.
+
+          Put ABOVE the form on purpose: for most requests it is the whole job, and a
+          shortcut nobody sees until they have already filled in the long version is not
+          a shortcut. The full form stays underneath for a deal that is not in Sales CRM
+          yet, which is what Pending CRM ID exists for. */}
+      <QuickFromCrm me={me} notify={notify} />
+
       <Card className="max-w-4xl p-5">
         <Section label="Request">
           <Field label="Service type" required>

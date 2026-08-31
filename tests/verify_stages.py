@@ -1,6 +1,6 @@
 """What a Sales CRM stage does to a PNS ticket, executed out of the real main.py.
 
-Michael, 2026-08-27: "Future Opportunity" was being read as a loss, and it is not one.
+Michael, 2026-08-31: "Future Opportunity" was being read as a loss, and it is not one.
 Closed-Lost means the shipper walked away; Future Opportunity means ask again next
 quarter. They shared one list.
 

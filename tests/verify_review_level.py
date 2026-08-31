@@ -171,7 +171,7 @@ print(f"verify_review_level.py  {len(CHAINS)} approval chains PASSED")
 # the bug. Anything mid-funnel must still leave our status alone — a ticket must not jump
 # to Proposal Submitted because Sales moved the deal to Negotiation.
 #
-# It moved again on 2026-08-27: "Future Opportunity" is a PARK, not a loss, and now
+# It moved again on 2026-08-31: "Future Opportunity" is a PARK, not a loss, and now
 # implies nothing. It was expected to be "Lost" right here, which is worth keeping in
 # mind about pinned expectations - this suite faithfully protected the behaviour that
 # was destroying tickets. Lost is terminal, the refresh will not move a ticket out of

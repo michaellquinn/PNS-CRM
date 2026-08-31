@@ -38,7 +38,7 @@ Each suite exists because something was actually wrong:
                      EN DASH where the old map had a hyphen, so matching literally stopped
                      a whole product line importing with nothing to say why.
 
-  verify_stages      "Future Opportunity" was read as a loss until 2026-08-27. Lost is
+  verify_stages      "Future Opportunity" was read as a loss until 2026-08-31. Lost is
                      terminal, and the refresh will not move a ticket out of a terminal
                      status, so parking a deal killed the PNS ticket outright: it stayed
                      Lost even after Sales revived the opportunity and shipped it. Also
