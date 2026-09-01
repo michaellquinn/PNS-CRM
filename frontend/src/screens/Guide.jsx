@@ -14,7 +14,7 @@ const TASKS = [
     steps: [
       "Open New request and fill the intake. Shipper, service, potential revenue and the brief are what routing reads.",
       "On save the app decides who prices it: managed accounts (Hypercare/Strategic), FTL monthly and Sameday always go to PNS; everything else stays with Sales, and a Sales price at or above Rp 30 Mio is checked by a PNS member afterwards.",
-      "The ticket appears in Awaiting price for whoever owes it, and in My requests for you.",
+      "The ticket appears in Pricing - PNS or Pricing - Sales for whoever owes it, and in My requests for you.",
     ],
   },
   {
@@ -22,7 +22,7 @@ const TASKS = [
     who: "PNS or Sales, whoever owes it",
     go: "awaiting",
     steps: [
-      "Open Awaiting price and find the ticket. Build the price from the linked rate card.",
+      "Open Pricing - PNS or Pricing - Sales, whichever owes it, and find the ticket. Build the price from the linked rate card.",
       "Paste the link to the pricing spreadsheet, then state margin % and discount %. Leaving them blank is allowed — a standard rate card has nothing to declare — but then nothing is checked either.",
       "Press Attach price. The 5A tier guard runs immediately and decides where the ticket goes next: straight out, or to one of the review gates.",
     ],
@@ -100,7 +100,7 @@ const TASKS = [
     who: "Anyone in PNS (PNS PIC) · a salesperson on their own ticket, or a Sales Manager or Head on any (Sales PIC)",
     go: null,
     steps: [
-      "There is one PNS assignment — the PNS PIC — and it is the team's, not the Head's alone. Take this, Hand over and Put back sit on the Open, Awaiting price and watched-group lists as well as on the ticket, so you do not have to open a ticket to claim it.",
+      "There is one PNS assignment — the PNS PIC — and it is the team's, not the Head's alone. Take this, Hand over and Put back sit on Open, the two Pricing lists and watched-group lists as well as on the ticket, so you do not have to open a ticket to claim it.",
       "PSP has no PIC at all: it works one shared queue, and any PSP member may decide any ticket.",
       "Sales PIC: if the ticket is yours you can hand it to a colleague yourself. Moving somebody else's is a Sales Manager's or the Head's call, and a name nobody has registered is refused — notifications to them would go nowhere.",
       "Workload shows how loaded each PNS member is. The auto-assigner caps everyone at 10 tickets at Pending PNS; past that a ticket stays unassigned and the Head is notified, because an unassigned ticket is visible and an over-assigned one is not.",

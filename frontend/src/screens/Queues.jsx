@@ -363,7 +363,7 @@ export function AwaitingPrice({ me, onOpen, notify, side }) {
 
   return (
     <Shell
-      title={side ? `Awaiting price - ${side}` : "Awaiting price"}
+      title={side ? `Pricing - ${side}` : "Awaiting price"}
       sub={side === "PNS"
         ? "Tickets PNS owes a price on. Always build it from the linked rate card."
         : side === "Sales"
@@ -578,28 +578,36 @@ export function PendingCrmId({ me, onOpen, notify }) {
 // anyone is working: the point of the screen is that these tickets are ready and
 // unclaimed, so the two actions are "I am taking this" and "this is not complete after
 // all, back to Sales".
+/* ------------------------------------------------------------------- open */
+/* Combined from two screens into one (Michael, 2026-09-01): now that Sales only submits
+   a Sales CRM link or a manual request and PNS carries everything from there, keeping a
+   Sales-side "Open" and a PNS-side "Open - PNS" apart no longer tracked a real split in
+   who does the work — it was one queue read from two doors. This is the union of both:
+   a ticket qualifies by being at the STATUS "Open" (nothing has started, whoever owes
+   it), or by being PNS's work — isPnsWork() — sitting unowned in ANY live status, which
+   is the case the old Open - PNS existed for (a Sales-priced deal at or above 30 Mio
+   waits at "Pending Sales" with no PNS PIC, and the status alone never showed that).
+   Nothing either screen used to surface is left out; a ticket only used to appear on
+   one of the two, now it appears here. */
 export function Open({ me, onOpen, notify }) {
-  const [rows, err, reload] = useTickets({ status: "Open" });
+  const [rows, err, reload] = useTickets({ status: LIVE_STATUSES });
   const [why, setWhy] = useState({});
-  // Priced by, same control Awaiting price carries. This is the answer to "is Open mine
-  // or Sales'?" (Michael, 2026-08-18): it is both, and the filter is how each side reads
-  // its own half without the other side's tickets being hidden from anybody.
-  // `review` beside it answers the other half of "is this mine?": Sales prices plenty
-  // that PNS never sees again, and PNS checks the ones at or above 30 Mio afterwards.
-  // Priced by alone cannot tell those two apart.
-  const [list, f, set, clear, patch] = useFilter(rows, { resp: [], review: [] }, "open");
+  const list0 = (rows || []).filter(
+    (t) => t.status === "Open" || (isPnsWork(t) && !t.owner));
+  const [list, f, set, clear, patch] = useFilter(list0, { resp: [], review: [] }, "open");
   const act = async (fn) => { try { await fn(); notify("Done"); await reload(); } catch (e) { notify(e.message); } };
 
   const mayTake = ["PNS", "Commercial", "Admin"].includes(me.group);
 
   return (
     <Shell title="Open"
-      sub="Intake is complete and nothing is owed by Sales — work on these has not started yet. Owning and starting are separate acts, so a ticket here may already have a PNS PIC and simply not be under way; PNS work with nobody on it is on Open - PNS. Starting one moves it to whoever owes the price. If something is actually missing, ask Sales and it goes back to them."
+      sub="Not started yet, or PNS's and nobody's on it. Covers a ticket sitting at the Open status either side owes, AND any PNS work with no PNS PIC whatever status it has reached — a Sales-priced deal at or above 30 Mio can be waiting on Sales with no PNS PIC and still needs to show up here. Starting one moves it to whoever owes the price. If something is actually missing, ask Sales and it goes back to them."
+      right={<span className="text-[12px] text-slate-500">{list0.length} here</span>}
       rows={rows} err={err}
-      empty="Nothing waiting to start. Every ready ticket is under way."
+      empty="Nothing waiting to start and nothing PNS still needs to claim."
       bar={
         <FilterBar f={f} set={set} clear={clear} patch={patch} me={me}
-          shown={list.length} total={(rows || []).length} rows={rows}>
+          shown={list.length} total={list0.length} rows={list0}>
           <MultiSelect label="Priced by" picked={f.resp}
             onClear={() => patch("resp", [])}
             sections={pickList(["PNS", "Sales"], f.resp, (v) => patch("resp", v))} />
@@ -623,124 +631,66 @@ export function Open({ me, onOpen, notify }) {
               <Pill key="r" tone="bg-violet-50 text-violet-700">PNS review after</Pill>
             ),
           ]}>
-          {!t.revenue ? (
-            <p className="text-[12.5px] text-rose-700">
-              <b>No potential revenue.</b> It decides who prices this and which ceiling
-              applies, so the ticket cannot start until it is filled in. Open the ticket
-              and set it on the Input tab.
-            </p>
-          ) : mayTake ? (
-            <>
-            <div className="flex flex-wrap items-center gap-2">
-              <input className={`${inputCls} max-w-[320px]`}
-                placeholder="What is missing? (sends it back to Sales)"
-                value={why[t.ref] || ""}
-                onChange={(e) => setWhy({ ...why, [t.ref]: e.target.value })} />
-              <Btn disabled={!((why[t.ref] || "").trim())}
-                onClick={() => act(() => api.status(t.ref, {
-                  status: "Pending Sales", reason: why[t.ref] }))}>
-                Need info from Sales
-              </Btn>
-              <Btn kind="primary" className="ml-auto"
-                onClick={() => act(() => api.status(t.ref, {
-                  status: t.priced_by === "PNS" ? "Pending PNS" : "Pending Sales",
-                  reason: `picked up by ${me.name}` }))}>
-                Start work on this
-              </Btn>
-            </div>
-            {/* Picking a ticket up and owning it are two different acts, and Open is
-                where both happen. Starting work moves the status; taking it puts your
-                name on it — this queue used to offer only the first, so an unclaimed
-                ticket stayed unclaimed even after somebody started it. */}
-            <div className="mt-3 border-t border-slate-100 pt-3">
-              <OwnerBar t={t} me={me} notify={notify} onDone={reload} />
-            </div>
-            </>
+          {t.status === "Open" ? (
+            !t.revenue ? (
+              <p className="text-[12.5px] text-rose-700">
+                <b>No potential revenue.</b> It decides who prices this and which ceiling
+                applies, so the ticket cannot start until it is filled in. Open the ticket
+                and set it on the Input tab.
+              </p>
+            ) : mayTake ? (
+              <>
+              <div className="flex flex-wrap items-center gap-2">
+                <input className={`${inputCls} max-w-[320px]`}
+                  placeholder="What is missing? (sends it back to Sales)"
+                  value={why[t.ref] || ""}
+                  onChange={(e) => setWhy({ ...why, [t.ref]: e.target.value })} />
+                <Btn disabled={!((why[t.ref] || "").trim())}
+                  onClick={() => act(() => api.status(t.ref, {
+                    status: "Pending Sales", reason: why[t.ref] }))}>
+                  Need info from Sales
+                </Btn>
+                <Btn kind="primary" className="ml-auto"
+                  onClick={() => act(() => api.status(t.ref, {
+                    status: t.priced_by === "PNS" ? "Pending PNS" : "Pending Sales",
+                    reason: `picked up by ${me.name}` }))}>
+                  Start work on this
+                </Btn>
+              </div>
+              {/* Picking a ticket up and owning it are two different acts, and Open is
+                  where both happen. Starting work moves the status; taking it puts your
+                  name on it — this queue used to offer only the first, so an unclaimed
+                  ticket stayed unclaimed even after somebody started it. */}
+              <div className="mt-3 border-t border-slate-100 pt-3">
+                <OwnerBar t={t} me={me} notify={notify} onDone={reload} />
+              </div>
+              </>
+            ) : (
+              <p className="text-[12.5px] text-slate-500">
+                Waiting for {t.priced_by} to pick it up.
+              </p>
+            )
           ) : (
-            <p className="text-[12.5px] text-slate-500">
-              Waiting for {t.priced_by} to pick it up.
-            </p>
-          )}
-        </TicketCard>
-      ))}
-    </Shell>
-  );
-}
-
-/* ------------------------------------------------------------- open - PNS */
-/* The assignment inbox for PNS (Michael, 2026-08-18). "Open" the STATUS was too narrow
-   for the job people were using that menu for: a Sales-priced deal at or above 30 Mio
-   sits at "Pending Sales" until Sales attaches a price, carries "PNS review after" the
-   whole time, and has no PNS PIC — so it is unassigned PNS work that the Open queue
-   never showed, because its status is not "Open".
-
-   This asks the question the menu is actually for: what does PNS have a stake in that
-   nobody here owns yet? Any live status, PNS's by isPnsWork(), no owner. The Sales half
-   is deliberately not built — Sales is not on the platform yet, and inventing a queue
-   for a team that will not open it is how the Head of Sales gate ended up retired. */
-export function OpenPns({ me, onOpen, notify }) {
-  const [rows, err, reload] = useTickets({ status: LIVE_STATUSES });
-  const [why, setWhy] = useState({});
-  const act = async (fn) => {
-    try { await fn(); notify("Done"); await reload(); } catch (e) { notify(e.message); }
-  };
-  const [list, f, set, clear, patch] = useFilter(
-    (rows || []).filter((t) => isPnsWork(t) && !t.owner),
-    { resp: [], review: [] }, "open-pns");
-
-  return (
-    <Shell title="Open - PNS"
-      sub="PNS work with nobody on it yet, whatever status it is in. A ticket is here because PNS owes the price or PNS reviews the price Sales built, and no PNS PIC has taken it. Taking one is the whole point of the screen — the status it is in is not changed by claiming it."
-      right={<span className="text-[12px] text-slate-500">
-        {(rows || []).filter((t) => isPnsWork(t) && !t.owner).length} unassigned
-      </span>}
-      rows={rows} err={err}
-      empty="Every PNS ticket has somebody on it."
-      bar={
-        <FilterBar f={f} set={set} clear={clear} patch={patch} me={me} people={false}
-          shown={list.length}
-          total={(rows || []).filter((t) => isPnsWork(t) && !t.owner).length}
-          rows={(rows || []).filter((t) => isPnsWork(t) && !t.owner)}>
-          <MultiSelect label="Priced by" picked={f.resp}
-            onClear={() => patch("resp", [])}
-            sections={pickList(["PNS", "Sales"], f.resp, (v) => patch("resp", v))} />
-          <MultiSelect label="Review" picked={f.review}
-            onClear={() => patch("review", [])}
-            sections={pickList(["yes", "no"], f.review, (v) => patch("review", v),
-                               (v) => (v === "yes" ? "PNS reviews it after"
-                                                   : "No PNS review"))} />
-        </FilterBar>
-      }
-      filtered={list}>
-      {(list) => list.map((t) => (
-        <TicketCard key={t.ref} t={t} onOpen={onOpen}
-          badges={[
-            <Pill key="by" tone={t.priced_by === "PNS" ? "bg-violet-50 text-violet-700" : "bg-sky-50 text-sky-700"}>
-              {t.priced_by} will price it
-            </Pill>,
-            t.needs_review && (
-              <Pill key="r" tone="bg-violet-50 text-violet-700">PNS review after</Pill>
-            ),
-          ]}>
-          {/* Assignment, plus the one thing Open has that this needed too (Michael,
-              2026-08-21): saying what is missing and handing it back to Sales. Pricing
-              still belongs to Awaiting price and checking to Review - PNS — duplicating
-              THOSE here would be two screens racing on one ticket — but "this cannot be
-              worked until Sales fills something in" is a judgement made while reading
-              the list, not after claiming the ticket. */}
-          <OwnerBar t={t} me={me} notify={notify} onDone={reload} />
-          {me.permissions.sendBackProposal && t.status !== "Pending Sales" && (
-            <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
-              <input className={`${inputCls} max-w-[320px]`}
-                placeholder="What is missing? (sends it back to Sales)"
-                value={why[t.ref] || ""}
-                onChange={(e) => setWhy({ ...why, [t.ref]: e.target.value })} />
-              <Btn disabled={!((why[t.ref] || "").trim())}
-                onClick={() => act(() => api.status(t.ref, {
-                  status: "Pending Sales", reason: why[t.ref].trim() }))}>
-                Need info from Sales
-              </Btn>
-            </div>
+            // Already past Open, and PNS's, and nobody has claimed it — the case the old
+            // Open - PNS screen carried alone. Claiming and handing back are the two acts
+            // that apply here; the status itself moves through Awaiting price / Review,
+            // not from this screen.
+            <>
+              <OwnerBar t={t} me={me} notify={notify} onDone={reload} />
+              {me.permissions.sendBackProposal && t.status !== "Pending Sales" && (
+                <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
+                  <input className={`${inputCls} max-w-[320px]`}
+                    placeholder="What is missing? (sends it back to Sales)"
+                    value={why[t.ref] || ""}
+                    onChange={(e) => setWhy({ ...why, [t.ref]: e.target.value })} />
+                  <Btn disabled={!((why[t.ref] || "").trim())}
+                    onClick={() => act(() => api.status(t.ref, {
+                      status: "Pending Sales", reason: why[t.ref].trim() }))}>
+                    Need info from Sales
+                  </Btn>
+                </div>
+              )}
+            </>
           )}
         </TicketCard>
       ))}

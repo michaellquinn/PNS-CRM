@@ -2,6 +2,22 @@ import { Card, Head, Pill } from "../ui";
 
 const ENTRIES = [
   {
+    date: "2026-09-01",
+    title: "Sales CRM keeps New request and the CRM id queue; everything else is Solutioning's now",
+    by: "Michael + Claude",
+    changes: [
+      "Dashboard all moves whole into Solutioning and drops the “all” — with Dashboard PNS retired, there is only one board, so “Dashboard” is the accurate name rather than a leftover disambiguator.",
+      "Dashboard PNS is gone. It filtered the same board to isPnsWork() tickets — which is exactly the PIC filters already sitting on the one Dashboard — for a second copy of every tile, dropdown and the CSV export to keep in step with the first. The two never disagreed in a way the filters could not already narrow to.",
+      "Open and Open - PNS combine into one Open, in Solutioning. Now that Sales only submits a Sales CRM link or a manual request and PNS carries everything from there, a Sales-side unclaimed list and a PNS-side unassigned inbox were not two different jobs — they were one queue read through two doors. The merged screen is the union of both: a ticket qualifies by sitting at the STATUS “Open” (nothing started, whoever owes it), or by being PNS’s work sitting unowned in ANY live status, which is the case Open - PNS existed for — a Sales-priced deal at or above Rp 30 Mio can be waiting on Sales with no PNS PIC, and the status alone never showed that. Nothing either screen used to surface is left out.",
+      "Awaiting price - PNS and Awaiting price - Sales both move into Solutioning and are renamed Pricing - PNS and Pricing - Sales. They were filed on opposite sides of the sidebar for one pricing job; Sales no longer has a queue of its own to keep them apart by.",
+      "Sales CRM now holds only New request, Pending CRM ID, Accounts, Import queue and Sync — raising a request, and the account/administration screens around it. Nothing that used to live there was deleted; Dashboard, Open and the pricing screens are one click over, in Solutioning.",
+      "Guide updated everywhere it named the old screens by their old names — its own stated rule is that the names it gives are real, so a rename here is a rename there too.",
+    ],
+    overruled: [
+      "Michael, 2026-08-18: Dashboard all and Dashboard PNS as two boards, and Awaiting price split across two sidebar sections. Superseded by this change — the split stopped matching how the work is actually split once Sales stopped working these queues directly.",
+    ],
+  },
+  {
     date: "2026-08-31",
     title: "FIXED: the Open screen said nobody had picked these up, which was not true",
     by: "Michael + Claude",

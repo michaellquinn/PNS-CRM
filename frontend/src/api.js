@@ -224,8 +224,9 @@ export const PENDING = STATUSES.filter((s) => s.startsWith("Pending"));
 
 // Everything still being worked, mirroring the backend's PENDING_STATUSES. "Pending CRM
 // ID" is deliberately out: it is blocked on an id rather than waiting on a person, it
-// cannot be worked until that arrives, and it has a queue of its own. Used by Open - PNS
-// and by its sidebar badge, from one definition so the count and the list cannot drift.
+// cannot be worked until that arrives, and it has a queue of its own. Used by the
+// unassigned-PNS-work half of Open and by its sidebar badge, from one definition so
+// the count and the list cannot drift.
 export const LIVE_STATUSES = STATUSES.filter(
   (s) => s !== "Pending CRM ID" && (s === "Open" || s.startsWith("Pending")));
 
@@ -261,14 +262,13 @@ export const BOTTOM_MARGIN = { LTL: 5, B2BR: 10 };
 export const mayGoToPsp = (t) =>
   t.acct_type === "Strategic" || t.acct_type === "Hypercare" || !!t.psp_allowed;
 
-// What Dashboard PNS keeps and the all-tickets board does not filter on. A ticket is
-// PNS's business when PNS owes the price (resp on the backend, priced_by here), or when
-// PNS reviews a price Sales built (needs_review, which is review_level() server-side).
-// Everything else in the book is Sales working alone, and since the Sales CRM sync
-// imports every opportunity it can map, that is most of what makes the full board hard
-// to read for a PNS reader. Deliberately NOT a status list: status changes through the
-// life of a ticket and this does not, so a PNS ticket stays on the PNS board from intake
-// to won or lost, rather than appearing and vanishing as it moves between gates.
+// Whether a ticket is PNS's business: PNS owes the price (resp on the backend,
+// priced_by here), or PNS reviews a price Sales built (needs_review, which is
+// review_level() server-side). Everything else in the book is Sales working alone.
+// Deliberately NOT a status list: status changes through the life of a ticket and this
+// does not, so a PNS ticket reads as PNS's from intake to won or lost, rather than
+// flipping as it moves between gates. Used to pick out the unowned-PNS-work half of
+// Open, and by the count-by-who-owes-it split on Awaiting price / Pricing.
 export const isPnsWork = (t) => t.priced_by === "PNS" || !!t.needs_review;
 
 // The three watched groups, in the order the rules treat them. Mirrors big_group() in

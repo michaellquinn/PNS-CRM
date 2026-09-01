@@ -22,7 +22,7 @@ import StatusFlow from "./screens/StatusFlow";
 import DataChecks from "./screens/DataChecks";
 import Cancelled from "./screens/Cancelled";
 import {
-  AwaitingPrice, Open, OpenPns, PendingCrmId, ToReview, PspPending, ExecSignoff,
+  AwaitingPrice, Open, PendingCrmId, ToReview, PspPending, ExecSignoff,
   Proposals, ReadyToShip, RecycleBin, Watched,
 } from "./screens/Queues";
 
@@ -45,25 +45,15 @@ const NAV = [
   // is where a deal starts: it arrives from the sync, and only then becomes PNS's
   // (Michael, 2026-08-18) — the sidebar now reads in the order the work happens.
   // Everything that arrives from, or belongs to, the commercial side.
+  // Dashboard, Open and Awaiting price - Sales all moved out to Solutioning
+  // (Michael, 2026-09-01): now that Sales only submits a Sales CRM link or a manual
+  // request, this section is what Sales actually does — raise it, and wait for a CRM
+  // id if it does not have one yet — plus the account/administration screens that were
+  // never really "Sales' work" either.
   ["Sales CRM", [
-    { id: "dashboard", label: "Dashboard all", icon: "▤",
-      keywords: "overview home stats everything whole book" },
     { id: "new", label: "New request", icon: "＋", when: (m) => m.permissions.createTicket },
     { id: "crmid", label: "Pending CRM ID", icon: "⚠", count: "Pending CRM ID",
       keywords: "crm id missing blocked salesforce opportunity" },
-    { id: "awaiting-sales", label: "Awaiting price - Sales", icon: "◷",
-      count: "awaiting:sales", keywords: "pricing sales attach rate card" },
-    // NOT in Michael's list, kept deliberately: "Open" the STATUS still exists and
-    // means work has not started, on either side. It says NOTHING about ownership: a
-    // ticket here may already have a PNS PIC and simply not be under way yet.
-    //
-    // The copy used to say the opposite — "unclaimed by either side" here, "nobody
-    // has yet" on the screen — which is how Michael came to look for an ASSIGNED
-    // ticket on Open - PNS, the one screen that by definition cannot show it
-    // (2026-08-31). Open - PNS is the unassigned cut; this is the status cut, and
-    // without it a Sales-owed not-yet-started ticket has no screen at all.
-    { id: "open", label: "Open", icon: "○", count: "Open",
-      keywords: "open ready available not started yet both sides status" },
     // A ticket is per opportunity; an account normally runs several at once.
     { id: "accounts", label: "Accounts", icon: "🏢",
       keywords: "account group shipper parent grouped duplicates opportunities" },
@@ -78,17 +68,29 @@ const NAV = [
   // two late-stage states you report on rather than work.
   // What PNS works, once a deal has arrived.
   ["Solutioning", [
-    { id: "dashboard-pns", label: "Dashboard PNS", icon: "▨",
-      when: (m) => ["PNS", "Commercial", "Admin"].includes(m.group),
-      keywords: "pns overview clean filtered my team work review" },
-    // The assignment inbox: PNS work with nobody on it, whatever status it is in.
-    { id: "open-pns", label: "Open - PNS", icon: "◑", count: "open:pns",
-      when: (m) => ["PNS", "Admin"].includes(m.group),
-      keywords: "unassigned unclaimed pns take claim assign nobody mine inbox" },
+    // Dashboard all, renamed and moved here whole (Michael, 2026-09-01): with only
+    // one board now — see Dashboard.jsx — there is nothing left for "PNS" to
+    // disambiguate against, so the plain name is the accurate one.
+    { id: "dashboard", label: "Dashboard", icon: "▤",
+      keywords: "overview home stats everything whole book pns clean filtered" },
+    // Combined with the old Sales-CRM-section "Open" (Michael, 2026-09-01): with
+    // Sales only submitting a link or a manual request, a Sales-side and a PNS-side
+    // unclaimed-work screen were reading the same underlying queue through two
+    // doors. See Queues.jsx for the merged filter — status Open, OR PNS's and
+    // unowned in any live status. Unrestricted, like Open always was, not narrowed
+    // to Open - PNS's PNS/Admin-only readership.
+    { id: "open", label: "Open", icon: "○", count: "open",
+      keywords: "open ready available not started yet both sides status unassigned unclaimed pns take claim assign nobody mine inbox" },
     { id: "mine", label: "My requests", icon: "◐", when: works,
       keywords: "my tickets assignment" },
-    { id: "awaiting-pns", label: "Awaiting price - PNS", icon: "◷", count: "awaiting:pns",
+    // Awaiting price - PNS and - Sales, renamed Pricing and both here now (Michael,
+    // 2026-09-01): the Sales CRM section stopped being where Sales does pricing work
+    // once Awaiting price - Sales moved out, so keeping half the pair there and half
+    // here was two screens for one job, filed in two places.
+    { id: "awaiting-pns", label: "Pricing - PNS", icon: "◷", count: "awaiting:pns",
       keywords: "pricing pns attach rate card" },
+    { id: "awaiting-sales", label: "Pricing - Sales", icon: "◷",
+      count: "awaiting:sales", keywords: "pricing sales attach rate card" },
     // NOT in Michael's list, kept deliberately: this is a live gate. Tickets reach
     // "Pending Review - PNS" and "Pending Review - Head PNS" by rule, and with no menu
     // entry there is no screen that can clear them — they would simply stop moving.
@@ -511,10 +513,11 @@ export default function App() {
         // here rather than in the nav table because `count` reads a single key.
         c["review:pns"] = (c["Pending Review - PNS"] || 0)
                         + (c["Pending Review - Head PNS"] || 0);
-        // Same cut Open - PNS applies, from the same two helpers, so the badge and the
-        // list cannot answer differently.
-        c["open:pns"] = all.tickets.filter(
-          (t) => isPnsWork(t) && !t.owner && LIVE_STATUSES.includes(t.status)).length;
+        // Mirrors the Open screen's own filter exactly (Queues.jsx), so the badge
+        // and the list cannot answer differently: status Open, or PNS's and unowned
+        // in any live status.
+        c["open"] = all.tickets.filter((t) => t.status === "Open"
+          || (isPnsWork(t) && !t.owner && LIVE_STATUSES.includes(t.status))).length;
         setCounts(c);
       })
       .catch(() => {});
@@ -550,15 +553,13 @@ export default function App() {
     return <main className="grid min-h-screen place-items-center bg-slate-50 text-slate-500">Loading…</main>;
 
   const screens = {
-    dashboard: <Dashboard me={me} onOpen={open} view="all" />,
-    "dashboard-pns": <Dashboard me={me} onOpen={open} view="pns" />,
+    dashboard: <Dashboard me={me} onOpen={open} />,
     mine: <Mine me={me} onOpen={open} />,
     workload: <Workload />,
     sync: <Sync notify={notify} />,
     "import-queue": <ImportQueue me={me} notify={notify} onOpen={open} />,
     new: <NewRequest me={me} notify={notify} onCreated={open} />,
     open: <Open me={me} notify={notify} onOpen={open} />,
-    "open-pns": <OpenPns me={me} notify={notify} onOpen={open} />,
     crmid: <PendingCrmId me={me} notify={notify} onOpen={open} />,
     // Two entries, one component. `awaiting` stays routable so an emailed or pasted
     // ?screen=awaiting link from before the split still lands somewhere real.
