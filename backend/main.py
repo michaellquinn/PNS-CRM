@@ -133,9 +133,10 @@ BOTTOM_MARGIN = {"LTL": 5.0, "B2BR": 10.0}
 LOSS_REASONS = ["pricing", "shipper", "solution", "ops", "no_vendor", "billing", "pns",
                 # Set by the Sales CRM sync when the opportunity is Closed-Lost there.
                 "salescrm"]
-# "Open" earns a place in the pricing queues: the work is ready to be done, it is just
-# nobody's yet. Keeping it out would have hidden every unstarted ticket from the one
-# screen people go to when they are looking for something to do.
+# "Open" earns a place in the pricing queues: the work is ready to be done and has not
+# started. Not "nobody's yet" — owning a ticket and starting it are separate acts, so
+# an Open ticket may already have a PIC. Keeping it out would have hidden every
+# unstarted ticket from the one screen people go to looking for something to do.
 AWAIT_STATUSES = ("Open", "Pending Sales", "Pending PNS", "Pending Vendor")
 PENDING_STATUSES = ["Open", "Pending Sales", "Pending PNS", "Pending Review - PNS",
                     "Pending Review - Head PNS",
@@ -1171,7 +1172,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-08-31.77"
+BUILD = "2026-08-31.78"
 
 
 class Me(BaseModel):

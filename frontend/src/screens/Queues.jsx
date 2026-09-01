@@ -594,9 +594,9 @@ export function Open({ me, onOpen, notify }) {
 
   return (
     <Shell title="Open"
-      sub="Intake is complete and nothing is owed by Sales — these are ready to be picked up, and nobody has yet. Taking one moves it to whoever owes the price. If something is actually missing, ask Sales and it goes back to them."
+      sub="Intake is complete and nothing is owed by Sales — work on these has not started yet. Owning and starting are separate acts, so a ticket here may already have a PNS PIC and simply not be under way; PNS work with nobody on it is on Open - PNS. Starting one moves it to whoever owes the price. If something is actually missing, ask Sales and it goes back to them."
       rows={rows} err={err}
-      empty="Nothing sitting unclaimed. Every ready ticket has somebody on it."
+      empty="Nothing waiting to start. Every ready ticket is under way."
       bar={
         <FilterBar f={f} set={set} clear={clear} patch={patch} me={me}
           shown={list.length} total={(rows || []).length} rows={rows}>

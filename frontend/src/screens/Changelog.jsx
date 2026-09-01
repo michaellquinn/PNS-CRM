@@ -3,6 +3,19 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-08-31",
+    title: "FIXED: the Open screen said nobody had picked these up, which was not true",
+    by: "Michael + Claude",
+    changes: [
+      "FIXED: Open described itself as “ready to be picked up, and nobody has yet”. It filters on the STATUS being Open and does not look at ownership at all, so a ticket that already has a PNS PIC and simply has not been started sits there under a sentence saying the opposite.",
+      "Michael hit it on SOF-5001328 (PT. Mostrans Global Digilog): the screen said it was unclaimed, so he went looking for it in Open - PNS and could not find it. It was assigned to him. Open - PNS is the UNASSIGNED cut, so it is the one screen that by definition could never show it.",
+      "Nothing about the behaviour was wrong and nothing about it changed. Owning a ticket and starting it are deliberately two separate acts and Open is where both happen — the copy just never caught up with that, and it was the copy that sent someone to the wrong screen.",
+      "Open now says work on these has not started, that a ticket may already have a PIC, and where to find PNS work with nobody on it. The empty state matches. The same false claim is corrected in the nav comment and beside AWAIT_STATUSES in the backend.",
+      "Searching “unclaimed” used to offer Open. It offers Open - PNS now, which is the screen that actually answers it.",
+    ],
+    overruled: [],
+  },
+  {
+    date: "2026-08-31",
     title: "FIXED: parking a deal in Sales CRM was killing the PNS ticket",
     by: "Michael + Claude",
     changes: [

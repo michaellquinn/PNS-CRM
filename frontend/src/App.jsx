@@ -53,11 +53,17 @@ const NAV = [
       keywords: "crm id missing blocked salesforce opportunity" },
     { id: "awaiting-sales", label: "Awaiting price - Sales", icon: "◷",
       count: "awaiting:sales", keywords: "pricing sales attach rate card" },
-    // NOT in Michael's list, kept deliberately: "Open" the status still exists and a
-    // ticket in it is unclaimed by EITHER side. Open - PNS only shows the PNS half, so
-    // without this a Sales-owed unclaimed ticket has no screen at all.
+    // NOT in Michael's list, kept deliberately: "Open" the STATUS still exists and
+    // means work has not started, on either side. It says NOTHING about ownership: a
+    // ticket here may already have a PNS PIC and simply not be under way yet.
+    //
+    // The copy used to say the opposite — "unclaimed by either side" here, "nobody
+    // has yet" on the screen — which is how Michael came to look for an ASSIGNED
+    // ticket on Open - PNS, the one screen that by definition cannot show it
+    // (2026-08-31). Open - PNS is the unassigned cut; this is the status cut, and
+    // without it a Sales-owed not-yet-started ticket has no screen at all.
     { id: "open", label: "Open", icon: "○", count: "Open",
-      keywords: "open ready unclaimed available not started both sides" },
+      keywords: "open ready available not started yet both sides status" },
     // A ticket is per opportunity; an account normally runs several at once.
     { id: "accounts", label: "Accounts", icon: "🏢",
       keywords: "account group shipper parent grouped duplicates opportunities" },
@@ -78,7 +84,7 @@ const NAV = [
     // The assignment inbox: PNS work with nobody on it, whatever status it is in.
     { id: "open-pns", label: "Open - PNS", icon: "◑", count: "open:pns",
       when: (m) => ["PNS", "Admin"].includes(m.group),
-      keywords: "unassigned pns take claim assign nobody mine inbox" },
+      keywords: "unassigned unclaimed pns take claim assign nobody mine inbox" },
     { id: "mine", label: "My requests", icon: "◐", when: works,
       keywords: "my tickets assignment" },
     { id: "awaiting-pns", label: "Awaiting price - PNS", icon: "◷", count: "awaiting:pns",
