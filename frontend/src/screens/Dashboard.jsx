@@ -78,7 +78,12 @@ export default function Dashboard({ me, onOpen }) {
   // and clicking a tile is what pushes that scope down into the table.
   const [scope, setScope] = useSticky("filter:dash:scope", { owner: "", sales: "" });
   const [all, setAll] = useState([]);
-  const [sort, setSort] = useState({ key: "submitted_on", dir: "desc" });
+  // Opens on FIRST SYNCED, not Submitted (Michael, 2026-09-01). Submitted is Sales
+  // CRM's date for when the opportunity was raised THERE, which can be weeks before
+  // PNS ever saw it; first_synced_on is when it arrived here. Newest-first on that
+  // column is "what has just landed on us", which is the question the board is opened
+  // to answer.
+  const [sort, setSort] = useState({ key: "first_synced_on", dir: "desc" });
   const [stageNames, setStageNames] = useState([]);
   // Sales managers and heads, for the "whose team" filter. Only an admin can read
   // /users, so this degrades to an empty list and the control simply does not appear.
@@ -193,7 +198,8 @@ export default function Dashboard({ me, onOpen }) {
   const clickSort = (key) =>
     setSort((s) => s.key === key
       ? { key, dir: s.dir === "asc" ? "desc" : "asc" }
-      : { key, dir: key === "submitted_on" || key === "revenue" ? "desc" : "asc" });
+      : { key, dir: ["submitted_on", "first_synced_on", "revenue"].includes(key)
+            ? "desc" : "asc" });
 
   const active =
     f.search || f.status.length || f.service.length || f.acct.length || f.owner

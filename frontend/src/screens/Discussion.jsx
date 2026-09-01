@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { api } from "../api";
-import { Btn, Empty, Pill, inputCls, useDirectory } from "../ui";
+import { api, GENERAL_TITLE } from "../api";
+import { Btn, Pill, inputCls, useDirectory } from "../ui";
 
 const GROUP_TONE = {
   Admin: "bg-rose-50 text-rose-700",
@@ -107,21 +107,27 @@ export default function Discussion({ ticketRef, me, notify, onCountChange,
 
   const untagged = people.filter((p) => p.email !== me.email && !tags.includes(p.email));
 
-  // Group into threads, general first, then each named thread in the order it started.
-  // A thread is "open" while it still holds an unanswered question — that is the whole
-  // reason for splitting them, so it is what the header says.
-  const groups = [];
-  const byKey = new Map();
+  // Group into threads, General Discussion first, then each named thread in the order
+  // it started. A thread is "open" while it still holds an unanswered question — that
+  // is the whole reason for splitting them, so it is what the header says.
+  //
+  // General Discussion is SEEDED rather than discovered (Michael, 2026-09-01): every
+  // ticket has one, whether or not anybody has posted in it yet. It is the standing
+  // thread the weekly review writes into, so it has to be a place you can see and aim
+  // at before the first note lands, not something that appears once it already has
+  // content. Backed by thread_key IS NULL, which is what it has always been — this
+  // gives that a name and a permanent seat rather than changing the storage.
+  const groups = [{ key: "", title: GENERAL_TITLE, items: [] }];
+  const byKey = new Map([["", groups[0]]]);
   for (const c of data.comments) {
     const key = c.thread_key || "";
     if (!byKey.has(key)) {
-      const g = { key, title: c.thread_title || "General", items: [] };
+      const g = { key, title: c.thread_title || GENERAL_TITLE, items: [] };
       byKey.set(key, g);
       groups.push(g);
     }
     byKey.get(key).items.push(c);
   }
-  groups.sort((a, b) => (a.key === "" ? -1 : b.key === "" ? 1 : 0));
   const openIn = (g) => g.items.filter((c) => c.is_question && !c.resolved_at).length;
 
   return (
@@ -140,34 +146,40 @@ export default function Discussion({ ticketRef, me, notify, onCountChange,
         )}
       </div>
 
-      {data.comments.length === 0 && <Empty>No questions on this ticket yet.</Empty>}
-
       {groups.map((g) => (
         <div key={g.key} className="mb-5"
           ref={focusThread && g.key === focusThread ? focusRef : null}>
           <div className="mb-2 flex flex-wrap items-center gap-2 border-b border-slate-200 pb-1.5">
             <span className="text-[10.5px] font-bold uppercase tracking-wider text-slate-400">
-              {g.key ? "Thread" : "Ticket"}
+              Thread
             </span>
             <b className="text-[13.5px]">{g.title}</b>
             {focusThread && g.key === focusThread && (
               <Pill tone="bg-violet-50 text-violet-700">you were tagged here</Pill>
             )}
-            <span className="text-[11.5px] text-slate-400">
-              {g.items.length} post{g.items.length === 1 ? "" : "s"}
-            </span>
-            {openIn(g) > 0 ? (
-              <Pill tone="bg-amber-50 text-amber-700">{openIn(g)} still open</Pill>
-            ) : (
-              <Pill tone="bg-emerald-50 text-emerald-700">nothing open</Pill>
+            {g.items.length > 0 && (
+              <>
+                <span className="text-[11.5px] text-slate-400">
+                  {g.items.length} post{g.items.length === 1 ? "" : "s"}
+                </span>
+                {openIn(g) > 0 ? (
+                  <Pill tone="bg-amber-50 text-amber-700">{openIn(g)} still open</Pill>
+                ) : (
+                  <Pill tone="bg-emerald-50 text-emerald-700">nothing open</Pill>
+                )}
+              </>
             )}
-            {g.key && (
-              <Btn className="ml-auto" onClick={() => { setThread(g.key); box.current?.focus(); }}>
-                Reply in this thread
-              </Btn>
-            )}
+            <Btn className="ml-auto" onClick={() => { setThread(g.key); box.current?.focus(); }}>
+              {g.key ? "Reply in this thread" : "Post in General Discussion"}
+            </Btn>
           </div>
           <div className="flex flex-col gap-3">
+        {g.items.length === 0 && (
+          <p className="rounded-xl border border-dashed border-slate-200 px-3.5 py-3 text-[12.5px] text-slate-400">
+            Nothing here yet. Weekly updates from Pending &amp; proposals land in this
+            thread, and anyone can post here from the box below.
+          </p>
+        )}
         {g.items.map((c) => {
           const open = c.is_question && !c.resolved_at;
           return (
@@ -218,7 +230,7 @@ export default function Discussion({ ticketRef, me, notify, onCountChange,
           <span className="text-[11.5px] text-slate-500">Posting to</span>
           <select className={`${inputCls} max-w-[260px]`} value={thread}
             onChange={(e) => setThread(e.target.value)}>
-            <option value="">The ticket (general)</option>
+            <option value="">{GENERAL_TITLE}</option>
             {groups.filter((g) => g.key).map((g) => (
               <option key={g.key} value={g.key}>{g.title}</option>
             ))}

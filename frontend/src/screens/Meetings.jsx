@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { api, PENDING, groupTone, rp } from "../api";
+import { api, GENERAL_TITLE, PENDING, groupTone, rp } from "../api";
 import { Btn, Card, Head, MultiSelect, Pill, inputCls, useSticky } from "../ui";
 import { ProposalActions } from "./Queues";
 
@@ -97,21 +97,26 @@ function Line({ n, t, onOpen, right, children }) {
    Defined at module scope, NOT inside the screen: a component declared inside render is
    a different type on every render, so React throws away its subtree and rebuilds it —
    which would wipe whatever somebody had half-typed into a proposal's reason box. */
-/* A comment raised from the row, without opening the ticket (Baskoro, 2026-08-28).
+/* A note added from the row, without opening the ticket (Baskoro, 2026-08-28).
  *
  * This screen is walked ticket by ticket on a call, and the one thing people actually
  * want to do mid-walk is record what was just said. Opening the ticket to do it unmounts
  * the list and loses your place in a walk of forty rows, so most of what gets said never
  * got written down at all.
  *
- * Each quick comment STARTS ITS OWN THREAD rather than landing in the general pile,
- * which is what Baskoro asked for and is also the right shape: a point raised in a review
- * is a point somebody has to answer, and a thread is the thing that can be answered and
- * then closed. The title is the first few words of the comment, so the thread list reads
- * as a list of points rather than "Thread 4", "Thread 5".
+ * It posts into GENERAL DISCUSSION, the standing thread every ticket has (Michael,
+ * 2026-09-01). It used to start a new thread per note, titled from the first few words.
+ * That is the right shape for a point somebody has to answer and a wrong one for a
+ * weekly status update: a deal walked every week for two months accumulated eight
+ * one-post threads, and the running history of what was said about it could only be
+ * reconstructed by reading all eight. One standing thread reads as the log it is.
  *
- * It posts as a QUESTION, so it lands in the unanswered count and shows up as work owed
- * rather than as a remark nobody has to do anything about.
+ * It also posts as a plain NOTE rather than a question. A weekly update is not work
+ * owed by anybody, and filing every one as a question meant the unanswered count — the
+ * number that tells PNS what actually needs an answer — grew by one per deal per week
+ * and was never brought back down. Raising something that genuinely needs answering is
+ * still a question, asked from the ticket's own Discussion tab where it can be tagged
+ * to a person and resolved.
  */
 function QuickComment({ t, notify, onDone }) {
   const [text, setText] = useState("");
@@ -123,16 +128,14 @@ function QuickComment({ t, notify, onDone }) {
     if (!body) return;
     setBusy(true);
     try {
-      // The title is a label for the thread, not a second message: first line, first
-      // few words, and the full text is the comment itself either way.
-      const first = body.split("\n")[0];
-      const title = first.slice(0, 60) + (first.length > 60 ? "…" : "");
-      await api.addComment(t.ref, {
-        body, is_question: true, new_thread_title: title,
-      });
+      // No thread_key and no new_thread_title is how the API spells "the general
+      // thread" — it stores thread_key NULL. Nothing new had to be built for this:
+      // the standing thread has existed since threads were introduced, it just had no
+      // name and nothing pointed at it.
+      await api.addComment(t.ref, { body, is_question: false });
       setText("");
       setOpen(false);
-      notify(`Raised on ${t.ref}`);
+      notify(`Added to ${GENERAL_TITLE} on ${t.ref}`);
       await onDone?.();
     } catch (e) { notify(e.message); }
     finally { setBusy(false); }
@@ -149,13 +152,13 @@ function QuickComment({ t, notify, onDone }) {
   return (
     <div className="flex w-full flex-wrap items-center gap-2">
       <input className={`${inputCls} min-w-[220px] flex-1`} autoFocus value={text}
-        placeholder={`What came up on ${t.ref}? Starts a thread.`}
+        placeholder={`Weekly update on ${t.ref} — posts to ${GENERAL_TITLE}.`}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
           if (e.key === "Escape") { setOpen(false); setText(""); }
         }} />
-      <Btn kind="primary" disabled={busy || !text.trim()} onClick={send}>Raise</Btn>
+      <Btn kind="primary" disabled={busy || !text.trim()} onClick={send}>Post</Btn>
       <Btn onClick={() => { setOpen(false); setText(""); }}>Cancel</Btn>
     </div>
   );

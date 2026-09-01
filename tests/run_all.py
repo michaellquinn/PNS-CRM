@@ -45,6 +45,15 @@ Each suite exists because something was actually wrong:
                      pins that every stage test compares NORMALISED - three of the four
                      compared raw, so a trailing space changed what a stage did.
 
+  verify_threads     "General Discussion" is thread_key IS NULL, which no branch
+                     asserts - it is the fall-through when neither a title nor a key
+                     is sent. A future edit could take it away without touching a line
+                     that mentions the general thread, so the contract is executed here
+                     rather than read. Also pins that the weekly walk posts INTO it
+                     instead of starting a thread per note, and as a note rather than a
+                     question - filing each one as a question grew the unanswered count
+                     by one per deal per week and never brought it back down.
+
   verify_transitions POST /status took whatever string it was handed, so a status the
                      running code cannot act on could be written straight onto a ticket.
                      Also pins that a "*" row does not let a Lost deal be walked
@@ -58,7 +67,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SUITES = ["verify_rules.py", "verify_assign.py", "verify_charter.py",
           "verify_psp_gate.py", "verify_permissions.py", "verify_review_level.py",
           "verify_transitions.py", "verify_sync_guards.py", "verify_names.py",
-          "verify_service_line.py", "verify_stages.py"]
+          "verify_service_line.py", "verify_stages.py", "verify_threads.py"]
 
 failed = []
 for name in SUITES:

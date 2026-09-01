@@ -246,6 +246,13 @@ export const LOSS_REASONS = [
 // What a person may choose when recording a loss. "salescrm" is the sync's to set.
 export const PICKABLE_LOSS_REASONS = LOSS_REASONS.filter(([v]) => v !== "salescrm");
 
+// The standing thread every ticket has, stored as thread_key IS NULL. Named in one
+// place because two screens show it: Discussion renders it, and Pending & proposals
+// posts the weekly update into it (Michael, 2026-09-01). A ticket always has this
+// thread even with nothing in it yet — it is a standing place to write, not
+// something that comes into existence on first use.
+export const GENERAL_TITLE = "General Discussion";
+
 export const rp = (n) => "Rp " + Number(n || 0).toLocaleString("id-ID");
 
 // Mirrors backend BOTTOM_MARGIN. Only LTL and B2BR have a published floor today — this

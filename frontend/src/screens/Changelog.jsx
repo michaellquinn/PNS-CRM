@@ -3,6 +3,22 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-09-01",
+    title: "Every ticket has a General Discussion, and the weekly walk writes into it",
+    by: "Michael + Claude",
+    changes: [
+      "NEW — General Discussion. Every ticket now has one standing thread, visible whether or not anybody has posted in it yet, so there is a place to write before the first note rather than one that appears after it.",
+      "+ Note on Pending & proposals posts INTO that thread. It used to start a new thread per note, titled from the first few words. That is the right shape for a point somebody has to answer and the wrong one for a weekly status update: a deal walked every week for two months collected eight one-post threads, and the running history of what had been said about it could only be reassembled by reading all eight. One standing thread reads as the log it is.",
+      "A weekly note is now a NOTE, not a question. Filing each one as a question added one to the unanswered count per deal per week and nothing ever brought it back down — the number that tells PNS what actually needs an answer was being filled with status updates. Raising something that genuinely needs answering is still a question, asked from the ticket’s own Discussion tab where it can be tagged to a person and resolved.",
+      "Nothing was built in the database for this. thread_key IS NULL has meant “the general thread” since threads were introduced in V16; it simply had no name and nothing pointed at it. No migration.",
+      "The Dashboard opens sorted on First synced instead of Submitted. Submitted is Sales CRM’s date for when the opportunity was raised THERE, which can be weeks before PNS saw it; First synced is when it arrived here, so newest-first on that column is “what has just landed on us”. Clicking the column now starts newest-first too, like Submitted and Revenue already did.",
+      "New verify_threads suite. The general thread is a FALL-THROUGH — no branch asserts it, it is what happens when neither a title nor a key is sent — so a future edit could remove it without touching a line that mentions it. The contract is executed against the real endpoint rather than read. Confirmed it fails on all five ways this could regress, including the API changing what it stores and the endpoint being restructured so the guard can no longer find what it reads.",
+    ],
+    overruled: [
+      "Baskoro, 2026-08-28: each quick comment starts its own thread, posted as a question. The reasoning — a point raised in a review is a point somebody has to answer — still holds for a point. It did not hold for the weekly status update this button is actually used for. Starting a thread per note stays available from the ticket’s Discussion tab.",
+    ],
+  },
+  {
+    date: "2026-09-01",
     title: "Sales CRM keeps New request and the CRM id queue; everything else is Solutioning's now",
     by: "Michael + Claude",
     changes: [
