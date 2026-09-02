@@ -28,3 +28,7 @@ database: oceanbase
 #   kafka:                 # Kafka-compatible → KAFKA_BROKERS=kafka:9092
 #     persistent: true     #   (single-node Redpanda; 10Gi disk when persistent)
 #   qdrant: {}             # vector database  → QDRANT_URL=http://qdrant:6333
+
+# Skill/plugin version this app was last deployed with — stamped by
+# /substrait:deploy; do not edit by hand.
+scaffold_version: 2026.08.30.104958
