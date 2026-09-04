@@ -802,6 +802,11 @@ def can(u: User, action: str, t: dict | None = None) -> bool:
     pns_head = admin or (u.group == "PNS" and u.level == "head")
     # The Sales Manager tier: everything staff can do, plus reassigning the Sales PIC.
     com_mgr = com_head or (u.group == "Commercial" and u.level == "manager")
+    # Everyone who may put an opportunity id into the import queue. Named once because
+    # TWO permissions read it and they must not drift apart: being able to queue a
+    # deal and being able to see what became of it are the same audience
+    # (Michael, 2026-09-02).
+    may_queue = u.group in ("Commercial", "PNS", "Sales Planning") or admin
     # Anyone who works the pipeline rather than only reading it. Sales Planning is in:
     # they already correct intake, so raising one is no wider a right.
     works_group = u.group not in READ_ONLY_GROUPS
@@ -927,13 +932,24 @@ def can(u: User, action: str, t: dict | None = None) -> bool:
         # RUNS the sweep under one person's API key — asking for a deal and pulling the
         # whole book are different acts. PNS and Sales Planning are in because during the
         # rollout they are the ones entering most of it on Sales' behalf.
-        "queueSync":        u.group in ("Commercial", "PNS", "Sales Planning") or admin,
-        # The Import queue SCREEN, and the list/remove behind it. Admin only (Baskoro,
-        # 2026-08-28). Deliberately narrower than queueSync: submitting your own deal is
-        # everyday Sales work and happens on the New request form, but reading the whole
-        # queue, removing other people's rows and changing what the sync imports is
-        # administration. Sales never need the screen to use the queue.
-        "manageImportQueue": admin,
+        "queueSync":        may_queue,
+        # The Import queue SCREEN, and the list/remove behind it. Admin-only from
+        # 2026-08-28 (Baskoro) until 2026-09-02, when Michael opened it back up to
+        # everyone who can queue.
+        #
+        # The reasoning for closing it was that submitting your own deal happens on
+        # the New request form, so Sales never need the screen. That holds for PUTTING
+        # something in; it does not hold for what happens next. The queue records an
+        # outcome per row — imported and which ticket, skipped and why, failed and the
+        # error — and the screen is the only place that outcome is readable. Closing it
+        # meant the person who queued a deal had to ask an admin whether it worked.
+        #
+        # Changing what the sync imports is still administration: editSyncSettings
+        # below is untouched, and GET /api/settings already returns
+        # editable=can(u, "editSyncSettings"), so a non-admin reads those values and
+        # cannot write them. That read is deliberate — "why has my deal not appeared?"
+        # is answered by the import floor and the queue-only switch.
+        "manageImportQueue": may_queue,
         # What the automatic sync is allowed to import. It decides what lands on
         # everyone's board. Admin, alongside the screen these controls live on — a
         # setting nobody can reach is not a permission, it is a dead end.
@@ -1172,7 +1188,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-01.80"
+BUILD = "2026-09-02.81"
 
 
 class Me(BaseModel):
@@ -2424,9 +2440,13 @@ class SettingsIn(BaseModel):
 
 @app.get("/api/settings")
 async def get_settings(u: User = Depends(current_user)):
-    """What the automatic sync is allowed to import. Admin, with the screen it is shown
-    on — Sales do not need it: the New request form tells them when their deal will
-    appear, which is the only part of this that was ever their question."""
+    """What the automatic sync is allowed to import.
+
+    Readable by anyone who can queue, writable by Admin only — the response carries
+    editable=can(u, "editSyncSettings") and the screen renders the controls disabled
+    without it. The read is the point: "why has my deal not appeared?" is answered by
+    the import floor and the queue-only switch, and having to ask an admin for those
+    two values is how a queue stops being self-service (Michael, 2026-09-02)."""
     require(u, "manageImportQueue")
     return {"settings": await all_settings(),
             "editable": can(u, "editSyncSettings"),

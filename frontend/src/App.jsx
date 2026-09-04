@@ -57,9 +57,13 @@ const NAV = [
     // A ticket is per opportunity; an account normally runs several at once.
     { id: "accounts", label: "Accounts", icon: "🏢",
       keywords: "account group shipper parent grouped duplicates opportunities" },
-    // Admin only (Baskoro, 2026-08-28). Sales queue their own deal from the New request
-    // form, which is the only part of this they need; reading the whole queue, removing
-    // other people's rows and changing what the sync imports is administration.
+    // Open to everyone who can queue — Commercial, PNS, Sales Planning and Admin
+    // (Michael, 2026-09-02). Admin-only between 2026-08-28 and then, on the reasoning
+    // that Sales queue from the New request form and never need the screen. That holds
+    // for putting something IN; the screen is where the OUTCOME is read — imported and
+    // which ticket, skipped and why, failed and the error — so closing it meant asking
+    // an admin whether your own request worked. Changing what the sync imports is still
+    // Admin's: editSyncSettings gates the controls, not this entry.
     { id: "import-queue", label: "Import queue", icon: "⇪",
       when: (m) => m.permissions.manageImportQueue },
     { id: "sync", label: "Sync", icon: "⇄", when: (m) => m.permissions.syncSalesCrm },

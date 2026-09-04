@@ -2,6 +2,22 @@ import { Card, Head, Pill } from "../ui";
 
 const ENTRIES = [
   {
+    date: "2026-09-02",
+    title: "Commercial can open the Import queue again",
+    by: "Michael + Claude",
+    changes: [
+      "The Import queue screen is open to everyone who can queue a deal — Commercial, PNS, Sales Planning and Admin. It was Admin-only from 28 August.",
+      "The reason it was closed still holds for half the job: submitting your own deal happens on New request, so Sales never need this screen to PUT something in. It does not hold for what happens next. The queue keeps a row per id with the outcome on it — imported and which ticket, skipped and why, failed and the error — and this screen is the only place that outcome is readable. Closing it meant the person who queued a deal had to ask an administrator whether their own request had worked.",
+      "queueSync and manageImportQueue now read one shared definition in can(), so the two cannot drift apart again. Being able to put something in the queue and being able to see what became of it are the same audience by construction.",
+      "Changing what the sync imports is untouched and still Admin's. GET /api/settings already returned editable=can(u, “editSyncSettings”) and the screen already rendered those controls disabled without it — that path was built and simply never reachable, because the gate above it was narrower than the screen behind it.",
+      "FIXED while in there: the read-only settings panel said “The Head of PNS sets these”. That has been wrong since 28 August, when editSyncSettings moved from the PNS Head to Admin — and Commercial users are the first people who will actually see it, so it would have sent them to the wrong person on day one. It says “an administrator” now.",
+      "Pinned in verify_permissions, by EXECUTING can() rather than reading it: for every group, queueSync and manageImportQueue must agree, and the three non-Admin groups must not reach editSyncSettings. Confirmed it fails on the shape that shipped — reverting to Admin-only produces three FAIL lines and exit 1.",
+    ],
+    overruled: [
+      "Baskoro, 2026-08-28: “The Import queue menu is Admin only now. Sales never needed the screen.” Overruled for the screen and the list behind it, which are now open to anyone who can queue. His narrower rule stands where it was aimed — editSyncSettings, what the sync imports for everybody, remains Admin's alone.",
+    ],
+  },
+  {
     date: "2026-09-01",
     title: "Every ticket has a General Discussion, and the weekly walk writes into it",
     by: "Michael + Claude",

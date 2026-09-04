@@ -74,6 +74,86 @@ if not_sent_but_used:
 
 print("\nfrontend gates on:", ", ".join(sorted(used)))
 
+# ---------------------------------------------------- who may work the import queue
+# The queue is self-service or it is not (Michael, 2026-09-02). Two permissions decide
+# that, and they are easy to drift apart because they read almost the same:
+#
+#   queueSync          put an opportunity id INTO the queue
+#   manageImportQueue  the SCREEN, the list behind it, and removing a row
+#
+# Between 2026-08-28 and 2026-09-02 the second was Admin while the first was not, so
+# Commercial could queue a deal and then had no way to see whether it imported. The
+# outcome per row - imported and which ticket, skipped and why, failed and the error -
+# lives only on that screen. Anyone who can put something in must be able to see what
+# became of it, so these two must name the SAME audience.
+#
+# Writing the settings stays separate and narrower: editSyncSettings decides what the
+# sync imports for everybody, and that is Admin's alone.
+#
+# can() is EXECUTED here rather than read, because the bug this guards against is a
+# difference in two boolean expressions, which no amount of source-matching catches.
+
+
+class _Defaulting(dict):
+    """Module constants can() closes over, defaulted so it runs without importing the
+    whole app (main.py opens DB pools and reads env at import time)."""
+
+    def __missing__(self, k):
+        return ""
+
+
+_ns = _Defaulting(os=os, PNS_PILOT=True)
+for _n in tree.body:
+    if isinstance(_n, ast.Assign) and len(_n.targets) == 1 \
+            and isinstance(_n.targets[0], ast.Name):
+        try:
+            _ns.setdefault(_n.targets[0].id, ast.literal_eval(_n.value))
+        except Exception:
+            pass
+
+_fn = ast.parse(src).body
+_fn = next(n for n in _fn if isinstance(n, ast.FunctionDef) and n.name == "can")
+_fn.returns = None
+for _a in _fn.args.args:
+    _a.annotation = None
+exec(compile(ast.fix_missing_locations(ast.Module(body=[_fn], type_ignores=[])),
+             "<can>", "exec"), _ns)
+_can = _ns["can"]
+
+
+class _U:
+    def __init__(self, group, level="staff"):
+        self.group, self.level, self.team = group, level, None
+        self.email, self.name = "x@y", "X"
+
+
+print()
+print("the import queue is self-service: queueing and reading its outcome agree")
+for _g in ["Commercial", "PNS", "Sales Planning", "Admin", "PSP", "Ops",
+           "Finance", "Visitor", "Legal", "CSO"]:
+    _u = _U(_g)
+    _q, _m = _can(_u, "queueSync"), _can(_u, "manageImportQueue")
+    _ok = _q == _m
+    print(("  ok   " if _ok else "  FAIL ")
+          + "%-16s queueSync=%-5s manageImportQueue=%s" % (_g, _q, _m))
+    if not _ok:
+        fails.append("%s has queueSync=%s but manageImportQueue=%s - whoever may queue "
+                     "a deal must be able to read what became of it" % (_g, _q, _m))
+
+print()
+print("what the sync imports stays Admin's")
+for _g in ("Commercial", "PNS", "Sales Planning"):
+    if _can(_U(_g), "editSyncSettings"):
+        fails.append("%s can editSyncSettings - what the sync imports is Admin's" % _g)
+        print("  FAIL %-16s may edit sync settings" % _g)
+    else:
+        print("  ok   %-16s cannot edit sync settings" % _g)
+if not _can(_U("Admin"), "editSyncSettings"):
+    fails.append("Admin cannot editSyncSettings - nobody can reach the controls")
+    print("  FAIL Admin cannot edit sync settings")
+else:
+    print("  ok   Admin may edit sync settings")
+
 print()
 if fails:
     print("FAILURES:")

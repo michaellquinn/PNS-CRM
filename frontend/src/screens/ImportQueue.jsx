@@ -100,7 +100,7 @@ export default function ImportQueue({ me, notify, onOpen }) {
             guarantees it is fetched — it does not stop anything else arriving.
             {editable
               ? " Turn on “Only import what is queued” below to change that."
-              : " The Head of PNS can turn that on."}
+              : " An administrator can turn that on."}
           </p>
         </Card>
       )}
@@ -221,7 +221,7 @@ export default function ImportQueue({ me, notify, onOpen }) {
           <p className="mb-3 text-[11.5px] text-slate-500">
             {editable
               ? "Changes take effect on the next run — no deploy. These are stored in the database, not on one server, so every replica reads the same answer."
-              : "Read-only for you. The Head of PNS sets these."}
+              : "Read-only for you. An administrator sets these."}
           </p>
           <div className="flex flex-col gap-2.5">
             {SETTING_LABELS.map(([name, label, hint]) => (
