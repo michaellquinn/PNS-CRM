@@ -3,6 +3,19 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-09-02",
+    title: "A ticket coming back counts as arriving; New incoming moves under Dashboard",
+    by: "Michael + Claude",
+    changes: [
+      "New incoming now includes tickets that came BACK: reopened from Lost or Cancel, or restored from the recycle bin. A deal Sales pick up again is new work landing on the team exactly as a fresh import is, so it returns to the list for the usual two days.",
+      "That needed a fact nothing was recording. Reopen moves status_since — but so does every other status change, so reading it as “came back” would have put a ticket on the list each time it cleared a review gate. Restore was worse: it only cleared deleted_at and wrote an audit row, touching none of the ticket's own timestamps. Migration V27 adds reentered_at, stamped by both paths, and the window reads COALESCE(reentered_at, created_at).",
+      "No backfill, on purpose. Tickets reopened or restored before today have no recorded return date and read as their original arrival — inventing one from history would put deals on a “last two days” list that did not arrive in the last two days.",
+      "New incoming moved from Sales CRM to sit under Dashboard. Both answer “what is the state of things” rather than naming a queue to work, and it is the narrow recent cut of the same book the board above it shows.",
+      "The dashboard tiles are tighter: twelve status tiles wrapped to three rows with an orphan pair on the last, and pushed the filters below the fold on a laptop. Columns are narrower so more fit per row, and each tile lost height — smaller number, smaller label, less padding. The two-line minimum on the label stays, because it is what keeps the numbers lined up across a row when one label wraps and its neighbour does not.",
+    ],
+    overruled: [],
+  },
+  {
+    date: "2026-09-02",
     title: "New incoming tickets — what just landed, for two days",
     by: "Michael + Claude",
     changes: [

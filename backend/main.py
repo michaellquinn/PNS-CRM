@@ -1213,7 +1213,8 @@ def arrived_mins_elapsed(t: dict) -> int:
     db = t.get("created_mins_db")
     if db is not None:
         return max(0, int(db))
-    made = t.get("created_at")
+    # Same rule as the query: the later of arrival and re-entry.
+    made = t.get("reentered_at") or t.get("created_at")
     if not isinstance(made, datetime):
         return 0
     return max(0, int((datetime.now() - made).total_seconds() // 60))
@@ -1226,7 +1227,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-02.83"
+BUILD = "2026-09-02.84"
 
 
 class Me(BaseModel):
@@ -1283,6 +1284,10 @@ class Ticket(BaseModel):
     # typed into New request, pasted into the Import queue, or found by the sweep.
     # Distinct from submitted_on (Sales CRM's own date, routinely weeks earlier) and
     # from first_synced_on (null on a ticket raised by hand).
+    #
+    # Counts from the ticket RE-ENTERING the working set where that happened —
+    # reopened from Lost or Cancel, or restored from the recycle bin — because a deal
+    # coming back is new work landing on the team just as an import is.
     #
     # An ELAPSED COUNT, not a timestamp, and computed by the database — same reason
     # sla_elapsed is: the app container and OceanBase disagree about the local
@@ -1519,8 +1524,11 @@ async def list_tickets(
            "ORDER BY a.decided_at DESC LIMIT 1) AS psp_decision, "
            "TIMESTAMPDIFF(DAY, t.status_since, NOW()) AS sla_days_db, "
            # Minutes, not days: the New incoming window is two days wide and a row
-           # needs to read "3h ago", which a day count cannot say.
-           "TIMESTAMPDIFF(MINUTE, t.created_at, NOW()) AS created_mins_db, "
+           # needs to read "3h ago", which a day count cannot say. COALESCE, not
+           # GREATEST: a re-entry can only happen after the row was created, so when
+           # reentered_at is set it is always the later of the two.
+           "TIMESTAMPDIFF(MINUTE, COALESCE(t.reentered_at, t.created_at), NOW()) "
+           "AS created_mins_db, "
            # The four onboarding facts, read straight out of the intake payload. They
            # travel on every row because the Onboarding screens are lists, and fetching
            # each ticket individually to find a go-live date would be a request per row.
@@ -1708,7 +1716,8 @@ async def accounts(u: User = Depends(current_user),
         "(SELECT COUNT(*) FROM ticket_comments c WHERE c.ticket_id=t.id "
         "AND c.is_question=1 AND c.resolved_at IS NULL) AS open_q, "
         "TIMESTAMPDIFF(DAY, t.status_since, NOW()) AS sla_days_db, "
-        "TIMESTAMPDIFF(MINUTE, t.created_at, NOW()) AS created_mins_db "
+        "TIMESTAMPDIFF(MINUTE, COALESCE(t.reentered_at, t.created_at), NOW()) "
+        "AS created_mins_db "
         "FROM tickets t JOIN shippers s ON s.id=t.shipper_id "
         "LEFT JOIN pricing p ON p.ticket_id=t.id "
         "WHERE t.deleted_at IS NULL ORDER BY t.submitted_on DESC")
@@ -4648,6 +4657,11 @@ async def reopen(ref: str, body: ReopenIn, u: User = Depends(current_user)):
         resp = "PNS" if body.status in ("Pending PNS", "Pending Review - Head PNS") else "Sales"
         await execute("UPDATE tickets SET outcome=NULL, loss_reason=NULL, resp=%s WHERE id=%s",
                       (resp, t["id"]))
+    # Coming back IS an arrival (Michael, 2026-09-02): a deal Sales pick up again is
+    # new work landing on the team, so it returns to New incoming for the usual two
+    # days. status_since cannot carry this — it moves on every status change, so a
+    # ticket would re-appear each time it cleared a gate.
+    await execute("UPDATE tickets SET reentered_at=NOW() WHERE id=%s", (t["id"],))
     await log_status(t["id"], body.status, u.name, f"reopened by {u.name} (Sales)")
     await notify(f"{ref}, {t['shipper']} reopened as {body.status} by {u.name}",
                  groups=["PNS", "Commercial"], ticket_ref=ref)
@@ -5503,7 +5517,11 @@ async def bulk_delete_pns_unassigned(body: BulkDeleteIn, u: User = Depends(curre
 @app.post("/api/tickets/{ref}/restore", response_model=Ok)
 async def restore(ref: str, u: User = Depends(current_user)):
     require(u, "restoreTicket")
-    await execute("UPDATE tickets SET deleted_at=NULL, deleted_by=NULL WHERE ticket_ref=%s", (ref,))
+    # reentered_at with it: a ticket out of the bin is back in the working set, and
+    # New incoming should say so. Restore writes no history row, so without this the
+    # return would leave no timestamp anywhere.
+    await execute("UPDATE tickets SET deleted_at=NULL, deleted_by=NULL, "
+                  "reentered_at=NOW() WHERE ticket_ref=%s", (ref,))
     await audit(u.email, "restore", "ticket", ref)
     await notify(f"{ref} was restored by {u.name}", groups=["PNS", "Commercial"], ticket_ref=ref)
     return {"ok": True, "ref": ref}

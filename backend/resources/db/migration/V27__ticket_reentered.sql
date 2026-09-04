@@ -1,0 +1,31 @@
+-- When a ticket came BACK into the working set (Michael, 2026-09-02).
+--
+-- New incoming lists what arrived in the last two days, and Michael's point is that a
+-- deal returning is an arrival too: a cancelled ticket that Sales picked back up, or one
+-- restored from the recycle bin, is new work landing on the team exactly like a fresh
+-- import is. Neither of those paths left a timestamp that could say so:
+--
+--   * reopen calls log_status, which moves status_since -- but status_since moves on
+--     EVERY status change, so reading it as "came back" would put a ticket on the list
+--     each time it cleared a review gate;
+--   * restore only clears deleted_at and writes an audit row. It never touched the
+--     ticket's own timestamps at all.
+--
+-- So the fact is recorded explicitly rather than inferred. NULL means the ticket has
+-- never left and come back, which is nearly all of them; reading code falls back to
+-- created_at, and the two are read as COALESCE(reentered_at, created_at) -- no GREATEST
+-- needed, because a re-entry can only ever happen after the row was created.
+--
+-- Overwritten on each re-entry, not appended: the list answers "what landed recently",
+-- so the most recent return is the only one that matters. The full sequence is already
+-- in ticket_history and audit_log for anyone asking a different question.
+--
+-- No backfill. Tickets reopened or restored before this shipped have no recorded return
+-- date, and inventing one from history would put deals back on a "last two days" list
+-- that did not arrive in the last two days. They read as their original arrival, which
+-- is the truthful answer.
+--
+-- Highest migration before this was V26.
+ALTER TABLE tickets
+    ADD COLUMN reentered_at DATETIME NULL COMMENT
+    'When the ticket last came back into the working set - reopened from Lost/Cancel, or restored from the recycle bin. NULL if it never left. New incoming reads COALESCE(reentered_at, created_at).';

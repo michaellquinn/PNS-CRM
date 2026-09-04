@@ -51,12 +51,6 @@ const NAV = [
   // id if it does not have one yet — plus the account/administration screens that were
   // never really "Sales' work" either.
   ["Sales CRM", [
-    // What has just landed, however it landed (Michael, 2026-09-02). First in the
-    // section because it answers the question people open the app with after a
-    // batch goes in: did it arrive? The badge and the screen share isNewIncoming(),
-    // so the count cannot disagree with the list. Rows age out on their own.
-    { id: "incoming", label: "New incoming", icon: "✦", count: "incoming",
-      keywords: "new incoming just arrived latest recent today batch upload imported raised" },
     { id: "new", label: "New request", icon: "＋", when: (m) => m.permissions.createTicket },
     { id: "crmid", label: "Pending CRM ID", icon: "⚠", count: "Pending CRM ID",
       keywords: "crm id missing blocked salesforce opportunity" },
@@ -83,6 +77,13 @@ const NAV = [
     // disambiguate against, so the plain name is the accurate one.
     { id: "dashboard", label: "Dashboard", icon: "▤",
       keywords: "overview home stats everything whole book pns clean filtered" },
+    // Under Dashboard (Michael, 2026-09-02): both answer "what is the state of
+    // things" rather than naming a queue to work, and this is the narrow, recent
+    // cut of the same book the board above shows. It answers the question people
+    // open the app with after a batch goes in — did it arrive? The badge and the
+    // screen share isNewIncoming(), so the count cannot disagree with the list.
+    { id: "incoming", label: "New incoming", icon: "✦", count: "incoming",
+      keywords: "new incoming just arrived latest recent today batch upload imported raised reopened restored back" },
     // Combined with the old Sales-CRM-section "Open" (Michael, 2026-09-01): with
     // Sales only submitting a link or a manual request, a Sales-side and a PNS-side
     // unclaimed-work screen were reading the same underlying queue through two

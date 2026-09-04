@@ -321,7 +321,10 @@ export default function Dashboard({ me, onOpen }) {
         )}
       </div>
 
-      <div className="mb-3 grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(178px,1fr))]">
+      {/* 150px, down from 178 (Michael, 2026-09-02): twelve status tiles wrapped to
+          three rows with an orphan pair on the last, pushing the filters off screen.
+          Narrower fits more per row and closes that ragged tail. */}
+      <div className="mb-3 grid gap-2.5 [grid-template-columns:repeat(auto-fit,minmax(150px,1fr))]">
         {TILES.map(([status, sub]) => (
           <Tile key={status} label={status} value={counts[status] || 0} sub={sub}
                 tone={TILE_TONE[status]} on={tileOn(status)}
@@ -330,7 +333,7 @@ export default function Dashboard({ me, onOpen }) {
       </div>
 
       {stats && (
-        <div className="mb-5 grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(148px,1fr))]">
+        <div className="mb-4 grid gap-2.5 [grid-template-columns:repeat(auto-fit,minmax(140px,1fr))]">
           <Tile label="Waiting on me" value={minePending}
                 sub={me.group === "PNS" ? "my assigned, still pending" : "my tickets, still pending"}
                 tone={minePending > 0 ? "text-[#EE1B2C]" : "text-emerald-600"} />

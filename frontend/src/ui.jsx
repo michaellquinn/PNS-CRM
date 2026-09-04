@@ -103,16 +103,20 @@ export function Tile({ label, value, sub, tone, onClick, on }) {
   const Tag = onClick ? "button" : "div";
   return (
     <Tag onClick={onClick} type={onClick ? "button" : undefined}
-      className={`rounded-xl border bg-white px-4 py-3.5 text-left ${
+      className={`rounded-xl border bg-white px-3.5 py-2.5 text-left ${
         on ? "border-[#EE1B2C] ring-1 ring-[#EE1B2C]" : "border-slate-200"} ${
         onClick ? "cursor-pointer hover:border-slate-400" : ""}`}>
       {/* Not truncated: these carry full status names now ("Pending Review - Head
-          Sales"), and a clipped label defeats the whole point of the tile. */}
-      <div className="min-h-[2.4em] text-[12.5px] font-medium leading-snug text-slate-600">{label}</div>
-      <div className={`mt-1.5 font-mono text-[27px] font-bold leading-none tabular-nums tracking-tight ${tone || "text-slate-900"}`}>
+          Sales"), and a clipped label defeats the whole point of the tile. The
+          min-height reserves TWO lines so a one-line label and a two-line one
+          still line their numbers up across a row - without it the grid reads as
+          ragged. Tightened on 2026-09-02: twelve status tiles at the old size
+          pushed the filters below the fold on a laptop. */}
+      <div className="min-h-[2.5em] text-[12px] font-medium leading-snug text-slate-600">{label}</div>
+      <div className={`mt-1 font-mono text-[22px] font-bold leading-none tabular-nums tracking-tight ${tone || "text-slate-900"}`}>
         {value}
       </div>
-      <div className="mt-1 truncate text-[11.5px] text-slate-400">{sub || " "}</div>
+      <div className="mt-0.5 truncate text-[11px] text-slate-400">{sub || " "}</div>
     </Tag>
   );
 }

@@ -1092,6 +1092,12 @@ export function ReadyToShip({ me, onOpen }) {
    opportunity was raised THERE and is routinely weeks earlier. A deal raised in July and
    queued this morning is new to PNS this morning.
 
+   A ticket COMING BACK counts as arriving (Michael, 2026-09-02): reopened from Lost or
+   Cancel, or restored from the recycle bin. A deal Sales pick up again is new work
+   landing on the team exactly as an import is, so it returns here for the usual two
+   days. That is what reentered_at records, and why the window reads
+   COALESCE(reentered_at, created_at) rather than created_at alone.
+
    Deliberately shows tickets in ANY live status. Something can arrive and be picked up
    within the hour, and it is still worth seeing on the list of what came in — this answers
    "what is new", not "what is unclaimed", which is what Open is for. */
@@ -1102,7 +1108,7 @@ export function NewIncoming({ me, onOpen }) {
 
   return (
     <Shell title="New incoming tickets"
-      sub={`Everything that arrived in the last ${NEW_TICKET_DAYS} days, however it arrived — raised here, queued for import, or found by the sync. Rows drop off on their own once they pass ${NEW_TICKET_DAYS} days old; there is nothing to clear.`}
+      sub={`Everything that landed in the last ${NEW_TICKET_DAYS} days, however it landed — raised here, queued for import, found by the sync, or put back after being cancelled or binned. Rows drop off on their own once they pass ${NEW_TICKET_DAYS} days old; there is nothing to clear.`}
       right={<span className="text-[12px] text-slate-500">
         {fresh.length} in the last {NEW_TICKET_DAYS} days
       </span>}
