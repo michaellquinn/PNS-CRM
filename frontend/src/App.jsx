@@ -1,5 +1,5 @@
 import { Component, useCallback, useEffect, useState } from "react";
-import { api, LIVE_STATUSES, isPnsWork } from "./api";
+import { api, LIVE_STATUSES, NEW_TICKET_DAYS, isNewIncoming, isPnsWork } from "./api";
 import Dashboard from "./screens/Dashboard";
 import Matrix from "./screens/Matrix";
 import Capa from "./screens/Capa";
@@ -22,7 +22,7 @@ import StatusFlow from "./screens/StatusFlow";
 import DataChecks from "./screens/DataChecks";
 import Cancelled from "./screens/Cancelled";
 import {
-  AwaitingPrice, Open, PendingCrmId, ToReview, PspPending, ExecSignoff,
+  AwaitingPrice, NewIncoming, Open, PendingCrmId, ToReview, PspPending, ExecSignoff,
   Proposals, ReadyToShip, RecycleBin, Watched,
 } from "./screens/Queues";
 
@@ -51,6 +51,12 @@ const NAV = [
   // id if it does not have one yet — plus the account/administration screens that were
   // never really "Sales' work" either.
   ["Sales CRM", [
+    // What has just landed, however it landed (Michael, 2026-09-02). First in the
+    // section because it answers the question people open the app with after a
+    // batch goes in: did it arrive? The badge and the screen share isNewIncoming(),
+    // so the count cannot disagree with the list. Rows age out on their own.
+    { id: "incoming", label: "New incoming", icon: "✦", count: "incoming",
+      keywords: "new incoming just arrived latest recent today batch upload imported raised" },
     { id: "new", label: "New request", icon: "＋", when: (m) => m.permissions.createTicket },
     { id: "crmid", label: "Pending CRM ID", icon: "⚠", count: "Pending CRM ID",
       keywords: "crm id missing blocked salesforce opportunity" },
@@ -520,6 +526,10 @@ export default function App() {
         // Mirrors the Open screen's own filter exactly (Queues.jsx), so the badge
         // and the list cannot answer differently: status Open, or PNS's and unowned
         // in any live status.
+        // Same predicate the screen filters on, from the same module, so the badge
+        // and the list are one answer. NEW_TICKET_DAYS is imported only to name the
+        // window in the title below.
+        c["incoming"] = all.tickets.filter(isNewIncoming).length;
         c["open"] = all.tickets.filter((t) => t.status === "Open"
           || (isPnsWork(t) && !t.owner && LIVE_STATUSES.includes(t.status))).length;
         setCounts(c);
@@ -563,6 +573,7 @@ export default function App() {
     sync: <Sync notify={notify} />,
     "import-queue": <ImportQueue me={me} notify={notify} onOpen={open} />,
     new: <NewRequest me={me} notify={notify} onCreated={open} />,
+    incoming: <NewIncoming me={me} onOpen={open} />,
     open: <Open me={me} notify={notify} onOpen={open} />,
     crmid: <PendingCrmId me={me} notify={notify} onOpen={open} />,
     // Two entries, one component. `awaiting` stays routable so an emailed or pasted

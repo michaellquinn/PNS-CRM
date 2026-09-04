@@ -278,6 +278,44 @@ export const mayGoToPsp = (t) =>
 // Open, and by the count-by-who-owes-it split on Awaiting price / Pricing.
 export const isPnsWork = (t) => t.priced_by === "PNS" || !!t.needs_review;
 
+// How long a ticket counts as newly arrived (Michael, 2026-09-02). Two days, then it
+// drops off the New incoming list by itself — nothing to dismiss and no state to
+// keep, because the window is measured from the ticket's own arrival.
+export const NEW_TICKET_DAYS = 2;
+
+// Arrived here within the window, whichever way it arrived: typed into New request,
+// pasted into the Import queue, or found by the sweep.
+//
+// Reads arrived_mins, which the SERVER computes with TIMESTAMPDIFF on the database
+// clock. That is deliberate and worth not undoing: created_at comes over the wire as
+// a naive "YYYY-MM-DD HH:MM:SS", the app container and OceanBase disagree about the
+// local timezone, and a browser parsing that against its own clock is out by the
+// offset — which on a two-day window silently drops tickets hours early. The same
+// trap is documented on sla_days_elapsed in the backend.
+//
+// Keyed on ARRIVAL, not on submitted_on: Sales CRM's date is when the opportunity was
+// raised THERE, routinely weeks earlier. A deal raised in July and queued today is new
+// to PNS today, which is the whole point of the list.
+//
+// One definition, used by the screen AND its sidebar badge, so the count can never
+// disagree with the list it labels.
+export const isNewIncoming = (t) =>
+  !!t && Number.isFinite(t.arrived_mins) &&
+  t.arrived_mins >= 0 && t.arrived_mins < NEW_TICKET_DAYS * 24 * 60;
+
+// How long ago it landed, for the row. Minutes, then hours, then days — "3h ago" is
+// the useful answer on a two-day list; "0d" is not.
+export function arrivedAgo(t) {
+  const m = t && t.arrived_mins;
+  if (!Number.isFinite(m) || m < 0) return "";
+  if (m < 2) return "just now";
+  if (m < 60) return `${m}m ago`;
+  const hrs = Math.floor(m / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  return days === 1 ? "yesterday" : `${days}d ago`;
+}
+
 // The three watched groups, in the order the rules treat them. Mirrors big_group() in
 // the backend: Hypercare and Strategic sit on the ACCOUNT and are inherited from the
 // Sales CRM account group; Must Win sits on ONE OPPORTUNITY, so the same account can

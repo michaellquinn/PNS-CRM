@@ -1202,6 +1202,23 @@ def sla_days_elapsed(t: dict) -> int:
     return max(0, (datetime.now() - since).days)
 
 
+def arrived_mins_elapsed(t: dict) -> int:
+    """Minutes since the ticket appeared in this app. Prefers created_mins_db, computed
+    by the query on the database's own clock, for exactly the reason sla_days_elapsed
+    does: the app container and OceanBase disagree about the local timezone, so
+    subtracting a naive created_at in Python here reads hours out on a fresh ticket.
+
+    Falls back to the Python subtraction only where the query did not ask for it (the
+    single-ticket reads), where being a few hours out changes nothing anybody sees."""
+    db = t.get("created_mins_db")
+    if db is not None:
+        return max(0, int(db))
+    made = t.get("created_at")
+    if not isinstance(made, datetime):
+        return 0
+    return max(0, int((datetime.now() - made).total_seconds() // 60))
+
+
 # ------------------------------------------------------------------ response models
 class Health(BaseModel):
     status: str
@@ -1209,7 +1226,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-02.82"
+BUILD = "2026-09-02.83"
 
 
 class Me(BaseModel):
@@ -1262,6 +1279,17 @@ class Ticket(BaseModel):
     # When Sales CRM says the deal was raised, and when this app first saw it. Two
     # different facts: the gap between them is how long PNS was unaware of a live deal.
     first_synced_on: str | None = None
+    # How long ago the ticket appeared HERE, in minutes, whichever way it arrived:
+    # typed into New request, pasted into the Import queue, or found by the sweep.
+    # Distinct from submitted_on (Sales CRM's own date, routinely weeks earlier) and
+    # from first_synced_on (null on a ticket raised by hand).
+    #
+    # An ELAPSED COUNT, not a timestamp, and computed by the database — same reason
+    # sla_elapsed is: the app container and OceanBase disagree about the local
+    # timezone, so any client subtracting a naive "YYYY-MM-DD HH:MM:SS" against its
+    # own clock is out by the offset. Sending the answer instead of the ingredients
+    # means the New incoming window cannot be wrong by seven hours.
+    arrived_mins: int = 0
     # The onboarding facts, so the Onboarding screens can list them without a request
     # per ticket. Keys match the intake payload.
     input: dict = {}
@@ -1429,6 +1457,7 @@ def shape(t: dict, u: User) -> Ticket:
         opportunity_id=(str(t["opportunity_id"]) if t.get("opportunity_id") else None),
         opportunity_name=t.get("opportunity_name"),
         first_synced_on=(str(t["first_synced_at"])[:10] if t.get("first_synced_at") else None),
+        arrived_mins=arrived_mins_elapsed(t),
         must_win=bool(t.get("must_win")),
         crm_loss_reason=((f"{t['ob_loss']} — {t['ob_loss_detail']}"
                           if t.get("ob_loss_detail") and t.get("ob_loss_detail") != "null"
@@ -1489,6 +1518,9 @@ async def list_tickets(
            "(SELECT a.decision FROM approvals a WHERE a.ticket_id=t.id AND a.kind='psp' "
            "ORDER BY a.decided_at DESC LIMIT 1) AS psp_decision, "
            "TIMESTAMPDIFF(DAY, t.status_since, NOW()) AS sla_days_db, "
+           # Minutes, not days: the New incoming window is two days wide and a row
+           # needs to read "3h ago", which a day count cannot say.
+           "TIMESTAMPDIFF(MINUTE, t.created_at, NOW()) AS created_mins_db, "
            # The four onboarding facts, read straight out of the intake payload. They
            # travel on every row because the Onboarding screens are lists, and fetching
            # each ticket individually to find a go-live date would be a request per row.
@@ -1675,7 +1707,8 @@ async def accounts(u: User = Depends(current_user),
         "s.parent_account_id, p.margin_pct, p.price_file, p.price_url, "
         "(SELECT COUNT(*) FROM ticket_comments c WHERE c.ticket_id=t.id "
         "AND c.is_question=1 AND c.resolved_at IS NULL) AS open_q, "
-        "TIMESTAMPDIFF(DAY, t.status_since, NOW()) AS sla_days_db "
+        "TIMESTAMPDIFF(DAY, t.status_since, NOW()) AS sla_days_db, "
+        "TIMESTAMPDIFF(MINUTE, t.created_at, NOW()) AS created_mins_db "
         "FROM tickets t JOIN shippers s ON s.id=t.shipper_id "
         "LEFT JOIN pricing p ON p.ticket_id=t.id "
         "WHERE t.deleted_at IS NULL ORDER BY t.submitted_on DESC")

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, BOTTOM_MARGIN, LIVE_STATUSES, PENDING, PICKABLE_LOSS_REASONS, SERVICES,
-         FTL, WATCHED_GROUPS, groupFilter, groupTone, isPnsWork, mayGoToPsp,
-         rp } from "../api";
+         FTL, WATCHED_GROUPS, NEW_TICKET_DAYS, arrivedAgo, groupFilter, groupTone,
+         isNewIncoming, isPnsWork, mayGoToPsp, rp } from "../api";
 import {
   Btn, Card, Confirm, Empty, Head, MultiSelect, Pill, PriceChip, TicketCard, inputCls,
   usePnsTeam, useSticky,
@@ -1076,6 +1076,69 @@ export function ReadyToShip({ me, onOpen }) {
       {(list) => list.map((t) => (
         <TicketCard key={t.ref} t={t} onOpen={onOpen}>
           {(t.price_file || t.price_url) && <p className="text-[13px]"><PriceChip file={t.price_file} url={t.price_url} /></p>}
+        </TicketCard>
+      ))}
+    </Shell>
+  );
+}
+
+/* ------------------------------------------------------------- new incoming */
+/* What has just landed, however it landed (Michael, 2026-09-02): typed into New request,
+   pasted into the Import queue, or found by the sweep. A two-day window measured from
+   the ticket's own arrival, so a row leaves the list by itself and there is nothing to
+   dismiss and no "seen" state to keep.
+
+   Keyed on ARRIVAL rather than on Sales CRM's submitted_on, which is when the
+   opportunity was raised THERE and is routinely weeks earlier. A deal raised in July and
+   queued this morning is new to PNS this morning.
+
+   Deliberately shows tickets in ANY live status. Something can arrive and be picked up
+   within the hour, and it is still worth seeing on the list of what came in — this answers
+   "what is new", not "what is unclaimed", which is what Open is for. */
+export function NewIncoming({ me, onOpen }) {
+  const [rows, err] = useTickets({});
+  const fresh = (rows || []).filter(isNewIncoming);
+  const [list, f, set, clear, patch] = useFilter(fresh, { resp: [] }, "incoming");
+
+  return (
+    <Shell title="New incoming tickets"
+      sub={`Everything that arrived in the last ${NEW_TICKET_DAYS} days, however it arrived — raised here, queued for import, or found by the sync. Rows drop off on their own once they pass ${NEW_TICKET_DAYS} days old; there is nothing to clear.`}
+      right={<span className="text-[12px] text-slate-500">
+        {fresh.length} in the last {NEW_TICKET_DAYS} days
+      </span>}
+      rows={rows} err={err}
+      empty={`Nothing new in the last ${NEW_TICKET_DAYS} days.`}
+      bar={
+        <FilterBar f={f} set={set} clear={clear} patch={patch} me={me}
+          shown={list.length} total={fresh.length} rows={fresh}>
+          <MultiSelect label="Priced by" picked={f.resp}
+            onClear={() => patch("resp", [])}
+            sections={pickList(["PNS", "Sales"], f.resp, (v) => patch("resp", v))} />
+        </FilterBar>
+      }
+      filtered={list}>
+      {(list) => [...list]
+        // Newest first. arrived_mins counts UP from arrival, so ascending is newest.
+        .sort((a, b) => (a.arrived_mins ?? 0) - (b.arrived_mins ?? 0))
+        .map((t) => (
+        <TicketCard key={t.ref} t={t} onOpen={onOpen}
+          badges={[
+            <Pill key="age" tone="bg-sky-50 text-sky-700">{arrivedAgo(t)}</Pill>,
+            /* How it got here. A ticket with no Sales CRM id was typed in by hand and
+               is waiting on one; everything else came across from Sales CRM. */
+            t.opportunity_id
+              ? <Pill key="src" tone="bg-slate-100 text-slate-600">from Sales CRM</Pill>
+              : <Pill key="src" tone="bg-amber-50 text-amber-700">raised here</Pill>,
+            <Pill key="by" tone={t.priced_by === "PNS" ? "bg-violet-50 text-violet-700" : "bg-sky-50 text-sky-700"}>
+              {t.priced_by} will price it
+            </Pill>,
+          ].filter(Boolean)}>
+          <p className="text-[12.5px] text-slate-500">
+            {t.owner
+              ? <>PNS PIC <b>{t.owner}</b></>
+              : <span className="text-amber-700">No PNS PIC yet</span>}
+            {" · "}status <b>{t.status}</b>
+          </p>
         </TicketCard>
       ))}
     </Shell>

@@ -3,6 +3,21 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-09-02",
+    title: "New incoming tickets — what just landed, for two days",
+    by: "Michael + Claude",
+    changes: [
+      "NEW — New incoming, first entry under Sales CRM. Everything that arrived in the last two days, however it arrived: typed into New request, pasted into the Import queue, or found by the sync sweep. It answers the question people open the app with after putting a batch in — did it actually arrive?",
+      "Rows leave on their own. The window is measured from the ticket's own arrival, so there is nothing to dismiss, no “mark as seen”, and no state to keep or get out of step. A ticket is on the list for two days and then it is not.",
+      "Keyed on when the ticket appeared HERE, not on Sales CRM's submitted date — which is when the opportunity was raised THERE and is routinely weeks earlier. A deal raised in July and queued this morning is new to PNS this morning, and that is the whole point of the list.",
+      "Each row says how it got here — “from Sales CRM” or “raised here” — how long ago it landed, who prices it, and whether a PNS PIC has it yet.",
+      "Shows tickets in any live status on purpose. Something can arrive and be picked up within the hour and still belongs on a list of what came in: this answers “what is new”, where Open answers “what is unclaimed”.",
+      "The age is computed by the DATABASE, not the browser. created_at goes over the wire as a naive timestamp and the app container and OceanBase disagree about the local timezone — a browser subtracting that against its own clock is out by the offset, which on a two-day window drops tickets off hours early. The API sends arrived_mins, an elapsed count, the same way sla_elapsed already worked around this. The trap is written down in both places.",
+      "The sidebar badge and the screen filter on one shared isNewIncoming(), so the count can never disagree with the list it labels.",
+    ],
+    overruled: [],
+  },
+  {
+    date: "2026-09-02",
     title: "A deal parked in Sales CRM is cancelled here, with the reason on it",
     by: "Michael + Claude",
     changes: [
