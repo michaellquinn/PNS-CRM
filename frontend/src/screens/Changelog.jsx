@@ -3,6 +3,22 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-09-02",
+    title: "A deal parked in Sales CRM is cancelled here, with the reason on it",
+    by: "Michael + Claude",
+    changes: [
+      "“Future Opportunity” now CANCELS the ticket. A deal Sales have put down should not sit in a live queue reading as work, and Cancel is where this app puts something it is not going to do: the ticket leaves every queue and lands on the Cancelled screen.",
+      "It carries a note naming the stage — “Sales CRM parked this opportunity as Future Opportunity. Cancelled here so it leaves the working queues” — so the row reads as “Sales parked this” and not as “PNS decided against it”. A cancelled ticket with no stated reason is how a deal disappears.",
+      "It is NOT counted as a loss. outcome stays unset, so a parked deal does not inflate the loss rate for something nobody lost — which is what the old Future-Opportunity-means-Lost behaviour did.",
+      "Putting one back is a deliberate act. Cancel is frozen to the sync exactly as Lost is, so the next sweep will not reopen a cancelled ticket: if Sales pick the deal up again, use Put back on the Cancelled screen. That cost was taken knowingly, with the alternative on the table. What makes it affordable is that Cancelled is a list people read and every row has the button — the Lost list this replaces was somewhere nobody looked.",
+      "Pricing is still refused while a deal is parked, and the message now says where to put it back from rather than claiming the ticket will carry on by itself.",
+      "Reference / Status flow, the Sync screen and every docstring that described a park as changing nothing are updated. verify_stages pins the new mapping AND the accepted cost — the round trip now asserts that a revived deal STAYS cancelled, so the trade-off is written down where the next person will find it rather than discovered.",
+    ],
+    overruled: [
+      "Michael, 2026-08-31: a parked stage decides nothing about our status, so the ticket keeps its place and follows the stage back up by itself. That was chosen to escape the Lost trap and it did, but it left parked deals sitting in live queues. Cancelling gets them out; the revival trap comes back with it, which is why Put back and the Cancelled screen carry the weight now.",
+    ],
+  },
+  {
+    date: "2026-09-02",
     title: "Commercial can open the Import queue again",
     by: "Michael + Claude",
     changes: [

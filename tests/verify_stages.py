@@ -1,8 +1,25 @@
 """What a Sales CRM stage does to a PNS ticket, executed out of the real main.py.
 
-Michael, 2026-08-31: "Future Opportunity" was being read as a loss, and it is not one.
-Closed-Lost means the shipper walked away; Future Opportunity means ask again next
-quarter. They shared one list.
+"Future Opportunity" is a PARK, not a loss. Closed-Lost means the shipper walked away;
+Future Opportunity means ask again next quarter. They shared one list until 2026-08-31.
+
+What a park DOES has changed twice, and the history is the point:
+
+  until 2026-08-31   -> Lost.   Terminal, and the sync will not move a ticket out of a
+                                terminal status, so a revived deal stayed Lost through
+                                Negotiation, Proposal Submitted and Agreed to Ship
+                                alike, in a list nobody reads. Data loss in all but
+                                name.
+  2026-08-31         -> nothing. Ticket kept its status and followed the stage back up
+                                by itself. Safe, but parked deals sat in live queues
+                                reading as work.
+  2026-09-02 (now)   -> Cancel. Michael's call: parked deals leave the queues. Cancel
+                                is frozen to the sync exactly as Lost is, so this DOES
+                                mean a revived deal needs a human to put it back —
+                                taken deliberately, with the alternative on the table.
+                                What makes it affordable is that Cancelled is a screen
+                                people read, carrying the reason and a Put back button,
+                                where Lost was not.
 
 That was not a labelling problem, it was a data-loss problem, and it is the reason this
 suite exists. Reading a park as a loss set our status to Lost — and _refresh_from_salescrm
@@ -14,7 +31,7 @@ everyone, because nobody reads the Lost list looking for live work.
 
 The three things pinned here, each of which failed silently before:
 
-  * a parked stage must decide NOTHING about our status, so the ticket survives the park;
+  * a parked stage must CANCEL, and must carry a reason saying Sales parked it;
   * a real loss must still be terminal, or "Lost" stops meaning anything;
   * every stage test must compare NORMALISED. The picklist is hand-edited - the misspelt
     "Future Oppurtunity" in the list is the proof - and three of the four tests compared
@@ -65,10 +82,11 @@ def check(label, ok, hint=""):
 
 
 # ------------------------------------------------------- parked is not a loss
-print("a parked stage decides nothing about our status")
+print("a parked stage cancels the ticket")
 for stage in PARKED:
     got = status_for_stage(stage, "PNS")
-    check(f"{stage} leaves our status alone", got is None, f"wants {got!r}")
+    check(f"{stage} -> Cancel", got == "Cancel", f"wants {got!r}")
+    check(f"{stage} is NOT read as a loss", got != "Lost")
     check(f"{stage} is not in the lost list", norm(stage) not in ns["_LOST_N"])
     check(f"{stage} still blocks a price going out", bool(stage_blocks_work({"stage": stage})))
 
@@ -83,10 +101,15 @@ check("the two lists share nothing",
       "a stage cannot be both parked and lost")
 
 # ------------------------------------------------------- the round trip
-# The whole point. Replays _refresh_from_salescrm's guard, not just the mapping, because
-# the mapping alone never showed the bug - Lost was reachable, it was just never leavable.
+# Replays _refresh_from_salescrm's guard, not just the mapping, because the mapping
+# alone cannot show what happens AFTER a terminal status is reached.
+#
+# This pins the ACCEPTED COST of the 2026-09-02 decision rather than hiding it: a
+# parked deal is cancelled, and it stays cancelled even after Sales revive it. If that
+# ever stops being wanted, this check is where the trade-off is written down and the
+# fix is a scoped exception to FROZEN, not a change to the mapping.
 print()
-print("a deal parked mid-solutioning survives being revived")
+print("a parked deal is cancelled, and stays cancelled until a human puts it back")
 status = "Pending PNS"
 journey = ["Negotiation", "Future Opportunity", "Negotiation",
            "Proposal Submitted", "Agreed to Ship"]
@@ -95,10 +118,11 @@ for stage in journey:
     if wants and status != wants and status not in FROZEN:
         status = wants
     if stage in PARKED:
-        check("parked: the ticket keeps its place in the queue", status == "Pending PNS",
-              f"became {status!r}")
-check("revived: it ends where Sales ended, not at Lost",
-      status == "Proposal Accepted / Ready to Ship", f"ended at {status!r}")
+        check("parked: the ticket is cancelled and leaves the queues",
+              status == "Cancel", f"became {status!r}")
+check("revived: it stays Cancel, because Cancel is frozen to the sync",
+      status == "Cancel", f"ended at {status!r}")
+check("Cancel really is frozen (the reason the above is true)", "Cancel" in FROZEN)
 
 # ------------------------------------------------------- normalisation
 print()

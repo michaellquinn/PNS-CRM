@@ -322,9 +322,11 @@ export default function Sync({ notify }) {
                 also moves our status: Closed-Lost becomes Lost; the accepted stages
                 become Ready to Ship, and if the onboarding fields are still blank,
                 PNS and Sales are told which ones. <b>Future Opportunity</b> is a
-                park, not a loss — since 31 August it leaves our status alone, so the
-                ticket keeps its place and carries on by itself when Sales moves the
-                stage. A price cannot be attached while it is parked.
+                park, not a loss — since 2 September it <b>cancels</b> the ticket, with
+                a note naming the stage, so a deal Sales have put down leaves the
+                working queues instead of reading as live work. It is not counted as a
+                loss. The sync will not reopen it by itself: if Sales pick the deal up
+                again, use <b>Put back</b> on the Cancelled screen.
                 Service and account tier
                 <br />
                 Whenever revenue, service or tier changes, the <b>routing is re-derived</b>

@@ -501,9 +501,16 @@ CLOSED_LOST_STAGES = ("Closed-Lost", "Closed Lost")
 # through Negotiation, Proposal Submitted and Agreed to Ship alike, invisible to everyone
 # because nobody reads the Lost list.
 #
-# So a parked stage now decides nothing about our status, exactly like Negotiation. A
-# ticket keeps its place in the queue and simply carries on when Sales picks the deal
-# back up. What it still does is block PRICING, via stage_blocks_work: parked work should
+# A parked stage CANCELS the ticket (Michael, 2026-09-02). Between 2026-08-31 and then
+# it decided nothing, which was safe but left parked deals sitting in live queues
+# reading as work. Cancel is where this app puts something it is not going to do: the
+# ticket leaves every queue, keeps a stated reason, and appears on the Cancelled screen
+# with a Put back button.
+#
+# Cancel is frozen to the sync exactly as Lost is, so a revived deal needs a human to
+# put it back. That cost was taken deliberately with the alternative on the table; what
+# makes it affordable is that Cancelled is a list people read, and Lost was not.
+# Pricing is blocked while parked either way, via stage_blocks_work: parked work should
 # not have a new number put in front of the shipper. The stage is already on screen as
 # its own pill beside our status, so "this is parked" needs no new vocabulary here.
 PARKED_STAGES = ("Future Opportunity", "Future Oppurtunity")
@@ -535,7 +542,7 @@ def stage_blocks_work(t: dict) -> str | None:
 
     Sales owns the commercial reality: if the shipper walked away, or the deal is parked
     for a later quarter, putting a fresh price in front of them is wasted effort at best
-    and misleading at worst. A parked ticket keeps its status and its place in the queue
+    and misleading at worst. A parked ticket is cancelled by the sync and leaves the queue
     — this stops the one act that reaches the shipper, not the ticket's existence.
 
     Returns the reason to refuse, or None to allow."""
@@ -544,9 +551,10 @@ def stage_blocks_work(t: dict) -> str | None:
         return (f"Sales CRM has this opportunity at '{t.get('stage')}'. Reopen it there "
                 f"first: Sales CRM leads on stage and this ticket follows it.")
     if s in _PARKED_N:
-        return (f"Sales CRM has this opportunity parked at '{t.get('stage')}'. The ticket "
-                f"stays where it is and will carry on by itself when Sales moves the "
-                f"stage, but a price should not go out while the deal is parked.")
+        return (f"Sales CRM has this opportunity parked at '{t.get('stage')}'. The sync "
+                f"cancels a parked deal, and a price should not go out for one either "
+                f"way. If Sales have picked it up again, put it back from the Cancelled "
+                f"screen.")
     return None
 
 
@@ -565,11 +573,22 @@ def status_for_stage(stage: str | None, resp: str) -> str | None:
     went out" was not. Where a ticket was still in an approval gate, the sync records the
     gates it bypassed rather than moving it quietly — see _refresh_from_salescrm().
 
-    PARKED_STAGES deliberately imply NOTHING here (Michael, 2026-08-31). They used
-    to be read as a loss, which was terminal, and terminal is a door the sync
-    cannot reopen — so a parked deal stayed Lost even after Sales revived it.
-    A parked ticket now keeps its status and follows the stage back up by itself.
-    stage_blocks_work() still refuses to let a price go out while it is parked."""
+    PARKED_STAGES cancel the ticket (Michael, 2026-09-02). A deal Sales have put down
+    should not sit in a live queue reading as work, and Cancel is where this app puts
+    something it is not going to do: it leaves every queue, keeps a stated reason, and
+    is listed on the Cancelled screen with a Put back button.
+
+    Cancel is FROZEN to the sync, exactly as Lost is, so reviving a parked deal is a
+    deliberate human act rather than something the next sweep undoes. That is the
+    trade-off and it is Michael's, taken with the alternative in front of him: it buys
+    clean queues at the cost of somebody having to notice. The Cancelled screen is what
+    makes that affordable — it carries the reason and the button, where the Lost list
+    this replaced was somewhere nobody looked.
+
+    History: these were read as a LOSS until 2026-08-31, which was worse than either
+    of the above — a parked deal went to Lost, and nothing brought it back, so it
+    stayed there through Negotiation, Proposal Submitted and Agreed to Ship alike with
+    no list anybody read. Briefly left the status alone; now cancels."""
     if not stage:
         return None
     # Compared normalised — case-folded and inner whitespace collapsed. Sales CRM's
@@ -580,6 +599,8 @@ def status_for_stage(stage: str | None, resp: str) -> str | None:
     s = _norm_stage(stage)
     if s in _LOST_N:
         return "Lost"
+    if s in _PARKED_N:
+        return "Cancel"
     if s in _ACCEPTED_N:
         return "Proposal Accepted / Ready to Ship"
     if s in _SUBMITTED_N:
@@ -1188,7 +1209,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-02.81"
+BUILD = "2026-09-02.82"
 
 
 class Me(BaseModel):
@@ -3569,6 +3590,22 @@ async def _refresh_from_salescrm(o: dict, account: dict | None = None,
                     f"{ref}, {t['shipper']}: Sales CRM says the proposal is submitted, but "
                     + " and ".join(what) + ". Worth checking.",
                     groups=["PNS"], ticket_ref=ref)
+        elif wants == "Cancel":
+            # Parked in Sales CRM (Michael, 2026-09-02). Cancel rather than Lost:
+            # the deal was not lost, it was put down, and the Cancelled screen is a
+            # list somebody actually reads with a Put back button on every row.
+            #
+            # The note is the whole point of doing this here rather than letting the
+            # ticket go quiet: a cancelled ticket with no stated reason is how a deal
+            # disappears. It names the stage, so the row reads as "Sales parked this"
+            # and not as "PNS decided against it".
+            #
+            # outcome is deliberately NOT set to 'lost': the loss breakdown counts
+            # deals the shipper declined, and a parked deal is not one of those. It
+            # would quietly inflate the loss rate for something nobody lost.
+            note = (f"Sales CRM parked this opportunity as {o.get('stage')}. "
+                    f"Cancelled here so it leaves the working queues — put it back "
+                    f"from the Cancelled screen if Sales pick it up again.")
         elif wants == "Lost":
             # Sales CRM's own reason, not the generic "Closed in Sales CRM" bucket
             # (Baskoro, 2026-08-18). Every synced loss used to land in one bucket that
@@ -6926,15 +6963,17 @@ async def status_flow(u: User = Depends(current_user)):
                     "effort, and a priced proposal would be misleading. Recorded "
                     "with Sales CRM’s own loss reason."),
             StageRule(
-                stages=list(PARKED_STAGES), becomes=None,
+                stages=list(PARKED_STAGES), becomes="Cancel",
                 why="Parked, not lost — budget moved, or the shipper is not ready "
-                    "yet. The ticket keeps its status and its place in the queue, "
-                    "and carries on by itself when Sales moves the stage. Until "
-                    "then a price cannot be attached: parked work should not have "
-                    "a new number put in front of the shipper. These stages were "
-                    "read as a loss until 2026-08-31, which killed the ticket "
-                    "outright — the sync never touches a Lost ticket again, so "
-                    "it stayed dead even after Sales revived the deal."),
+                    "yet. The ticket is CANCELLED so it leaves the working queues, "
+                    "with a note naming the stage so the row reads as “Sales parked "
+                    "this” and not as “PNS decided against it”. It is not counted "
+                    "as a loss. Putting it back is a deliberate act: use Put back on "
+                    "the Cancelled screen if Sales pick the deal up again, because "
+                    "the sync will not reopen a cancelled ticket by itself. These "
+                    "stages were read as a LOSS until 2026-08-31, which was worse — "
+                    "Lost is a list nobody reads, so a revived deal stayed dead "
+                    "there unnoticed."),
             StageRule(
                 stages=list(ACCEPTED_STAGES), becomes="Proposal Accepted / Ready to Ship",
                 why="The shipper accepted. If the onboarding fields are still blank when "
@@ -6958,8 +6997,9 @@ async def status_flow(u: User = Depends(current_user)):
                 why="Left alone on purpose. Sales CRM owns the COMMERCIAL stage; this app "
                     "owns the SOLUTIONING status, and they answer different questions. A "
                     "deal can sit at Negotiation there while PNS is still pricing here, "
-                    "and neither is wrong. What overrides ours is Closed-Lost, the "
-                    "accepted stages and Proposal Submitted, and nothing else."),
+                    "and neither is wrong. What overrides ours is Closed-Lost, "
+                    "Future Opportunity, the accepted stages and Proposal "
+                    "Submitted, and nothing else."),
         ],
     }
 
