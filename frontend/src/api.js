@@ -197,6 +197,26 @@ export const api = {
   // shape for the question: at the moment of tagging you almost always want the PNS PIC,
   // their Head, the Sales PIC, or that PIC's Manager or Head.
   taggable: (ref) => call(`/tickets/${encodeURIComponent(ref)}/taggable`),
+
+  // ---------------------------------------------------------------- onboarding
+  onboarding: (active = true) => call(`/onboarding?active=${active ? "true" : "false"}`),
+  startOnboarding: (ref, body) =>
+    call(`/tickets/${encodeURIComponent(ref)}/onboarding`, { method: "POST", body: JSON.stringify(body) }),
+  addOnboardingIds: (oid, body) =>
+    call(`/onboarding/${oid}/ids`, { method: "POST", body: JSON.stringify(body) }),
+  removeOnboardingId: (oid, rid) =>
+    call(`/onboarding/${oid}/ids/${rid}`, { method: "DELETE" }),
+  confirmGolive: (oid, body) =>
+    call(`/onboarding/${oid}/golive`, { method: "POST", body: JSON.stringify(body) }),
+  ackGolive: (oid, body) => call(`/onboarding/${oid}/ack`, { method: "POST", body: JSON.stringify(body) }),
+  markReady: (oid) => call(`/onboarding/${oid}/ready`, { method: "POST", body: JSON.stringify({}) }),
+  patchOnboarding: (oid, body) =>
+    call(`/onboarding/${oid}`, { method: "PATCH", body: JSON.stringify(body) }),
+  requirements: (ref) => call(`/tickets/${encodeURIComponent(ref)}/requirements`),
+  raiseRequirement: (ref, body) =>
+    call(`/tickets/${encodeURIComponent(ref)}/requirements`, { method: "POST", body: JSON.stringify(body) }),
+  ackRequirement: (rid) => call(`/requirements/${rid}/ack`, { method: "POST", body: JSON.stringify({}) }),
+  deleteRequirement: (rid) => call(`/requirements/${rid}`, { method: "DELETE" }),
   assignable: () => call("/users/assignable"),
   registerUser: (body) => call("/users", { method: "POST", body: JSON.stringify(body) }),
   updateUser: (email, body) =>

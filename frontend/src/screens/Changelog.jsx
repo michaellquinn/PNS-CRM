@@ -3,6 +3,30 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-09-07",
+    title: "Onboarding: handing a won deal to Ops and QC, and the week they share it",
+    by: "Baskoro + Claude",
+    changes: [
+      "NEW — Onboarding is a real process, not just two lists. Solutioning ends when the shipper accepts; onboarding begins there and asks a different question: can Ops actually take this on, and is QC ready to inherit it.",
+      "TO HAND OVER is the trigger. Shipper ID and target go-live in, and one act creates the record, emails the Kick-off to PNS, Sales, Ops and QC, and asks Ops and QC to confirm they are ready. There is no gap where the record exists and nobody has been told.",
+      "Most rows arrive already filled in. Sales CRM carries the account's global_id and target_start_date and the sync already reads both, so this queue is “the deals Sales CRM did not tell us about”, not a retyping queue.",
+      "ONE TICKET IS ONE SHIPPER ID, enforced. A shipper ID with a comma or a space in it is refused, naming the reason: if an account goes live as several shippers, that is one deal per shipper. The same shipper CAN be onboarded again on a later deal, but only PNS may confirm it — a duplicate there is usually a typo and occasionally a real second contract, and telling those apart needs the person who priced it.",
+      "RESERVATION, MPS AND TRACKING IDS live on the record and grow after the trigger, as Sales get confirmation. Sales say which kind before pasting, and paste a whole column at once — commas, spaces and new lines all split, repeats are dropped. Reservation ids are checked as all-digits, so a tracking ID pasted into the wrong box is caught now rather than three weeks later when nobody can find the pickup. MPS and tracking prefixes vary per shipper, so those are not shape-checked: a rule that rejects real ids is worse than no rule.",
+      "THE GRAY WEEK. PNS and QC are both accountable for the shipper's first week of shipping; after it, QC alone, in QC's own system, which this app does not touch. The clock runs from when the shipper ACTUALLY started, which is a different fact from the date Sales promised — a target that passed proves nothing, and starting the clock on it would hand QC a shipper that never shipped.",
+      "Two doors to that fact. Sales confirm first shipment; or the target passes untouched, the record turns amber, and QC are asked whether it started. Which door it came through is recorded, because a QC-acknowledged date is an inference and a Sales-confirmed one is a report.",
+      "A late acknowledgement does not rewind the week. The gray period is the shipper's first week of shipping, a real-world fact, not an admin timestamp — so acknowledging four days late means four days of the shared window are already spent.",
+      "The phase is COMPUTED from the dates every time it is read, never stored, and the record closes itself seven days after go-live. This app serves from more than one replica, so a phase written into a row by whichever pod noticed first is a fact that can be wrong, late or written twice. Two dates and a subtraction give the same answer on every pod, and need no scheduler to stay true.",
+      "SPECIAL REQUIREMENTS, raised by PNS exclusively, for things far from standard — RDO, FM, MM & Sort, LM, Claim & exceptions, Parcels Handling. The area decides who is asked: Claim & exceptions is QC's, the other five are Ops'. Ops cannot acknowledge a QC area and QC cannot acknowledge an Ops one.",
+      "Ops are NOT asked to tick a box on every standard shipper. No requirement raised for their area means nothing is owed — they are pulled in only when something actually needs them. Alongside that, Ops and QC each give a general “we are ready” tick before go-live; missing ticks at the target date show red and notify PNS and Sales, and block nothing, because the shipper ships whether or not a tick exists and blocking would only make the record lie.",
+      "On the ticket, one OPERATIONS TAB with the filled areas as sections inside, and a count of what is still unacknowledged. Not six more tabs: twelve on a bar whose shape changed per ticket would wrap to two rows on a laptop, and the badge keeps the at-a-glance signal that made separate tabs attractive. The tab does not appear at all when nothing is raised and you are not the one who raises them.",
+      "EXPORT IDS (CSV) for QC, one button. One row per id with the shipper repeated on each — a cell holding eight comma-joined ids looks tidier and puts the reader straight back into manual work. Shippers with no ids yet are still listed, because those are exactly the ones QC cannot monitor.",
+      "Until a QC user is registered, PNS may acknowledge a go-live in QC's place. It stops the day the first QC user exists — an org change switches the rule, not a deploy.",
+      "Migration V28. V27 was taken five days ago while this was being designed, which is the fourth time on this repo that two people numbering migrations from separate clones nearly collided.",
+      "Pinned in a new test suite: the gray-week boundaries day by day (day 7 shared, day 8 QC's), that a late acknowledgement cannot rewind the week, that one-shipper-per-ticket refuses every separator, and that the CSV quotes a shipper name with a comma in it — “PT. Anu, Tbk” is an ordinary name and a hand-rolled CSV that does not quote it shifts every column to its right.",
+    ],
+    overruled: [],
+  },
+  {
+    date: "2026-09-07",
     title: "Back returns you to the list, where you left it; @ suggests the people on the ticket",
     by: "Baskoro + Claude",
     changes: [

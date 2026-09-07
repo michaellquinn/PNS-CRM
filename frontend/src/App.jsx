@@ -515,16 +515,23 @@ export default function App() {
   // The guard is the comparison against the address bar, and it is what makes Back work
   // rather than fight itself. Going back fires popstate, which sets state the URL ALREADY
   // matches -- so this effect re-runs, finds nothing to write, and pushes nothing.
+  // Normalising the entry URL (a bare "/" becomes "?screen=dashboard") is not a move the
+  // reader made, so it replaces rather than pushes. It happens ONCE, on mount, and is
+  // counted — folding it into the effect below instead meant that when the entry URL
+  // already matched, nothing was written, the "first write" was still owed, and the
+  // reader's first real navigation spent it. Opening a ticket then REPLACED the queue
+  // entry and Back walked straight past it, out of the app: the exact bug being fixed.
   useEffect(() => {
+    window.history.replaceState({ nx: true }, "", entryUrl(screen, ticketRef));
+    pushed.current = 1;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!pushed.current) return;          // the mount effect above has not run yet
     const url = entryUrl(screen, ticketRef);
     if (url === window.location.pathname + window.location.search) return;
-    // The first write normalises the entry URL (a bare "/" becomes "?screen=dashboard").
-    // That is not a move the reader made, so it must not become a step Back walks into.
-    if (pushed.current === 0 && !window.history.state?.nx) {
-      window.history.replaceState({ nx: true }, "", url);
-    } else {
-      window.history.pushState({ nx: true }, "", url);
-    }
+    window.history.pushState({ nx: true }, "", url);
     pushed.current += 1;
   }, [screen, ticketRef]);
 
@@ -660,7 +667,7 @@ export default function App() {
     "capa-raise": <NewCapa notify={notify} onCreated={() => go("capa-all")} />,
     guide: <Guide onGo={go} />,
     handover: <ToHandOver me={me} notify={notify} onOpen={open} />,
-    onboarding: <Onboarding onOpen={open} />,
+    onboarding: <Onboarding me={me} notify={notify} onOpen={open} />,
     matrix: <Matrix />,
     changelog: <Changelog />,
     users: <Users me={me} notify={notify} />,

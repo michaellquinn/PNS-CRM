@@ -298,7 +298,7 @@ export function PriceForm({ t, me, notify, onDone, compact = false }) {
       {(t.price_file || t.price_url) && (
         <p className="mb-3 text-[12.5px]">
           <span className="text-slate-500">Currently attached: </span>
-          <PriceChip file={t.price_file} url={t.price_url} />
+          <PriceChip file={t.price_file} url={t.price_url} priced={t.priced} />
         </p>
       )}
       <div className="mb-2 grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">

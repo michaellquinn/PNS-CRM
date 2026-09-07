@@ -145,7 +145,10 @@ export default function Discussion({ ticketRef, me, notify, onCountChange,
   const matches = !mention ? [] : pool
     .filter((p) => p.email !== me.email
       && (!q_ || (p.name || "").toLowerCase().includes(q_)
-              || p.email.toLowerCase().includes(q_)))
+      // The LOCAL PART only, never the domain. Everyone here is @ninjavan.co, so
+      // matching the whole address meant "an" hit every single person through
+      // "ninjavan" -- the filter looked broken because it matched too much.
+              || p.email.toLowerCase().split("@")[0].includes(q_)))
     .slice(0, 8);
 
   const choose = (p) => {

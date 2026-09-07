@@ -850,6 +850,26 @@ def can(u: User, action: str, t: dict | None = None) -> bool:
     if action == "seePrice":
         return u.group not in ("Ops", "QC")
 
+    # Onboarding is the one place Ops and QC ACT (Baskoro, 2026-09-07). Answered here,
+    # above the same early return and for the same reason: Ops sits in READ_ONLY_GROUPS,
+    # which returns False for every action, and taking Ops out of that tuple to grant one
+    # right would silently grant createTicket along with it. This way Ops stay read-only
+    # on the entire pipeline and gain exactly two rights, both on onboarding.
+    #
+    # markReady is the general "we are ready for this shipper" tick, taken before go-live.
+    # ackRequirement is acknowledging one specific thing PNS asked of your team; who owes
+    # which is decided by the requirement's area, and re-checked against the row itself in
+    # the endpoint, because that answer needs the requirement in hand.
+    # Written as two separate compares rather than one `in` test, deliberately:
+    # verify_permissions.py reads the declared names out of the AST and only recognises
+    # `action == "..."`. An `in (...)` tuple is invisible to it, which would let these two
+    # go missing from /api/me and make the feature silently unavailable -- the exact bug
+    # that guard exists to catch.
+    if action == "markReady":
+        return u.group in ("Ops", "QC") or admin
+    if action == "ackRequirement":
+        return u.group in ("Ops", "QC") or admin
+
     # Read-mostly audiences never mutate. Stated once here rather than being spelled out
     # as an exclusion on every line below, where one omission would grant a right nobody
     # intended. They can still be tagged in a discussion and reply, that is a comment
@@ -1005,6 +1025,27 @@ def can(u: User, action: str, t: dict | None = None) -> bool:
         # Only the PNS Head may open a non-managed ticket to PSP, and only on an
         # exception Alex granted verbatim. See allow_psp.
         "allowPsp":         pns_head,
+        # ---------------------------------------------------------------- onboarding
+        # Handing an accepted deal to Ops and QC. Sales' job -- they hold the shipper
+        # relationship, so they are the ones who know the shipper ID and the date. PNS
+        # and Sales Planning are in for the same reason they hold editInput: during the
+        # rollout they enter most of it on Sales' behalf.
+        "startOnboarding":  u.group in ("Commercial", "PNS", "Sales Planning") or admin,
+        # The OPV2 ids, which arrive over the following days as Sales get confirmation.
+        "editOnboardingIds": u.group in ("Commercial", "PNS", "Sales Planning") or admin,
+        # Confirming the shipper actually started shipping. Sales', because they are the
+        # ones talking to the shipper. QC reach the same field through ackGolive when the
+        # target passes and nobody confirmed.
+        "confirmGolive":    u.group == "Commercial" or admin,
+        # Acknowledging a go-live that passed untouched. QC's, because QC inherit the
+        # shipper -- and, while no QC user is registered at all, PNS's too. That fallback
+        # is decided in the endpoint, not here: it needs to ask the database whether any
+        # QC user exists, and can() is synchronous and must stay that way.
+        "ackGolive":        u.group == "QC" or admin,
+        # Raising a special requirement. PNS EXCLUSIVELY (Baskoro, 2026-09-07) -- these
+        # are for things far from standard, and PNS are the ones who designed the
+        # solution and therefore know what is not standard about it.
+        "raiseRequirement": u.group == "PNS" or admin,
     }.get(action, False)
 
 
@@ -1245,7 +1286,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-07.86"
+BUILD = "2026-09-07.87"
 
 
 class Me(BaseModel):
@@ -1285,6 +1326,11 @@ class Ticket(BaseModel):
     margin: float | None = None   # omitted for roles without seeMargin
     price_file: str | None = None
     price_url: str | None = None
+    # WHETHER it has been priced, which is not the same fact as what the price is. Sent
+    # to everyone, Ops and QC included: every ticket queue is visible to all (Baskoro,
+    # 2026-08-11), and without this the awaiting-price queues told Ops "not yet priced"
+    # about every ticket, because the fields they inferred that from had been stripped.
+    priced: bool = False
     open_questions: int = 0
     psp_assignee: str | None = None
     psp_ready: bool = False   # PSP cleared it without needing PNS review, awaiting final submit
@@ -1454,7 +1500,9 @@ async def me(u: User = Depends(current_user)):
                "pspAssign", "pspOverride", "allowPsp", "syncSalesCrm",
                "pspHeadDecide", "manageIgnored",
                "queueSync", "editSyncSettings", "bulkDelete", "manageImportQueue",
-               "seePrice"]
+               "seePrice",
+               "startOnboarding", "editOnboardingIds", "confirmGolive", "ackGolive",
+               "markReady", "raiseRequirement", "ackRequirement"]
     return Me(email=u.email, name=u.name, group=u.group, level=u.level, team=u.team,
               permissions={a: can(u, a) for a in actions},
               sso=u.sso, dev_fallback=not u.sso and bool(DEV_USER),
@@ -1478,6 +1526,7 @@ def shape(t: dict, u: User) -> Ticket:
         sla_elapsed=sla_days_elapsed(t), sla_target=int(t["sla_days"]),
         price_file=(t.get("price_file") if sees_price else None),
         price_url=(t.get("price_url") if sees_price else None),
+        priced=bool(t.get("price_file") or t.get("price_url")),
         open_questions=int(t.get("open_q") or 0),
         psp_assignee=t.get("psp_assignee"), psp_ready=bool(t.get("psp_ready")),
         psp_allowed=bool(t.get("psp_allowed")),
@@ -5117,9 +5166,25 @@ async def send_kickoff(ref: str, body: CharterSend, u: User = Depends(current_us
         raise HTTPException(409, "Ops cannot onboard without: " + ", ".join(missing))
 
     # Ops, plus the two teams who sold it. No price section and no pricing extras.
+    sent = await _kickoff_email(t, inp, u, extra=body.to, note=body.note)
+    return {"ok": True, "ref": ref, "status": t["status"]}
+
+
+async def _kickoff_email(t: dict, inp: dict, u: User, extra=None, note=None) -> int:
+    """Render and send the Kick-off. Returns how many people got it.
+
+    Extracted so onboarding can send it too. Starting an onboarding IS the moment Ops
+    and QC need this document, so the trigger sends it rather than leaving a second
+    button somebody has to remember (Baskoro, 2026-09-07) -- and there must be exactly
+    one renderer, or the manual send and the automatic one drift into two different
+    documents with the same name.
+
+    QC joined the audience here: they inherit the shipper after the first week, so they
+    need what Ops needs and they need it at the same moment."""
+    ref = t["ticket_ref"]
     people = await q("SELECT email FROM users WHERE role_group IN "
-                     "('PNS','Commercial','Ops') AND active=1")
-    to = {r["email"] for r in people} | set(body.to or [])
+                     "('PNS','Commercial','Ops','QC') AND active=1")
+    to = {r["email"] for r in people} | set(extra or [])
     if t.get("sales_email"):
         to.add(t["sales_email"])
     to.discard("")
@@ -5132,18 +5197,648 @@ async def send_kickoff(ref: str, body: CharterSend, u: User = Depends(current_us
              f"The Project Charter on ticket {ref} is the source of truth for what was "
              f"sold; this is what Ops need to run it.")
     html = (f'<p style="font-family:Arial,Helvetica,sans-serif;font-size:13px">'
-            f'{(body.note + "<br><br>") if body.note else ""}{intro}</p>') + html
-    text = ((body.note + "\n\n") if body.note else "") + intro + "\n\n" + text
+            f'{(note + "<br><br>") if note else ""}{intro}</p>') + html
+    text = ((note + "\n\n") if note else "") + intro + "\n\n" + text
 
     await asyncio.to_thread(_send_sync, sorted(to),
                             f"Kick-off - {t['shipper']} - go live {inp.get('golive')}",
                             text, html)
     await log_note(t["id"], t["status"], u.name,
                    f"kick-off emailed to {len(to)} recipient"
-                   f"{'' if len(to) == 1 else 's'} (PNS, Sales, Ops)")
+                   f"{'' if len(to) == 1 else 's'} (PNS, Sales, Ops, QC)")
     await audit(u.email, "kickoff_sent", "ticket", ref, "recipients", None,
                 ",".join(sorted(to)))
-    return {"ok": True, "ref": ref, "status": t["status"]}
+    return len(to)
+
+
+
+# ------------------------------------------------------------------ onboarding
+# Solutioning ends when the shipper accepts. Onboarding begins there and asks a different
+# question -- can Ops actually take this on, and is QC ready to inherit it (Baskoro,
+# 2026-09-07).
+#
+# It is a record beside the ticket, never a status. TRANSITIONS is the one status map and
+# it governs the pricing approval chain; QC and Ops states do not belong in the same map
+# that decides who signs off a below-floor Hypercare deal.
+
+# The six operational areas a special requirement can be raised against, and who owes the
+# acknowledgement for each. ONE definition: the labels, the tab sections, the routing and
+# the reference page are all generated from this, so they cannot describe different sets.
+REQ_AREAS = [
+    ("rdo",     "RDO",                "Ops"),
+    ("fm",      "FM",                 "Ops"),
+    ("mmsort",  "MM & Sort",          "Ops"),
+    ("lm",      "LM",                 "Ops"),
+    ("claims",  "Claim & exceptions", "QC"),
+    ("parcels", "Parcels Handling",   "Ops"),
+]
+REQ_LABEL = {k: label for k, label, _ in REQ_AREAS}
+REQ_OWNER = {k: owner for k, _, owner in REQ_AREAS}
+
+# Reservation is the OPV2 pickup id; MPS and tracking are both monitoring ids and mean
+# different things to the people monitoring them, so Sales say which before pasting.
+ID_KINDS = {"reservation": "Reservation ID", "mps": "MPS", "tracking": "Tracking ID"}
+
+# The shared-accountability window: PNS and QC are both on the hook for the shipper's
+# first week of shipping. After it, QC alone, in QC's own system, which this app does not
+# touch.
+GRAY_DAYS = 7
+
+
+def ob_phase(row: dict, today: date | None = None) -> str:
+    """Where an onboarding is, computed from its dates every time it is asked.
+
+    Never stored. This app serves from more than one replica, so a phase written into the
+    row by whichever pod noticed first is a fact that can be wrong, late or written twice;
+    two dates and a subtraction give the same answer on every pod forever, and need no
+    scheduler to stay true.
+
+    'overdue' is the one that does work: the target passed and nobody confirmed the
+    shipper actually started, so QC are asked to say whether it did."""
+    today = today or date.today()
+    if row.get("outcome"):
+        return row["outcome"]                      # did_not_start | cancelled
+    actual = row.get("actual_golive")
+    if not actual:
+        return "overdue" if today > row["target_golive"] else "preparing"
+    if today <= actual + timedelta(days=GRAY_DAYS):
+        return "gray"
+    # Ran its week and became QC's. Derived, so it needs no closing act and no sweep.
+    return "live"
+
+
+PHASE_LABEL = {
+    "preparing": "Preparing",
+    "overdue": "Awaiting QC acknowledgement",
+    "gray": "Gray week - PNS and QC",
+    "live": "QC owned",
+    "did_not_start": "Did not start",
+    "cancelled": "Cancelled",
+}
+
+
+def one_shipper_id(raw: str) -> str:
+    """Exactly one shipper ID, or a refusal that says why.
+
+    One ticket is one shipper ID (Baskoro, 2026-09-07). A corporate going live as several
+    branch shippers is several tickets -- and since tickets are keyed to Sales CRM
+    opportunities, several opportunities. Without this the rule is a sentence in a
+    changelog and the field quietly holds two ids in one string, which every id-keyed
+    thing downstream then reads as one shipper with a very odd name."""
+    v = (raw or "").strip()
+    if not v:
+        raise HTTPException(400, "a shipper ID is required to start onboarding")
+    if re.search(r"[\s,;/|]", v):
+        raise HTTPException(
+            400, f"'{v}' looks like more than one shipper ID. One ticket is one shipper "
+                 f"ID: if this account goes live as several shippers, raise one deal per "
+                 f"shipper in Sales CRM and onboard each on its own ticket")
+    return v
+
+
+def clean_id_value(kind: str, raw: str) -> str:
+    """One OPV2 id, validated as far as its kind actually allows.
+
+    Reservation ids are a plain number, so a non-numeric one is caught at entry rather
+    than three weeks later when nobody can find the pickup. MPS and tracking ids carry a
+    prefix that varies per shipper (Baskoro), so there is no shape to check and inventing
+    one would reject real ids -- which is worse than checking nothing."""
+    v = (raw or "").strip()
+    if not v:
+        return ""
+    if len(v) > 64:
+        raise HTTPException(400, "that is too long to be an id")
+    if kind == "reservation" and not v.isdigit():
+        raise HTTPException(
+            400, f"'{v}' is not a reservation ID -- those are all digits. If this is a "
+                 f"tracking ID or an MPS, add it under that kind instead")
+    return v
+
+
+async def _onboarding_or_404(oid: int) -> dict:
+    row = await q("SELECT o.*, t.ticket_ref, t.status, t.owner_name, t.sales_name, "
+                  "t.sales_email, s.name AS shipper "
+                  "FROM onboarding o JOIN tickets t ON t.id=o.ticket_id "
+                  "JOIN shippers s ON s.id=t.shipper_id WHERE o.id=%s", (oid,), one=True)
+    if not row:
+        raise HTTPException(404, "that onboarding does not exist")
+    return row
+
+
+async def _qc_exists() -> bool:
+    """Whether anybody in QC can sign in yet.
+
+    QC users are being registered later (Baskoro, 2026-09-07). Until one exists, an
+    overdue onboarding would have nobody able to acknowledge it and would sit there
+    forever, so PNS acknowledge in QC's place -- and stop being able to the day the first
+    QC user is registered. Same shape as PNS_PILOT: an org change switches the rule, not
+    a deploy."""
+    r = await q("SELECT 1 AS x FROM users WHERE role_group='QC' AND active=1 LIMIT 1",
+                one=True)
+    return bool(r)
+
+
+class OnboardingIdRow(BaseModel):
+    id: int
+    kind: str
+    value: str
+    note: str | None = None
+    added_by_name: str | None = None
+    added_at: str
+
+
+class RequirementRow(BaseModel):
+    id: int
+    area: str
+    area_label: str
+    owner: str                      # Ops or QC -- who owes the acknowledgement
+    body: str
+    raised_by_name: str | None = None
+    raised_at: str
+    acked_at: str | None = None
+    acked_by_name: str | None = None
+
+
+class OnboardingRow(BaseModel):
+    id: int
+    ref: str
+    shipper: str
+    shipper_id: str
+    service: str | None = None
+    revenue: int = 0
+    target_golive: str
+    actual_golive: str | None = None
+    golive_source: str | None = None
+    phase: str
+    phase_label: str
+    days_to_golive: int | None = None
+    ops_ready_by: str | None = None
+    qc_ready_by: str | None = None
+    owner: str | None = None        # PNS PIC
+    sales: str | None = None
+    ids: list[OnboardingIdRow] = []
+    requirements: list[RequirementRow] = []
+    outcome_note: str | None = None
+
+
+class OnboardingList(BaseModel):
+    onboardings: list[OnboardingRow]
+    areas: list[dict] = []
+    kinds: dict = {}
+
+
+class StartOnboarding(BaseModel):
+    shipper_id: str
+    target_golive: str
+    # Onboarding the same shipper again on a later deal. Refused unless PNS say so.
+    force: bool = False
+
+
+@app.post("/api/tickets/{ref}/onboarding", response_model=Ok)
+async def start_onboarding(ref: str, body: StartOnboarding,
+                           u: User = Depends(current_user)):
+    """Hand an accepted deal to Ops and QC.
+
+    This is the trigger. It creates the record, sends the Kick-off, and tells PNS, QC and
+    Ops that a shipper is coming -- one act, so there is no gap where the record exists
+    and nobody has been told."""
+    require(u, "startOnboarding")
+    t = await get_ticket(ref)
+    if t["status"] != "Proposal Accepted / Ready to Ship":
+        raise HTTPException(
+            409, f"{ref} is {t['status']}. Onboarding starts once the shipper has "
+                 f"accepted, not before")
+
+    shipper_id = one_shipper_id(body.shipper_id)
+    try:
+        target = date.fromisoformat((body.target_golive or "").strip())
+    except ValueError:
+        raise HTTPException(400, "the target go-live date must be a real date (YYYY-MM-DD)")
+
+    if await q("SELECT id FROM onboarding WHERE ticket_id=%s", (t["id"],), one=True):
+        raise HTTPException(409, f"{ref} is already being onboarded")
+
+    # The same shipper on a second deal is allowed, but somebody has to mean it. PNS
+    # decide, because a duplicate here is usually a typo and occasionally a real second
+    # contract, and telling those apart needs the person who priced it.
+    dupe = await q("SELECT o.id, t.ticket_ref FROM onboarding o "
+                   "JOIN tickets t ON t.id=o.ticket_id WHERE o.shipper_id=%s",
+                   (shipper_id,), one=True)
+    if dupe and not body.force:
+        raise HTTPException(
+            409, f"shipper {shipper_id} was already onboarded on {dupe['ticket_ref']}. "
+                 f"If this is a second deal for the same shipper, PNS can confirm and "
+                 f"start it again")
+    if dupe and body.force and not can(u, "raiseRequirement"):
+        raise HTTPException(403, "only PNS may onboard a shipper that already has one")
+
+    oid = await execute(
+        "INSERT INTO onboarding (ticket_id, shipper_id, target_golive, started_by, "
+        "started_by_name) VALUES (%s,%s,%s,%s,%s)",
+        (t["id"], shipper_id, target, u.email, u.name))
+
+    # Keep the intake in step, so the ticket and the Kick-off agree with the record.
+    row = await q("SELECT payload FROM ticket_input WHERE ticket_id=%s", (t["id"],),
+                  one=True)
+    inp = (row["payload"] if isinstance((row or {}).get("payload"), dict)
+           else json.loads((row or {}).get("payload") or "{}"))
+    inp["shipperId"] = shipper_id
+    inp["golive"] = target.isoformat()
+    await execute("INSERT INTO ticket_input (ticket_id, payload, updated_by) "
+                  "VALUES (%s,%s,%s) ON DUPLICATE KEY UPDATE payload=VALUES(payload), "
+                  "updated_by=VALUES(updated_by)",
+                  (t["id"], json.dumps(inp), u.email))
+
+    await log_note(t["id"], t["status"], u.name,
+                   f"onboarding started - shipper {shipper_id}, target go-live {target}")
+    await audit(u.email, "onboarding_start", "ticket", ref, "shipper_id", None, shipper_id)
+    await notify(f"{t['shipper']} ({ref}) is being onboarded - shipper {shipper_id}, "
+                 f"target go-live {target}. Ops and QC: confirm you are ready.",
+                 groups=["PNS", "QC", "Ops", "Commercial"], ticket_ref=ref)
+
+    # The Kick-off goes with it. Best-effort: a mail relay that is down must not lose the
+    # onboarding record that was already written, and the document can be resent.
+    sent = 0
+    if email_configured():
+        try:
+            sent = await _kickoff_email(t, inp, u)
+        except HTTPException as e:
+            await log_note(t["id"], t["status"], u.name,
+                           f"kick-off not sent: {e.detail}")
+    return {"ok": True, "ref": ref,
+            "status": f"onboarding #{oid} started"
+                      + (f", kick-off sent to {sent}" if sent else "")}
+
+
+async def _load_onboardings() -> list[OnboardingRow]:
+    rows = await q(
+        "SELECT o.*, t.ticket_ref, t.service_type, t.potential_rev, t.owner_name, "
+        "t.sales_name, s.name AS shipper "
+        "FROM onboarding o JOIN tickets t ON t.id=o.ticket_id "
+        "JOIN shippers s ON s.id=t.shipper_id "
+        "WHERE t.deleted_at IS NULL ORDER BY o.target_golive ASC, o.id ASC")
+    if not rows:
+        return []
+    ids = [r["id"] for r in rows]
+    tids = list({r["ticket_id"] for r in rows})
+    # Built from the list, never hand-counted: a run of %s that disagrees with its
+    # arguments is exactly the bug verify_names.py exists to ban.
+    marks = ",".join(["%s"] * len(ids))
+    tmarks = ",".join(["%s"] * len(tids))
+    id_rows = await q(f"SELECT * FROM onboarding_ids WHERE onboarding_id IN ({marks}) "
+                      f"ORDER BY kind, id", tuple(ids))
+    req_rows = await q(f"SELECT * FROM ticket_requirements WHERE ticket_id IN ({tmarks}) "
+                       f"ORDER BY area, id", tuple(tids))
+    by_ob: dict = {}
+    for r in id_rows:
+        by_ob.setdefault(r["onboarding_id"], []).append(OnboardingIdRow(
+            id=r["id"], kind=r["kind"], value=r["value"], note=r["note"],
+            added_by_name=r["added_by_name"], added_at=str(r["added_at"])))
+    by_ticket: dict = {}
+    for r in req_rows:
+        by_ticket.setdefault(r["ticket_id"], []).append(RequirementRow(
+            id=r["id"], area=r["area"], area_label=REQ_LABEL.get(r["area"], r["area"]),
+            owner=REQ_OWNER.get(r["area"], "Ops"), body=r["body"],
+            raised_by_name=r["raised_by_name"], raised_at=str(r["raised_at"]),
+            acked_at=str(r["acked_at"]) if r["acked_at"] else None,
+            acked_by_name=r["acked_by_name"]))
+    today = date.today()
+    out = []
+    for r in rows:
+        phase = ob_phase(r, today)
+        out.append(OnboardingRow(
+            id=r["id"], ref=r["ticket_ref"], shipper=r["shipper"],
+            shipper_id=r["shipper_id"], service=r["service_type"],
+            revenue=int(r["potential_rev"] or 0),
+            target_golive=str(r["target_golive"]),
+            actual_golive=str(r["actual_golive"]) if r["actual_golive"] else None,
+            golive_source=r["golive_source"], phase=phase,
+            phase_label=PHASE_LABEL.get(phase, phase),
+            days_to_golive=((r["target_golive"] - today).days
+                            if not r["actual_golive"] else None),
+            ops_ready_by=r["ops_ready_by"], qc_ready_by=r["qc_ready_by"],
+            owner=r["owner_name"], sales=r["sales_name"],
+            ids=by_ob.get(r["id"], []), requirements=by_ticket.get(r["ticket_id"], []),
+            outcome_note=r["outcome_note"]))
+    return out
+
+
+# What is still being worked. A closed one has run its week and belongs to QC's own
+# system now -- it stays searchable, it just stops being a worklist item.
+LIVE_PHASES = ("preparing", "overdue", "gray")
+
+
+@app.get("/api/onboarding", response_model=OnboardingList)
+async def list_onboarding(active: bool = True, u: User = Depends(current_user)):
+    """Every onboarding, soonest go-live first.
+
+    Open to everyone who can sign in. Ops and QC live here, and the whole point of the
+    screen is that they can see what is coming without asking anybody."""
+    rows = await _load_onboardings()
+    if active:
+        rows = [r for r in rows if r.phase in LIVE_PHASES]
+    return {"onboardings": rows,
+            "areas": [{"key": k, "label": lb, "owner": ow} for k, lb, ow in REQ_AREAS],
+            "kinds": ID_KINDS}
+
+
+@app.get("/api/onboarding/export.csv")
+async def export_onboarding(u: User = Depends(current_user)):
+    """Every active onboarding's ids, as a CSV QC can paste into their monitoring.
+
+    ONE ROW PER ID, with the shipper repeated on each. A cell holding eight comma-joined
+    ids looks tidier and puts the reader straight back into manual work, which is the
+    thing this button exists to remove."""
+    rows = [r for r in await _load_onboardings() if r.phase in LIVE_PHASES]
+    out = ["Ticket,Shipper,Shipper ID,Phase,Target go-live,Actual go-live,ID type,ID"]
+
+    def cell(v) -> str:
+        s = "" if v is None else str(v)
+        return ('"' + s.replace('"', '""') + '"') if re.search(r'[,"\n]', s) else s
+
+    for r in rows:
+        base = [r.ref, r.shipper, r.shipper_id, r.phase_label, r.target_golive,
+                r.actual_golive or ""]
+        if not r.ids:
+            # A shipper with no ids yet is exactly what QC need to see: it is the one
+            # they cannot monitor. Dropping the row would hide the gap.
+            out.append(",".join(cell(c) for c in base + ["", ""]))
+        for i in r.ids:
+            out.append(",".join(cell(c) for c in
+                                base + [ID_KINDS.get(i.kind, i.kind), i.value]))
+    return Response(
+        content="\n".join(out) + "\n", media_type="text/csv",
+        headers={"Content-Disposition":
+                 f'attachment; filename="onboarding-{date.today().isoformat()}.csv"'})
+
+
+class IdsIn(BaseModel):
+    kind: str
+    # One box, pasted from a sheet. Split on the server so the browser and the API cannot
+    # disagree about what counts as a separator.
+    values: str
+    note: str | None = None
+
+
+@app.post("/api/onboarding/{oid}/ids", response_model=Ok)
+async def add_onboarding_ids(oid: int, body: IdsIn, u: User = Depends(current_user)):
+    require(u, "editOnboardingIds")
+    ob = await _onboarding_or_404(oid)
+    if body.kind not in ID_KINDS:
+        raise HTTPException(400, f"{body.kind} is not one of: {', '.join(ID_KINDS)}")
+    seen, wanted = set(), []
+    for raw in re.split(r"[\s,;|]+", body.values or ""):
+        v = clean_id_value(body.kind, raw)
+        if v and v not in seen:
+            seen.add(v)
+            wanted.append(v)
+    if not wanted:
+        raise HTTPException(400, "no ids in that. Paste them separated by commas, spaces "
+                                 "or new lines")
+    for v in wanted:
+        # Re-pasting a list that has grown by three is one list, not a conflict.
+        await execute(
+            "INSERT INTO onboarding_ids (onboarding_id, kind, value, note, added_by, "
+            "added_by_name) VALUES (%s,%s,%s,%s,%s,%s) "
+            "ON DUPLICATE KEY UPDATE note=COALESCE(VALUES(note), note)",
+            (oid, body.kind, v, (body.note or "").strip() or None, u.email, u.name))
+    await audit(u.email, "onboarding_ids", "onboarding", str(oid), body.kind, None,
+                ",".join(wanted)[:500])
+    await log_note(ob["ticket_id"], ob["status"], u.name,
+                   f"{len(wanted)} {ID_KINDS[body.kind]} id(s) added to onboarding")
+    return {"ok": True, "ref": ob["ticket_ref"],
+            "status": f"{len(wanted)} recorded as {ID_KINDS[body.kind]}"}
+
+
+@app.delete("/api/onboarding/{oid}/ids/{rid}", response_model=Ok)
+async def remove_onboarding_id(oid: int, rid: int, u: User = Depends(current_user)):
+    require(u, "editOnboardingIds")
+    ob = await _onboarding_or_404(oid)
+    row = await q("SELECT kind, value FROM onboarding_ids WHERE id=%s AND onboarding_id=%s",
+                  (rid, oid), one=True)
+    if not row:
+        raise HTTPException(404, "no such id on this onboarding")
+    await execute("DELETE FROM onboarding_ids WHERE id=%s", (rid,))
+    await audit(u.email, "onboarding_id_removed", "onboarding", str(oid), row["kind"],
+                row["value"], None)
+    return {"ok": True, "ref": ob["ticket_ref"], "status": f"{row['value']} removed"}
+
+
+class GoliveIn(BaseModel):
+    on: str | None = None            # the real first-shipment date; defaults to today
+    note: str | None = None
+
+
+async def _set_golive(oid: int, body: GoliveIn, u: User, source: str) -> dict:
+    ob = await _onboarding_or_404(oid)
+    if ob["actual_golive"]:
+        raise HTTPException(409, f"{ob['shipper']} already went live on "
+                                 f"{ob['actual_golive']}")
+    if ob.get("outcome"):
+        raise HTTPException(409, f"this onboarding is recorded as {ob['outcome']}")
+    try:
+        on = date.fromisoformat((body.on or "").strip()) if body.on else date.today()
+    except ValueError:
+        raise HTTPException(400, "that is not a real date (YYYY-MM-DD)")
+    if on > date.today():
+        raise HTTPException(400, "a shipper cannot have started shipping in the future")
+    await execute("UPDATE onboarding SET actual_golive=%s, golive_source=%s, "
+                  "golive_by=%s, golive_at=NOW() WHERE id=%s",
+                  (on, source, u.email, oid))
+    ends = on + timedelta(days=GRAY_DAYS)
+    who = "Sales" if source == "sales" else "QC"
+    await log_note(ob["ticket_id"], ob["status"], u.name,
+                   f"{who} confirmed go-live on {on}; PNS and QC share accountability "
+                   f"until {ends}")
+    await audit(u.email, "onboarding_golive", "onboarding", str(oid), source, None,
+                str(on))
+    await notify(f"{ob['shipper']} went live on {on}. PNS and QC are both accountable "
+                 f"until {ends}, then it is QC's.",
+                 groups=["PNS", "QC", "Ops"], ticket_ref=ob["ticket_ref"])
+    return {"ok": True, "ref": ob["ticket_ref"],
+            "status": f"live from {on}, gray week ends {ends}"}
+
+
+@app.post("/api/onboarding/{oid}/golive", response_model=Ok)
+async def confirm_golive(oid: int, body: GoliveIn, u: User = Depends(current_user)):
+    """Sales confirm the shipper actually started shipping. Door one of two."""
+    require(u, "confirmGolive")
+    return await _set_golive(oid, body, u, source="sales")
+
+
+@app.post("/api/onboarding/{oid}/ack", response_model=Ok)
+async def ack_golive(oid: int, body: GoliveIn, u: User = Depends(current_user)):
+    """QC acknowledge a go-live whose target passed with nobody confirming it. Door two.
+
+    While no QC user is registered, PNS may acknowledge in QC's place -- otherwise an
+    overdue onboarding sits forever waiting on a team that cannot sign in yet."""
+    if not can(u, "ackGolive"):
+        if not (u.group == "PNS" and not await _qc_exists()):
+            raise HTTPException(
+                403, "only QC may acknowledge a go-live (PNS may, until a QC user is "
+                     "registered)")
+    return await _set_golive(oid, body, u, source="qc_ack")
+
+
+@app.post("/api/onboarding/{oid}/ready", response_model=Ok)
+async def mark_ready(oid: int, u: User = Depends(current_user)):
+    """Ops or QC say they are ready for this shipper.
+
+    Which column is written is decided by the caller's own group, never by the request --
+    a team cannot tick the other team's box."""
+    require(u, "markReady")
+    ob = await _onboarding_or_404(oid)
+    if u.group == "QC":
+        col, other = "qc_ready", "Ops"
+    elif u.group == "Ops":
+        col, other = "ops_ready", "QC"
+    else:
+        raise HTTPException(400, "only Ops and QC tick readiness")
+    if ob.get(col + "_at"):
+        return {"ok": True, "ref": ob["ticket_ref"], "status": "already recorded"}
+    await execute(f"UPDATE onboarding SET {col}_at=NOW(), {col}_by=%s WHERE id=%s",
+                  (u.name, oid))
+    await log_note(ob["ticket_id"], ob["status"], u.name,
+                   f"{u.group} confirmed ready to onboard {ob['shipper']}")
+    await audit(u.email, "onboarding_ready", "onboarding", str(oid), u.group, None, u.name)
+    return {"ok": True, "ref": ob["ticket_ref"],
+            "status": f"{u.group} ready. Waiting on {other} if they have not said so"}
+
+
+class OnboardingPatch(BaseModel):
+    target_golive: str | None = None
+    outcome: str | None = None       # did_not_start | cancelled | "" to reopen
+    outcome_note: str | None = None
+
+
+@app.patch("/api/onboarding/{oid}", response_model=Ok)
+async def patch_onboarding(oid: int, body: OnboardingPatch,
+                           u: User = Depends(current_user)):
+    """Slip the target date, or record that the shipper never started."""
+    require(u, "startOnboarding")
+    ob = await _onboarding_or_404(oid)
+    changed = []
+    if body.target_golive is not None:
+        try:
+            target = date.fromisoformat(body.target_golive.strip())
+        except ValueError:
+            raise HTTPException(400, "the target go-live date must be a real date")
+        await execute("UPDATE onboarding SET target_golive=%s WHERE id=%s", (target, oid))
+        await audit(u.email, "onboarding_slip", "onboarding", str(oid), "target_golive",
+                    str(ob["target_golive"]), str(target))
+        changed.append(f"target go-live moved to {target}")
+    if body.outcome is not None:
+        outcome = body.outcome.strip() or None
+        if outcome and outcome not in ("did_not_start", "cancelled"):
+            raise HTTPException(400, "an outcome is did_not_start or cancelled. Running "
+                                     "its gray week is not an outcome anybody records -- "
+                                     "that is read from the dates")
+        await execute("UPDATE onboarding SET outcome=%s, outcome_note=%s, "
+                      "outcome_at=NOW(), outcome_by=%s WHERE id=%s",
+                      (outcome, (body.outcome_note or "").strip() or None, u.email, oid))
+        await audit(u.email, "onboarding_outcome", "onboarding", str(oid), "outcome",
+                    ob.get("outcome"), outcome)
+        changed.append(f"outcome: {outcome or 'reopened'}")
+    if not changed:
+        raise HTTPException(400, "nothing to change")
+    await log_note(ob["ticket_id"], ob["status"], u.name, "; ".join(changed))
+    return {"ok": True, "ref": ob["ticket_ref"], "status": "; ".join(changed)}
+
+
+class RequirementIn(BaseModel):
+    area: str
+    body: str
+
+
+@app.post("/api/tickets/{ref}/requirements", response_model=Ok)
+async def raise_requirement(ref: str, body: RequirementIn,
+                            u: User = Depends(current_user)):
+    """PNS record something far from standard, for one operational area.
+
+    PNS exclusively (Baskoro, 2026-09-07): they designed the solution, so they are the
+    ones who know what is not standard about it. The area decides who is being asked."""
+    require(u, "raiseRequirement")
+    t = await get_ticket(ref)
+    if body.area not in REQ_LABEL:
+        raise HTTPException(400, f"{body.area} is not an area. One of: "
+                                 f"{', '.join(REQ_LABEL)}")
+    text = (body.body or "").strip()
+    if not text:
+        raise HTTPException(400, "say what is needed -- an empty requirement asks nothing")
+    rid = await execute(
+        "INSERT INTO ticket_requirements (ticket_id, area, body, raised_by, "
+        "raised_by_name) VALUES (%s,%s,%s,%s,%s)",
+        (t["id"], body.area, text, u.email, u.name))
+    owner = REQ_OWNER[body.area]
+    await log_note(t["id"], t["status"], u.name,
+                   f"{REQ_LABEL[body.area]} requirement raised for {owner}")
+    await audit(u.email, "requirement", "ticket", ref, body.area, None, text[:500])
+    await notify(f"{t['shipper']} ({ref}): PNS raised a {REQ_LABEL[body.area]} "
+                 f"requirement for {owner}. It needs acknowledging.",
+                 groups=[owner], ticket_ref=ref)
+    return {"ok": True, "ref": ref, "status": f"raised for {owner} (#{rid})"}
+
+
+@app.post("/api/requirements/{rid}/ack", response_model=Ok)
+async def ack_requirement(rid: int, u: User = Depends(current_user)):
+    """The owning team acknowledge one specific requirement.
+
+    Ops cannot acknowledge a QC area and QC cannot acknowledge an Ops one: the area names
+    who was asked, and an acknowledgement from anybody else records that the wrong team
+    read it."""
+    require(u, "ackRequirement")
+    row = await q("SELECT r.*, t.ticket_ref, t.status FROM ticket_requirements r "
+                  "JOIN tickets t ON t.id=r.ticket_id WHERE r.id=%s", (rid,), one=True)
+    if not row:
+        raise HTTPException(404, "no such requirement")
+    owner = REQ_OWNER.get(row["area"], "Ops")
+    label = REQ_LABEL.get(row["area"], row["area"])
+    if u.group != owner and u.group != "Admin":
+        raise HTTPException(403, f"{label} is {owner}'s to acknowledge, not {u.group}'s")
+    if row["acked_at"]:
+        return {"ok": True, "ref": row["ticket_ref"], "status": "already acknowledged"}
+    await execute("UPDATE ticket_requirements SET acked_at=NOW(), acked_by=%s, "
+                  "acked_by_name=%s WHERE id=%s", (u.email, u.name, rid))
+    await log_note(row["ticket_id"], row["status"], u.name,
+                   f"{owner} acknowledged the {label} requirement")
+    await audit(u.email, "requirement_ack", "ticket", row["ticket_ref"], row["area"],
+                None, u.name)
+    await notify(f"{owner} acknowledged the {label} requirement on {row['ticket_ref']}",
+                 groups=["PNS"], ticket_ref=row["ticket_ref"])
+    return {"ok": True, "ref": row["ticket_ref"], "status": "acknowledged"}
+
+
+@app.delete("/api/requirements/{rid}", response_model=Ok)
+async def delete_requirement(rid: int, u: User = Depends(current_user)):
+    """Withdraw a requirement. PNS raised it, so PNS take it back."""
+    require(u, "raiseRequirement")
+    row = await q("SELECT r.ticket_id, r.area, t.ticket_ref, t.status "
+                  "FROM ticket_requirements r JOIN tickets t ON t.id=r.ticket_id "
+                  "WHERE r.id=%s", (rid,), one=True)
+    if not row:
+        raise HTTPException(404, "no such requirement")
+    await execute("DELETE FROM ticket_requirements WHERE id=%s", (rid,))
+    await log_note(row["ticket_id"], row["status"], u.name,
+                   f"{REQ_LABEL.get(row['area'], row['area'])} requirement withdrawn")
+    await audit(u.email, "requirement_removed", "ticket", row["ticket_ref"], row["area"],
+                None, None)
+    return {"ok": True, "ref": row["ticket_ref"], "status": "withdrawn"}
+
+
+@app.get("/api/tickets/{ref}/requirements", response_model=list[RequirementRow])
+async def ticket_requirements(ref: str, u: User = Depends(current_user)):
+    """What PNS have asked of Ops and QC on this ticket.
+
+    Drives the Operations tab: an area with nothing raised against it does not appear."""
+    t = await get_ticket(ref)
+    rows = await q("SELECT * FROM ticket_requirements WHERE ticket_id=%s "
+                   "ORDER BY area, id", (t["id"],))
+    return [RequirementRow(
+        id=r["id"], area=r["area"], area_label=REQ_LABEL.get(r["area"], r["area"]),
+        owner=REQ_OWNER.get(r["area"], "Ops"), body=r["body"],
+        raised_by_name=r["raised_by_name"], raised_at=str(r["raised_at"]),
+        acked_at=str(r["acked_at"]) if r["acked_at"] else None,
+        acked_by_name=r["acked_by_name"]) for r in rows]
 
 
 class SignoffIn(BaseModel):

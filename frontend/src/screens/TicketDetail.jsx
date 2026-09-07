@@ -86,11 +86,24 @@ export default function TicketDetail({ ticketRef: initialRef, me, notify, onBack
   const [photos, setPhotos] = useState([]);
   const [sending, setSending] = useState(false);
   const [pspNote, setPspNote] = useState("");
+  // What PNS have asked of Ops and QC on this ticket. Drives the Operations tab: an area
+  // with nothing raised against it does not appear at all, so the tab is a list of what
+  // actually needs doing rather than six headings and four em dashes.
+  const [reqs, setReqs] = useState([]);
+  const [areas, setAreas] = useState([]);
+  const [reqDraft, setReqDraft] = useState({ area: "", body: "" });
   const opts = useOptions();
   const team = usePnsTeam();
 
   const loadList = () => api.tickets({}).then((x) => setAll(x.tickets)).catch(() => {});
   useEffect(() => { loadList(); }, []);
+  // The area list comes from the server, so the six areas, their labels and which team
+  // owns each are defined once in REQ_AREAS and cannot drift between the two screens.
+  useEffect(() => {
+    api.onboarding(false).then((d) => setAreas(d.areas || [])).catch(() => {});
+  }, []);
+  const loadReqs = () => api.requirements(ref).then(setReqs).catch(() => setReqs([]));
+  useEffect(() => { if (ref) loadReqs(); }, [ref]);
 
   // Kept separate from load(): load() blanks the ticket while it refetches, which
   // unmounts the active tab. If the Attachments tab called load() back on every refresh
@@ -210,8 +223,16 @@ export default function TicketDetail({ ticketRef: initialRef, me, notify, onBack
   // Two of the five were already gated and the other three were not, which is what the
   // row-by-row approach costs. The server strips the fields either way — this only stops
   // the tab rendering as five em dashes and a "Margin and cost" placeholder.
+  // ONE Operations tab with the areas as sections inside, not six more tabs on the bar
+  // (Baskoro, 2026-09-07). Twelve tabs whose shape changed per ticket would wrap to two
+  // rows on a laptop; the count badge keeps the at-a-glance signal that made separate
+  // tabs attractive in the first place. Hidden entirely when nothing is raised and you
+  // are not the one who raises them.
+  const unacked = reqs.filter((r) => !r.acked_at).length;
+  const showOps = reqs.length > 0 || p.raiseRequirement;
   const tabs = [["charter", "Project Charter"], ["input", "Input"],
                 ...(p.seePrice ? [["pricing", "Pricing"]] : []),
+                ...(showOps ? [["ops", "Operations", unacked || undefined]] : []),
                 ["files", "Attachments", fCount], ["discussion", "Discussion", openQ],
                 ["history", "History"]];
 
@@ -714,6 +735,101 @@ export default function TicketDetail({ ticketRef: initialRef, me, notify, onBack
                 </Row>
               )}
             </dl>
+          )}
+
+          {tab === "ops" && (
+            <>
+              <p className="mb-3 text-[12px] text-slate-500">
+                What is far from standard about this deal, per operational area. PNS raise
+                these; the area decides who is asked. Ops and QC read them here and
+                acknowledge them on the Onboarding screen.
+              </p>
+              {reqs.length === 0 && (
+                <p className="mb-3 rounded-lg bg-slate-50 px-3 py-2 text-[12.5px] text-slate-500">
+                  Nothing raised. This deal runs as standard everywhere.
+                </p>
+              )}
+              {areas.map((a) => {
+                const mine = reqs.filter((r) => r.area === a.key);
+                if (!mine.length) return null;
+                return (
+                  <div key={a.key} className="mb-4">
+                    <div className="mb-1.5 flex items-center gap-2">
+                      <span className="text-[10.5px] font-bold uppercase tracking-wider text-slate-500">
+                        {a.label}
+                      </span>
+                      <Pill tone="bg-slate-100 text-slate-600">{a.owner}</Pill>
+                    </div>
+                    {mine.map((r) => (
+                      <div key={r.id} className="mb-2 rounded-lg border border-slate-200 px-3 py-2">
+                        <p className="whitespace-pre-wrap text-[13px] text-slate-700">{r.body}</p>
+                        <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11.5px]">
+                          <span className="text-slate-400">
+                            {r.raised_by_name} - {String(r.raised_at).slice(0, 10)}
+                          </span>
+                          {r.acked_at ? (
+                            <span className="font-medium text-emerald-700">
+                              acknowledged by {r.acked_by_name}
+                            </span>
+                          ) : (
+                            <span className="font-medium text-amber-800">
+                              waiting on {r.owner}
+                            </span>
+                          )}
+                          {p.raiseRequirement && (
+                            <button
+                              className="ml-auto text-slate-400 hover:text-rose-600"
+                              onClick={async () => {
+                                if (!window.confirm("Withdraw this requirement?")) return;
+                                try {
+                                  await api.deleteRequirement(r.id);
+                                  notify("Withdrawn");
+                                  await loadReqs();
+                                } catch (e) { notify(e.message); }
+                              }}>
+                              Withdraw
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
+              {p.raiseRequirement && (
+                <div className="mt-4 border-t border-slate-100 pt-4">
+                  <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                    Raise a requirement
+                  </p>
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <select className={`${inputCls} sm:max-w-[220px]`} value={reqDraft.area}
+                      onChange={(e) => setReqDraft({ ...reqDraft, area: e.target.value })}>
+                      <option value="">Which area...</option>
+                      {areas.map((a) => (
+                        <option key={a.key} value={a.key}>{a.label} - {a.owner}</option>
+                      ))}
+                    </select>
+                    <textarea className={`${inputCls} min-h-[64px] flex-1`}
+                      value={reqDraft.body}
+                      onChange={(e) => setReqDraft({ ...reqDraft, body: e.target.value })}
+                      placeholder="What does this team need to do differently? Only for things far from standard." />
+                  </div>
+                  <Btn kind="primary" className="mt-2"
+                    onClick={async () => {
+                      if (!reqDraft.area) return notify("Pick an area");
+                      if (!reqDraft.body.trim()) return notify("Say what is needed");
+                      try {
+                        const r = await api.raiseRequirement(ref, reqDraft);
+                        notify(r.status);
+                        setReqDraft({ area: "", body: "" });
+                        await loadReqs();
+                      } catch (e) { notify(e.message); }
+                    }}>
+                    Raise it
+                  </Btn>
+                </div>
+              )}
+            </>
           )}
 
           {tab === "files" && (
