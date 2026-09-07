@@ -3,6 +3,18 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-09-07",
+    title: "A failed import now says WHY the account could not be read",
+    by: "Michael + Claude",
+    changes: [
+      "Michael queued opportunity 907113 (PT Hermed - Emaklon - FTL) and it failed with “opportunity has no account name”. That one sentence covered three different problems needing three different fixes, so it is now split: no account linked at all, an account that could not be read, or an account read fine with no name on it.",
+      "That narrowed it to the middle case — account 1419431 could not be read — and then stopped, because warm_accounts() caught every per-account failure and threw the reason away. It has to catch them, or one bad row would end the whole sweep; it did not have to discard what happened.",
+      "The reason is kept now and reported on the row: the HTTP status Sales CRM answered with, or that it returned no Account with that id at all. A 403 means the key cannot read that account, a 404 means it is gone, and no-record means the id on the opportunity does not resolve — three different things to go and do, where before all three read as “could not be read”.",
+      "Failing the import is still correct: a ticket cannot exist without a shipper name, that is its identity. What was wrong was the dead end.",
+    ],
+    overruled: [],
+  },
+  {
+    date: "2026-09-07",
     title: "Onboarding: handing a won deal to Ops and QC, and the week they share it",
     by: "Baskoro + Claude",
     changes: [

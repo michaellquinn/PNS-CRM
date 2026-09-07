@@ -1286,7 +1286,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-07.88"
+BUILD = "2026-09-07.89"
 
 
 class Me(BaseModel):
@@ -2342,6 +2342,13 @@ class SalesCrm:
     def __init__(self, client):
         self.c = client
         self._accounts: dict[str, dict] = {}
+        # WHY an account could not be read, keyed by id. warm_accounts() has to swallow
+        # per-account failures or one bad row would end the sweep, but swallowing the
+        # reason as well left "could not be read" as the only thing anybody could be
+        # told - which is not enough to act on (Michael, 2026-09-07, opportunity 907113
+        # against account 1419431). The exception is caught as before; its reason is
+        # kept here so the import failure can name it.
+        self._account_errs: dict[str, str] = {}
 
     async def records(self, obj: str, **params):
         r = await self.c.get(f"{SALESCRM_BASE}/objects/{obj}/records", params=params)
@@ -2359,8 +2366,19 @@ class SalesCrm:
         if aid not in self._accounts:
             d = await self.records("Account", id=aid)
             items = d.get("items") or []
+            if not items:
+                # A clean response carrying nothing is different from a failed call, and
+                # means something different: the id does not resolve.
+                self._account_errs[aid] = ("Sales CRM returned no Account with that id "
+                                           "- it may have been deleted, or the id on the "
+                                           "opportunity may be wrong")
             self._accounts[aid] = items[0] if items else {}
         return self._accounts[aid] or None
+
+    def account_error(self, aid) -> str:
+        """Why that account could not be read, if we know. Empty string if it read fine
+        or was never attempted."""
+        return self._account_errs.get(str(aid or ""), "")
 
     async def warm_accounts(self, ids) -> None:
         """Fetch many accounts at once into the cache.
@@ -2381,9 +2399,14 @@ class SalesCrm:
             async with sem:
                 try:
                     await self.account(aid)
-                except Exception:
+                except Exception as e:
                     # A single unreadable account must not fail the sweep. The caller
-                    # sees it as a missing account and reports that opportunity.
+                    # sees it as a missing account and reports that opportunity - but
+                    # it now gets to say WHY, which "could not be read" alone never did.
+                    why = getattr(getattr(e, "response", None), "status_code", None)
+                    self._account_errs[aid] = (
+                        f"Sales CRM answered HTTP {why} for that account"
+                        if why else f"{type(e).__name__}: {e}"[:140])
                     self._accounts.setdefault(aid, {})
 
         await asyncio.gather(*(one(a) for a in todo))
@@ -3420,9 +3443,10 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
                                        "CRM. Attach the account there, then queue this "
                                        "id again")
                             elif not account:
-                                why = (f"account {aid} could not be read from Sales CRM "
-                                       f"- it may have been deleted, or the sweep hit an "
-                                       f"error fetching it. Queue this id again to retry")
+                                detail = crm.account_error(aid)
+                                why = (f"account {aid} could not be read from Sales CRM"
+                                       + (f" - {detail}" if detail else "")
+                                       + ". Queue this id again to retry")
                             else:
                                 why = (f"account {aid} exists in Sales CRM but has no "
                                        f"name on it. Give it one there, then queue this "
