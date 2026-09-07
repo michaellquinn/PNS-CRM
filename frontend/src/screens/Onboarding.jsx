@@ -51,7 +51,7 @@ export function ToHandOver({ me, notify, onOpen }) {
       .catch((e) => setErr(e.message));
   useEffect(() => { load(); }, []);
 
-  const start = async (t, force = false) => {
+  const start = async (t) => {
     const v = inputs[t.ref] || {};
     const shipperId = (v.shipperId ?? t.input?.shipperId ?? "").trim();
     const golive = (v.golive ?? t.input?.golive ?? "").trim();
@@ -59,19 +59,16 @@ export function ToHandOver({ me, notify, onOpen }) {
       return notify("Both the shipper ID and the target go-live date are needed");
     setBusy(t.ref);
     try {
+      // No duplicate check to argue with any more. A shipper already onboarding on
+      // another deal is ordinary; the server says so in the confirmation rather than
+      // refusing and asking somebody to override it.
       const r = await api.startOnboarding(t.ref, {
-        shipper_id: shipperId, target_golive: golive, force,
+        shipper_id: shipperId, target_golive: golive,
       });
       notify(`${t.ref} — ${r.status}`);
       await load();
-    } catch (e) {
-      // The shipper is already onboarded somewhere. PNS may say it is a second real deal;
-      // anybody else is being told to go and check, because it is usually a typo.
-      if (/already onboarded/i.test(e.message) && me.permissions.raiseRequirement) {
-        if (window.confirm(`${e.message}\n\nStart a second onboarding for this shipper?`))
-          return start(t, true);
-      } else notify(e.message);
-    } finally { setBusy(null); }
+    } catch (e) { notify(e.message); }
+    finally { setBusy(null); }
   };
 
   const set = (ref, k) => (e) =>
@@ -116,8 +113,8 @@ export function ToHandOver({ me, notify, onOpen }) {
                     {busy === t.ref ? "Starting…" : "Start onboarding"}
                   </Btn>
                   <p className="text-[11.5px] text-slate-400 sm:col-span-3">
-                    One shipper ID per ticket. A corporate going live as several shippers
-                    is one deal per shipper.
+                    One shipper ID per onboarding. The same shipper can be onboarded on
+                    several deals — onboarding follows the opportunity, not the shipper.
                   </p>
                 </div>
               ) : (
@@ -272,6 +269,15 @@ function OnboardingCard({ ob, me, kinds, notify, reload, onOpen }) {
           shipper {ob.shipper_id}
         </span>
       </div>
+
+      {/* Not a duplicate: one shipper ID relates to many opportunities, and onboarding
+          follows the opportunity. Saying so is cheaper than the conversation it saves. */}
+      {ob.also_on?.length > 0 && (
+        <p className="mb-2 rounded-lg bg-slate-50 px-2.5 py-1 text-[11.5px] text-slate-600">
+          Same shipper is also onboarding on <b>{ob.also_on.join(", ")}</b> — a different
+          deal, not a duplicate.
+        </p>
+      )}
 
       <div className="mb-2 flex flex-wrap gap-x-5 gap-y-1 text-[12.5px] text-slate-600">
         <span>Target <b className="font-mono">{ob.target_golive}</b></span>

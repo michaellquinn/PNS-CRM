@@ -3,6 +3,22 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-09-07",
+    title: "One shipper can be onboarded on every deal it has",
+    by: "Baskoro + Claude",
+    changes: [
+      "Onboarding follows the OPPORTUNITY, not the shipper. One shipper ID relates to many opportunity IDs, one opportunity is one ticket, so a growing account with three live deals has three onboardings — and starting the second and third is ordinary work that needs nobody's permission.",
+      "The board says so out loud. Where the same shipper appears on more than one onboarding, each card names the others: “Same shipper is also onboarding on SOF-…— a different deal, not a duplicate.” Unlabelled, a shipper appearing three times is exactly what gets read here as a duplication fault — it is the fourth kind of “duplicate” on the Data checks screen, and the one that is not a fault at all.",
+      "The confirmation names the siblings too, and so does the ticket history, so the record shows what else was live for that shipper on the day it started.",
+      "Still one shipper ID per onboarding. That rule is about the FIELD, not the shipper: the pickup, the monitoring and QC's own system all key on that id, and a field holding “123, 456” is read by every one of them as a single shipper with a very odd name. The refusal now explains itself in terms of the opportunity rather than telling Sales to split the deal.",
+      "Pinned by running the endpoint twice: the same shipper on two tickets must both succeed and the second must name the first; the same TICKET twice is still refused, because one opportunity is one onboarding.",
+      "The retired override field is still accepted and ignored, so a tab left open across the deploy does not fail with a validation error — the same courtesy the assign endpoint still extends to its retired reviewer field.",
+    ],
+    overruled: [
+      "This morning's build refused to onboard a shipper that was already onboarding on another deal, and let PNS override the refusal. That was written on the belief that a repeat shipper was usually a typo and occasionally a real second contract. It is neither — it is the ordinary shape of an account that is winning more business, and the rule turned routine Sales work into something that needed the Head of PNS. Removed the same day, before anybody hit it.",
+    ],
+  },
+  {
+    date: "2026-09-07",
     title: "FIXED: Quinn was missing from Workload",
     by: "Michael + Codex",
     changes: [

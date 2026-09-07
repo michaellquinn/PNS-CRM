@@ -1294,7 +1294,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-07.92"
+BUILD = "2026-09-07.93"
 
 
 class Me(BaseModel):
@@ -5411,21 +5411,25 @@ PHASE_LABEL = {
 
 
 def one_shipper_id(raw: str) -> str:
-    """Exactly one shipper ID, or a refusal that says why.
+    """Exactly one shipper ID in the field, or a refusal that says why.
 
-    One ticket is one shipper ID (Baskoro, 2026-09-07). A corporate going live as several
-    branch shippers is several tickets -- and since tickets are keyed to Sales CRM
-    opportunities, several opportunities. Without this the rule is a sentence in a
-    changelog and the field quietly holds two ids in one string, which every id-keyed
-    thing downstream then reads as one shipper with a very odd name."""
+    This is about the FIELD, not the shipper. An onboarding names one shipper, because
+    everything downstream -- the pickup, the monitoring, QC's own system -- keys on that
+    id, and a field holding "123, 456" is read by all of them as one shipper with a very
+    odd name.
+
+    It says nothing about how many deals a shipper may have. One shipper ID relates to
+    many opportunities, one opportunity is one ticket, and onboarding follows the
+    opportunity -- so the same shipper appearing on several onboardings is ordinary and
+    is not blocked anywhere (Baskoro, 2026-09-07)."""
     v = (raw or "").strip()
     if not v:
         raise HTTPException(400, "a shipper ID is required to start onboarding")
     if re.search(r"[\s,;/|]", v):
         raise HTTPException(
-            400, f"'{v}' looks like more than one shipper ID. One ticket is one shipper "
-                 f"ID: if this account goes live as several shippers, raise one deal per "
-                 f"shipper in Sales CRM and onboard each on its own ticket")
+            400, f"'{v}' looks like more than one shipper ID, and an onboarding names "
+                 f"one. If this deal covers several shippers, onboard each on the ticket "
+                 f"for its own opportunity")
     return v
 
 
@@ -5512,6 +5516,10 @@ class OnboardingRow(BaseModel):
     ids: list[OnboardingIdRow] = []
     requirements: list[RequirementRow] = []
     outcome_note: str | None = None
+    # Other live tickets onboarding this SAME shipper. One shipper ID relates to many
+    # opportunities, so this is ordinary -- and unlabelled it is the thing people here
+    # reliably misread as duplication.
+    also_on: list[str] = []
 
 
 class OnboardingList(BaseModel):
@@ -5523,7 +5531,10 @@ class OnboardingList(BaseModel):
 class StartOnboarding(BaseModel):
     shipper_id: str
     target_golive: str
-    # Onboarding the same shipper again on a later deal. Refused unless PNS say so.
+    # Retired 2026-09-07, hours after it shipped: it existed to override a
+    # duplicate-shipper refusal that should never have existed. Still ACCEPTED and
+    # ignored so a tab left open across the deploy does not 422 -- the same courtesy
+    # /assign still extends to the retired `reviewer` field.
     force: bool = False
 
 
@@ -5551,19 +5562,21 @@ async def start_onboarding(ref: str, body: StartOnboarding,
     if await q("SELECT id FROM onboarding WHERE ticket_id=%s", (t["id"],), one=True):
         raise HTTPException(409, f"{ref} is already being onboarded")
 
-    # The same shipper on a second deal is allowed, but somebody has to mean it. PNS
-    # decide, because a duplicate here is usually a typo and occasionally a real second
-    # contract, and telling those apart needs the person who priced it.
-    dupe = await q("SELECT o.id, t.ticket_ref FROM onboarding o "
-                   "JOIN tickets t ON t.id=o.ticket_id WHERE o.shipper_id=%s",
-                   (shipper_id,), one=True)
-    if dupe and not body.force:
-        raise HTTPException(
-            409, f"shipper {shipper_id} was already onboarded on {dupe['ticket_ref']}. "
-                 f"If this is a second deal for the same shipper, PNS can confirm and "
-                 f"start it again")
-    if dupe and body.force and not can(u, "raiseRequirement"):
-        raise HTTPException(403, "only PNS may onboard a shipper that already has one")
+    # A shipper that is already onboarded elsewhere is NORMAL and is not blocked
+    # (Baskoro, 2026-09-07, correcting the rule that shipped that morning): one shipper
+    # ID relates to many opportunities, one opportunity is one ticket, so onboarding
+    # follows the OPPORTUNITY. Three live deals for one shipper are three onboardings.
+    #
+    # It was briefly refused unless PNS overrode it, on the belief that a repeat shipper
+    # was usually a typo. It is not; it is the ordinary shape of a growing account, and
+    # the override made routine work need the Head. The siblings are still looked up --
+    # as context on the board, because the same shipper appearing three times is exactly
+    # what gets misread as duplication here (see the four kinds of "duplicate" on the
+    # Data checks screen).
+    siblings = await q("SELECT t.ticket_ref FROM onboarding o "
+                       "JOIN tickets t ON t.id=o.ticket_id "
+                       "WHERE o.shipper_id=%s AND o.ticket_id<>%s",
+                       (shipper_id, t["id"]))
 
     oid = await execute(
         "INSERT INTO onboarding (ticket_id, shipper_id, target_golive, started_by, "
@@ -5582,8 +5595,10 @@ async def start_onboarding(ref: str, body: StartOnboarding,
                   "updated_by=VALUES(updated_by)",
                   (t["id"], json.dumps(inp), u.email))
 
+    also = ", ".join(r["ticket_ref"] for r in siblings)
     await log_note(t["id"], t["status"], u.name,
-                   f"onboarding started - shipper {shipper_id}, target go-live {target}")
+                   f"onboarding started - shipper {shipper_id}, target go-live {target}"
+                   + (f" (same shipper also onboarding on {also})" if also else ""))
     await audit(u.email, "onboarding_start", "ticket", ref, "shipper_id", None, shipper_id)
     await notify(f"{t['shipper']} ({ref}) is being onboarded - shipper {shipper_id}, "
                  f"target go-live {target}. Ops and QC: confirm you are ready.",
@@ -5600,7 +5615,8 @@ async def start_onboarding(ref: str, body: StartOnboarding,
                            f"kick-off not sent: {e.detail}")
     return {"ok": True, "ref": ref,
             "status": f"onboarding #{oid} started"
-                      + (f", kick-off sent to {sent}" if sent else "")}
+                      + (f", kick-off sent to {sent}" if sent else "")
+                      + (f". Note: {shipper_id} is also onboarding on {also}" if also else "")}
 
 
 async def _load_onboardings() -> list[OnboardingRow]:
@@ -5635,6 +5651,12 @@ async def _load_onboardings() -> list[OnboardingRow]:
             raised_by_name=r["raised_by_name"], raised_at=str(r["raised_at"]),
             acked_at=str(r["acked_at"]) if r["acked_at"] else None,
             acked_by_name=r["acked_by_name"]))
+    # Which shipper ids appear on more than one onboarding, computed once for the page
+    # rather than queried per row.
+    by_shipper: dict = {}
+    for r in rows:
+        by_shipper.setdefault(r["shipper_id"], []).append(r["ticket_ref"])
+
     today = date.today()
     out = []
     for r in rows:
@@ -5652,7 +5674,9 @@ async def _load_onboardings() -> list[OnboardingRow]:
             ops_ready_by=r["ops_ready_by"], qc_ready_by=r["qc_ready_by"],
             owner=r["owner_name"], sales=r["sales_name"],
             ids=by_ob.get(r["id"], []), requirements=by_ticket.get(r["ticket_id"], []),
-            outcome_note=r["outcome_note"]))
+            outcome_note=r["outcome_note"],
+            also_on=[ref for ref in by_shipper.get(r["shipper_id"], [])
+                     if ref != r["ticket_ref"]]))
     return out
 
 

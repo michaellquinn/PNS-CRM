@@ -18,6 +18,7 @@ that is easy to break silently in code.
    charter for exactly that figure. Written in the ordinary place, a rule about Ops and
    QC would have taken the price off Finance too.
 """
+import asyncio
 import importlib.util
 import os
 import sys
@@ -167,6 +168,90 @@ for g in m.ROLE_GROUPS:
     got = m.can(user(g), "seePrice")
     check(f"{g} seePrice", got, want)
     print(f"  {'ok  ' if got == want else 'FAIL'} {g:16} seePrice={got}")
+
+# ------------------------------------------------- one shipper, many opportunities
+# The rule this pins was got WRONG on the way in and corrected the same day
+# (Baskoro, 2026-09-07): one shipper ID relates to many opportunity IDs, one
+# opportunity is one ticket, so onboarding follows the OPPORTUNITY. A shipper already
+# onboarding on another deal is ordinary and must not be refused.
+#
+# It briefly was refused unless PNS overrode it, on the belief that a repeat shipper was
+# usually a typo. That made routine work need the Head. This runs the real endpoint
+# twice with the same shipper on two tickets and asserts the second one goes through.
+print("\nthe same shipper onboards on as many deals as it has")
+
+_TICKETS = {
+    "SOF-A": {"id": 1, "ticket_ref": "SOF-A", "shipper": "PT. Dua Deal",
+              "status": "Proposal Accepted / Ready to Ship", "sales_email": None},
+    "SOF-B": {"id": 2, "ticket_ref": "SOF-B", "shipper": "PT. Dua Deal",
+              "status": "Proposal Accepted / Ready to Ship", "sales_email": None},
+}
+_onboardings = []       # (ticket_id, shipper_id)
+
+
+async def _fake_q(sql, args=(), one=False):
+    low = " ".join(sql.lower().split())
+    if "from onboarding" in low and "where ticket_id" in low:
+        hit = [o for o in _onboardings if o[0] == args[0]]
+        return ({"id": 1} if hit else None) if one else hit
+    if "from onboarding" in low and "o.shipper_id=" in low:
+        rows = [{"ticket_ref": next(k for k, v in _TICKETS.items() if v["id"] == o[0])}
+                for o in _onboardings if o[1] == args[0] and o[0] != args[1]]
+        return (rows[0] if rows else None) if one else rows
+    if "ticket_input" in low:
+        return {"payload": "{}"} if one else []
+    return None if one else []
+
+
+async def _fake_execute(sql, args=()):
+    if "insert into onboarding " in " ".join(sql.lower().split()):
+        _onboardings.append((args[0], args[1]))
+    return len(_onboardings)
+
+
+async def _noop(*a, **k):
+    return None
+
+
+m.q, m.execute = _fake_q, _fake_execute
+m.log_note, m.audit, m.notify = _noop, _noop, _noop
+m.email_configured = lambda: False
+m.get_ticket = lambda ref: asyncio.sleep(0, result=_TICKETS[ref])
+
+_pns = user("PNS")
+_body = lambda: m.StartOnboarding(shipper_id="80012345", target_golive="2026-10-01")
+_run = lambda ref: asyncio.get_event_loop().run_until_complete(
+    m.start_onboarding(ref, _body(), u=_pns))
+
+try:
+    r1 = _run("SOF-A")
+    print("  ok   first deal  ->", r1["status"])
+except Exception as e:
+    fails.append(f"the first onboarding was refused: {e}")
+
+try:
+    r2 = _run("SOF-B")
+    ok = check("second deal, same shipper, accepted", "started" in r2["status"], True)
+    print("  ok   second deal ->", r2["status"])
+    # And it must SAY they are siblings, because an unlabelled repeat is what gets
+    # misread as duplication on this board.
+    check("the sibling is named in the confirmation", "SOF-A" in r2["status"], True)
+except Exception as e:
+    fails.append(f"the second onboarding for the same shipper was refused: {e}")
+
+# The same TICKET twice is still refused -- that is one opportunity, one onboarding.
+try:
+    _run("SOF-A")
+    fails.append("a second onboarding was allowed on the same ticket")
+except Exception:
+    print("  ok   the same ticket twice is still refused")
+
+# `force` is retired but still accepted, so a tab left open across the deploy does not 422.
+try:
+    m.StartOnboarding(shipper_id="1", target_golive="2026-10-01", force=True)
+    print("  ok   a retired `force` field is still accepted, not a 422")
+except Exception as e:
+    fails.append(f"StartOnboarding rejected the retired force field: {e}")
 
 # ------------------------------------------------------------------ the QC export
 # One row per id, and quoted properly. A shipper name with a comma in it is the classic
