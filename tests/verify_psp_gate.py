@@ -1,8 +1,8 @@
 """Check the PSP entry gate out of the real main.py.
 
-Rule (Baskoro, 2026-08-10): PSP only receives tickets carrying an exception from Alex.
-Strategic and Hypercare carry it by being managed. Anything else needs the PNS Head to
-have set psp_allowed after Alex granted it verbatim in a meeting.
+Rule (Michael, 2026-09-07): PNS may send its three watched groups to PSP: Strategic,
+Hypercare and Must Win. Anything else needs the PNS Head to have set psp_allowed after
+Alex granted it verbatim in a meeting.
 """
 import os
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -12,7 +12,7 @@ import ast, sys
 SRC = os.path.join(_REPO, "backend", "main.py")
 tree = ast.parse(open(SRC, encoding='utf-8').read())
 
-WANT_FN = {'may_go_to_psp', 'proposal_or_signoff', 'guard_for', 'guard_breached',
+WANT_FN = {'big_group', 'may_go_to_psp', 'proposal_or_signoff', 'guard_for', 'guard_breached',
            'tier_of', 'needs_pns_review'}
 WANT_VAR = {'MANAGED_ACCTS', 'PRICING_GUARD'}
 keep = [n for n in tree.body
@@ -30,6 +30,7 @@ print("=== may_go_to_psp")
 cases = [
     ({"acct_type": "Strategic", "psp_allowed": 0}, True, "Strategic carries the exception"),
     ({"acct_type": "Hypercare", "psp_allowed": 0}, True, "Hypercare carries the exception"),
+    ({"acct_type": "Standard", "must_win": 1, "psp_allowed": 0}, True, "Must Win is watched"),
     ({"acct_type": "Non-Strategic", "psp_allowed": 0}, False, "plain Non-Strategic cannot"),
     ({"acct_type": "Non-Strategic", "psp_allowed": 1}, True, "PNS Head opened it on Alex's grant"),
     ({"acct_type": "Non-Strategic"}, False, "missing flag is not an exception"),

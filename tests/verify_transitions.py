@@ -62,6 +62,7 @@ check("Open is a known status", "Open" in KNOWN)
 check("Pending CRM ID is a known status", ns["NO_CRM_STATUS"] in KNOWN)
 check("KNOWN_STATUSES is exactly ALL_STATUSES", list(KNOWN) == list(ALL))
 check("no duplicates in ALL_STATUSES", len(set(ALL)) == len(ALL))
+check("retired Head PSP status is gone", "Pending Review - Head PSP" not in ALL)
 
 print("\nevery row lands somewhere real")
 for frm, to, why, who, via in TRANS:
@@ -90,7 +91,6 @@ CASES = [
     ("Pending Review - Head PNS", "Pending Review - PSP", True),
     # A reviewer sending it back for rework, from any gate.
     ("Pending Review - C-level", "Pending PNS", True),
-    ("Pending Review - Head PSP", "Pending PNS", True),
     # The ordinary PNS review's own two exits: back to Sales with a reason, or escalated
     # to PSP when there is no rate to price against. Approving is /pns-review, not a
     # status choice, so it is asserted as refused further down.
@@ -113,7 +113,6 @@ CASES = [
     ("Pending Review - Head PNS", "Proposal Submitted", False),  # that is /pns-final
     ("Pending Review - PNS", "Proposal Submitted", False),        # that is /pns-review
     ("Pending PNS", "Pending Review - PNS", False),               # earned by attaching a price
-    ("Pending Review - PSP", "Pending Review - Head PSP", False),  # that is /psp
     ("Pending CRM ID", "Open", False),                     # that is /crm-id
     ("Pending CRM ID", "Pending PNS", False),
 ]

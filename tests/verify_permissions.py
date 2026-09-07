@@ -155,6 +155,16 @@ else:
     print("  ok   Admin may edit sync settings")
 
 print()
+print("only PNS may choose to send a ticket to PSP")
+for _g, _want in (("PNS", True), ("Commercial", False), ("Admin", True), ("PSP", False)):
+    _got = _can(_U(_g), "sendToPsp")
+    _ok = _got == _want
+    print(("  ok   " if _ok else "  FAIL ")
+          + "%-16s sendToPsp=%s" % (_g, _got))
+    if not _ok:
+        fails.append("%s has sendToPsp=%s, expected %s" % (_g, _got, _want))
+
+print()
 if fails:
     print("FAILURES:")
     for f in fails:

@@ -3,6 +3,21 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-09-07",
+    title: "PSP is one shared approval; only PNS can raise it",
+    by: "Michael + Codex",
+    changes: [
+      "PSP now makes one decision in one shared queue. Any PSP member can approve or reject; there is no individual assignment and no Head PSP follow-up signature.",
+      "Sales no longer sees or has backend permission for Escalate to PSP. Sales still prices the work assigned to Sales; PNS decides whether PSP needs to enter because PNS owns Hypercare, Strategic and Must Win work and reviews the Sales cases that need another pair of eyes.",
+      "The manual PSP gate now recognises Must Win alongside Hypercare and Strategic. An ordinary Standard deal still needs the PNS Head to record Alex's exception before PNS can send it.",
+      "Migration V29 moves any ticket already waiting on Head PSP directly to Head PNS, keeping the existing PSP approval and adding a system history entry. Existing PSP Head accounts become ordinary PSP accounts without losing access.",
+    ],
+    overruled: [
+      "The 13 August decision that PSP staff form an opinion and Head PSP owns it with a second signature. PSP has one shared approval now; a second signature inside the same team added delay without adding a different decision.",
+      "The rule that both PNS and Sales could use the discretionary PSP escalation button. Only PNS can raise PSP now; Sales pricing does not need a direct PSP route.",
+    ],
+  },
+  {
+    date: "2026-09-07",
     title: "One shipper can be onboarded on every deal it has",
     by: "Baskoro + Claude",
     changes: [

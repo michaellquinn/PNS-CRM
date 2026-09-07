@@ -140,8 +140,7 @@ LOSS_REASONS = ["pricing", "shipper", "solution", "ops", "no_vendor", "billing",
 AWAIT_STATUSES = ("Open", "Pending Sales", "Pending PNS", "Pending Vendor")
 PENDING_STATUSES = ["Open", "Pending Sales", "Pending PNS", "Pending Review - PNS",
                     "Pending Review - Head PNS",
-                    "Pending Review - PSP",
-                    "Pending Review - Head PSP", "Pending Vendor",
+                    "Pending Review - PSP", "Pending Vendor",
                     "Pending Review - C-level"]
 # Raised here with no Sales CRM opportunity behind it. Deliberately outside
 # PENDING_STATUSES: it is not waiting on solutioning work, it is waiting on an id, and
@@ -151,7 +150,7 @@ NO_CRM_STATUS = "Pending CRM ID"
 # the facts the work depends on — today that is potential revenue, see change_status.
 WORK_STATUSES = ("Pending Sales", "Pending PNS", "Pending Vendor",
                  "Pending Review - PNS", "Pending Review - Head PNS",
-                 "Pending Review - PSP", "Pending Review - Head PSP",
+                 "Pending Review - PSP",
                  "Pending Review - C-level")
 # Fields the intake keeps as free text but remembers: the dropdown would otherwise have
 # to predict every commodity Ninja ever carries (a shipper turned up with medicine).
@@ -174,7 +173,6 @@ RESP_OVERRIDE_PATH = "$." + RESP_OVERRIDE_KEY
 ALL_STATUSES = [NO_CRM_STATUS, "Open", "Pending Sales", "Pending PNS", "Pending Vendor",
                 "Pending Review - PNS",
                 "Pending Review - Head PNS", "Pending Review - PSP",
-                "Pending Review - Head PSP",
                 "Pending Review - C-level", "Proposal Submitted",
                 "Proposal Accepted / Ready to Ship", "Lost", "Cancel"]
 
@@ -242,8 +240,6 @@ TRANSITIONS = [
     ("Pending Review - PSP", "the next gate, or back to the pricer on a rejection",
      "PSP rules on the margin", "PSP, or the Head of PNS as a recorded override",
      "POST /tickets/{ref}/psp"),
-    ("Pending Review - Head PSP", "the next gate, or back to the pricer on a rejection",
-     "The Head of PSP owns PSP's decision", "Head of PSP", "POST /tickets/{ref}/psp"),
     ("Pending Review - C-level", "Proposal Submitted",
      "Alex (CSO) and Dhinesh (COO) sign the solution off",
      "recorded by PNS or Sales", "POST /tickets/{ref}/exec-signoff"),
@@ -254,25 +250,25 @@ TRANSITIONS = [
 
     # The discretionary route to PSP. Reaching PSP *by rule* (a manual-review band, a
     # Sameday discount past 20%) happens inside price-attach and never comes through
-    # here. Both are gated on may_go_to_psp(): a managed account, or the PNS Head having
-    # opened this one ticket on Alex's exception.
+    # here. Both are gated on may_go_to_psp(): a watched account, or the PNS Head having
+    # opened this one ticket on Alex's exception. Only PNS may choose this route.
     ("Open", "Pending Review - PSP", "Escalated for a second opinion on the margin",
-     "PNS or Sales, on a managed account or Alex's exception", "POST /status"),
+     "PNS, on a watched account or Alex's exception", "POST /status"),
     ("Pending PNS", "Pending Review - PSP", "Escalated for a second opinion on the margin",
-     "PNS or Sales, on a managed account or Alex's exception", "POST /status"),
+     "PNS, on a watched account or Alex's exception", "POST /status"),
     ("Pending Sales", "Pending Review - PSP", "Escalated for a second opinion on the margin",
-     "PNS or Sales, on a managed account or Alex's exception", "POST /status"),
+     "PNS, on a watched account or Alex's exception", "POST /status"),
     ("Pending Vendor", "Pending Review - PSP", "Escalated for a second opinion on the margin",
-     "PNS or Sales, on a managed account or Alex's exception", "POST /status"),
+     "PNS, on a watched account or Alex's exception", "POST /status"),
     ("Pending Review - Head PNS", "Pending Review - PSP",
      "The Head of PNS sends it for a margin decision",
-     "PNS or Sales, on a managed account or Alex's exception", "POST /status"),
+     "PNS, on a watched account or Alex's exception", "POST /status"),
     # The review's escalation: PNS read the price and there is no rate to price against.
     # This is the route that replaced the automatic one — a manual-review band used to
     # send the ticket to PSP at price-attach without PNS ever seeing it.
     ("Pending Review - PNS", "Pending Review - PSP",
      "The reviewer finds no rate to price against and sends it for a margin decision",
-     "PNS or Sales, on a managed account or Alex's exception", "POST /status"),
+     "PNS, on a watched account or Alex's exception", "POST /status"),
 
     # A reviewer at any gate can put the ticket back on whoever owes the work. It needs
     # a reason, and it is how a review says "this is not finished" without rejecting it.
@@ -682,7 +678,7 @@ def review_level(t: dict) -> str | None:
 # spread over three functions and nobody could answer "what comes next" without reading
 # all of them.
 #
-#   watched + below floor : PSP -> Head PSP -> Head PNS -> C-level
+#   watched + below floor : PSP -> Head PNS -> C-level
 #   watched + clean price :                    Head PNS -> C-level
 #   Standard >= 30 Mio    : PNS (an ordinary member checks it, then it goes out)
 #   Standard <  30 Mio    : Head or Manager of Sales
@@ -694,8 +690,7 @@ def review_level(t: dict) -> str | None:
 # is worse than not having one -- a ticket would sit in a queue waiting on a person who
 # was never going to open this app. Verified zero tickets were sitting at that status
 # when it was removed, so nothing was stranded.
-CHAIN_WATCHED_BELOW = ["Pending Review - PSP", "Pending Review - Head PSP",
-                       "Pending Review - Head PNS"]
+CHAIN_WATCHED_BELOW = ["Pending Review - PSP", "Pending Review - Head PNS"]
 CHAIN_WATCHED_CLEAN = ["Pending Review - Head PNS"]
 
 
@@ -758,11 +753,11 @@ def may_go_to_psp(t: dict) -> bool:
     someone chooses to involve PSP: the optional escalation, and a below-bottom margin
     the Sales Head has just acknowledged.
 
-    There, PSP takes only what Alex (CSO) has granted an exception for. Strategic and
-    Hypercare carry that exception by being managed; anything else needs the PNS Head to
-    have recorded that Alex granted it verbatim. Otherwise a below-bottom LTL deal at
-    8 Mio lands in PSP's queue, which is not what PSP is for."""
-    return t.get("acct_type") in MANAGED_ACCTS or bool(t.get("psp_allowed"))
+    There, PSP takes the three groups PNS owns closely: Strategic, Hypercare and Must
+    Win. Anything else needs the PNS Head to have recorded that Alex granted an
+    exception verbatim. Otherwise an ordinary Standard deal lands in PSP's queue, which
+    is not what PSP is for."""
+    return bool(big_group(t)) or bool(t.get("psp_allowed"))
 
 
 def proposal_or_signoff(t: dict) -> str:
@@ -965,13 +960,13 @@ def can(u: User, action: str, t: dict | None = None) -> bool:
         # Sales owns the shipper relationship that reopening reflects. (Was Head only.)
         "reopen":           u.group == "Commercial" or admin,
         "pspDecide":        u.group == "PSP" or admin,
-        # The second signature inside PSP. Staff form the opinion, the Head owns it.
-        "pspHeadDecide":    admin or (u.group == "PSP" and u.level == "head"),
         # Standing delegation so an absent PSP cannot stall the pipeline. Used through
         # the same endpoint, recorded as an override, see psp_decide.
         "pspOverride":      pns_head,
         "vendorToggle":     u.group == "PNS" or admin,
-        "sendToPsp":        u.group in ("PNS", "Commercial") or admin,
+        # PNS owns the watched accounts and decides when PSP needs to enter. Sales may
+        # price its own work, but has no discretionary PSP escalation button.
+        "sendToPsp":        u.group == "PNS" or admin,
         "acceptProposal":   u.group == "Commercial" or admin,
         "sendBackProposal": u.group in ("Commercial", "PNS") or admin,
         "seeMargin":        u.group in ("PNS", "PSP", "CSO") or admin,
@@ -1294,7 +1289,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-07.93"
+BUILD = "2026-09-07.94"
 
 
 class Me(BaseModel):
@@ -1506,7 +1501,7 @@ async def me(u: User = Depends(current_user)):
                "acceptProposal", "sendBackProposal", "seeMargin", "capaRaise",
                "capaClose", "capaSubmit", "manageUsers", "grantAdmin", "setPricedBy",
                "pspAssign", "pspOverride", "allowPsp", "syncSalesCrm",
-               "pspHeadDecide", "manageIgnored",
+               "manageIgnored",
                "queueSync", "editSyncSettings", "bulkDelete", "manageImportQueue",
                "seePrice",
                "startOnboarding", "editOnboardingIds", "confirmGolive", "ackGolive",
@@ -4404,15 +4399,15 @@ async def change_status(ref: str, body: StatusIn, u: User = Depends(current_user
         # is not "the ticket came back to you", so it skips the send-back notification.
         # This is the only discretionary path to PSP now (both the Escalate button on
         # Awaiting Price and the Send to PSP button mid-review use it), so it is subject
-        # to the entry gate: PSP takes managed accounts and tickets the PNS Head has
-        # opened on Alex's exception, not anything a reviewer feels uncertain about.
+        # to the entry gate: PSP takes watched accounts and tickets the PNS Head has
+        # opened on Alex's exception, not anything Sales feels uncertain about.
         # Reaching PSP by rule (a manual-review band, Sameday past 20%) never goes
         # through this endpoint, only through submit_price.
         require(u, "sendToPsp")
         if not may_go_to_psp(t):
             raise HTTPException(
-                400, f"{ref} cannot go to PSP. PSP takes Strategic and Hypercare "
-                     f"accounts, or a ticket the PNS Head has opened after Alex granted "
+                400, f"{ref} cannot go to PSP. PSP takes Strategic, Hypercare and Must "
+                     f"Win work, or a ticket the PNS Head has opened after Alex granted "
                      f"an exception. Ask the PNS Head to open it first.")
     else:
         require(u, "sendBackProposal")
@@ -6121,13 +6116,12 @@ class PspIn(BaseModel):
 @app.post("/api/tickets/{ref}/psp", response_model=Ok)
 async def psp_decide(ref: str, body: PspIn, u: User = Depends(current_user)):
     t = await get_ticket(ref)
+    if t["status"] != "Pending Review - PSP":
+        raise HTTPException(409, f"{ref} is {t['status']}; PSP can only decide a ticket "
+                                 "while it is Pending Review - PSP")
     # PSP being unavailable should not stall a deal, so the PNS Head may decide in their
     # place. A note is mandatory and the record says it was an override, so how often
     # this happens stays visible instead of quietly becoming the norm.
-    # The Head of PSP step is the Head's alone: PSP staff already signed the row before
-    # it, and letting them sign again would make the second signature decorative.
-    if t["status"] == "Pending Review - Head PSP":
-        require(u, "pspHeadDecide")
     on_behalf = not can(u, "pspDecide")
     if on_behalf:
         require(u, "pspOverride")
@@ -6160,17 +6154,10 @@ async def psp_decide(ref: str, body: PspIn, u: User = Depends(current_user)):
         # floor, an optional early send from Awaiting price, or an optional send from
         # mid-review.
         #
-        # Below-bottom now goes to the Sales Head *after* PSP, not before. PSP has ruled
-        # on whether the margin is survivable; what remains is whether Sales will wear
-        # the concession, and that is the Head's to answer with the margin settled.
-        # PSP has two signatures on the watched below-floor path: staff decide, then
-        # the Head of PSP owns it. next_gate() holds that order so this endpoint does
-        # not have to re-derive it.
+        # PSP has one shared decision. next_gate() continues directly to the remaining
+        # PNS and executive gates; there is no second signature inside PSP.
         nxt = next_gate(t, t["status"])
-        if nxt == "Pending Review - Head PSP":
-            await notify(f"{ref}, {t['shipper']}: PSP approved the margin, yours to own",
-                         roles=["PSP - Head"], groups=["PSP"], ticket_ref=ref)
-        elif nxt == "Pending Review - Head PNS":
+        if nxt == "Pending Review - Head PNS":
             await notify(f"{ref}, {t['shipper']}: margin cleared by PSP — finalise the "
                          f"solution", roles=["PNS - Head"], ticket_ref=ref)
         elif nxt in ("Pending PNS", "Pending Sales"):
@@ -6878,6 +6865,11 @@ def clean_user_fields(group: str | None, level: str | None, team: str | None):
         # Manager is the Sales Manager tier. Elsewhere it would grant nothing and
         # sit in the table looking like it means something.
         raise HTTPException(400, "manager is a Commercial (Sales) level only")
+    if group == "PSP" and level != "staff":
+        # PSP makes one team decision in a shared queue. A Head level used to own a
+        # second approval gate; with that duplicate signature retired, keeping the
+        # level would advertise authority that no longer exists.
+        raise HTTPException(400, "PSP is one shared role; use the staff level")
     if team not in (None, "", *TEAMS):
         raise HTTPException(400, f"team must be one of {TEAMS}")
     if group != "Commercial":
@@ -7092,17 +7084,16 @@ async def taggable(ref: str, u: User = Depends(current_user)):
     await add(t.get("sales_name"), "Sales PIC")
     await add(t.get("sales_email"), "Sales PIC", by_email=True)
 
-    # The reporting line above whoever holds it, and the two heads who own the gates.
+    # The reporting line above whoever holds it, and the heads who own PNS/Sales gates.
     sales = await q("SELECT manager_email, head_email FROM users WHERE email=%s "
                     "AND active=1", (t.get("sales_email") or "",), one=True)
     if sales:
         await add(sales.get("manager_email"), "Sales Manager", by_email=True)
         await add(sales.get("head_email"), "Sales Head", by_email=True)
     for r in await q("SELECT email, role_group FROM users WHERE active=1 AND "
-                     "role_level='head' AND role_group IN ('PNS','Commercial','PSP')"):
+                     "role_level='head' AND role_group IN ('PNS','Commercial')"):
         rel.setdefault(r["email"],
-                       {"PNS": "Head of PNS", "Commercial": "Sales Head",
-                        "PSP": "Head of PSP"}[r["role_group"]])
+                       {"PNS": "Head of PNS", "Commercial": "Sales Head"}[r["role_group"]])
 
     everyone = await q("SELECT email, name, role_group FROM users WHERE active=1 "
                        "ORDER BY role_group, name")

@@ -13,9 +13,9 @@ const GROUP_TONE = {
 };
 
 const WHAT_EACH_GROUP_DOES = {
-  Commercial: "Raises tickets, prices what Sales owns, records win/loss. Cannot see cost or margin.",
-  PNS: "Prices what PNS owns, reviews Sales pricing, runs CAPA. Sees cost and margin.",
-  PSP: "Approves or rejects margins. Reads every ticket, because judging a rate needs the context around it. Sees cost and margin.",
+  Commercial: "Raises tickets, prices what Sales owns, records win/loss. Cannot escalate to PSP or see cost and margin.",
+  PNS: "Prices watched work, reviews Sales pricing and decides when PSP is needed. Sees cost and margin.",
+  PSP: "One shared role: any PSP member approves or rejects margins. There is no Head PSP approval.",
   Visitor: "Reads everything, changes nothing. Legal sits here. Can still be tagged into any discussion.",
   Ops: "Reads everything and receives the Kick-off. Changes nothing in the app.",
   CSO: "Read-only across the pipeline, including cost and margin.",
@@ -25,8 +25,12 @@ const WHAT_EACH_GROUP_DOES = {
 const EMPTY_FORM = { email: "", name: "", group: "PNS", level: "staff", team: "Team1",
                      manager_email: "", head_email: "" };
 
-// "manager" is the Sales Manager tier — Commercial only; the backend refuses it elsewhere.
+// "manager" is the Sales Manager tier — Commercial only. PSP is one flat shared role.
 const LEVEL_LABEL = { staff: "Staff", manager: "Manager (Sales)", head: "Head" };
+const levelsFor = (levels, group) => levels.filter((l) =>
+  group === "PSP" ? l === "staff" : l !== "manager" || group === "Commercial");
+const levelAfterGroupChange = (levels, group, current) =>
+  levelsFor(levels, group).includes(current) ? current : "staff";
 
 // Nothing in the Substrait contract says whether the backend pod may open an outbound
 // SMTP connection, so the only way to know is to try it from inside. SSO means neither
@@ -247,16 +251,17 @@ export default function Users({ me, notify }) {
           </Field>
           <Field label="Role group" required hint={WHAT_EACH_GROUP_DOES[f.group]}>
             <select className={inputCls} value={f.group}
-              onChange={(e) => setF({ ...f, group: e.target.value })}>
+              onChange={(e) => setF({ ...f, group: e.target.value,
+                level: levelAfterGroupChange(data.levels, e.target.value, f.level) })}>
               {groupOptions().map((g) => <option key={g}>{g}</option>)}
             </select>
           </Field>
           <Field label="Level" required
-            hint="Heads approve below-bottom prices and assign work. Manager is Sales only: a Sales Manager can reassign the Sales PIC, like the Sales Head.">
+            hint={f.group === "PSP" ? "PSP is one shared role; every member has the same approval authority."
+              : "Head is for PNS or Sales oversight. Manager is Sales only."}>
             <select className={inputCls} value={f.level}
               onChange={(e) => setF({ ...f, level: e.target.value })}>
-              {data.levels
-                .filter((l) => l !== "manager" || f.group === "Commercial")
+              {levelsFor(data.levels, f.group)
                 .map((l) => <option key={l} value={l}>{LEVEL_LABEL[l] || l}</option>)}
             </select>
           </Field>
@@ -338,7 +343,10 @@ export default function Users({ me, notify }) {
                           <Pill tone={GROUP_TONE[r.group]}>{r.group}</Pill>
                         ) : (
                           <select className={cell} value={r.group}
-                            onChange={(e) => act(() => api.updateUser(r.email, { group: e.target.value }),
+                            onChange={(e) => act(() => api.updateUser(r.email, {
+                              group: e.target.value,
+                              level: levelAfterGroupChange(data.levels, e.target.value, r.level),
+                            }),
                               `${r.name} is now ${e.target.value}`)}>
                             {groupOptions(r.group).map((g) => <option key={g}>{g}</option>)}
                           </select>
@@ -348,8 +356,7 @@ export default function Users({ me, notify }) {
                         <select className={cell} value={r.level} disabled={frozen}
                           onChange={(e) => act(() => api.updateUser(r.email, { level: e.target.value }),
                             `${r.name} set to ${e.target.value}`)}>
-                          {data.levels
-                            .filter((l) => l !== "manager" || r.group === "Commercial")
+                          {levelsFor(data.levels, r.group)
                             .map((l) => <option key={l} value={l}>{LEVEL_LABEL[l] || l}</option>)}
                         </select>
                       </td>

@@ -440,8 +440,8 @@ export function AwaitingPrice({ me, onOpen, notify, side }) {
                 immediate action, not something that only takes effect once the price
                 form is also filled in and submitted — so it shows up on PSP's Pending
                 queue the moment it's clicked, whether or not a price exists yet.
-                PSP only takes managed accounts, or a ticket the PNS Head has opened on
-                Alex's exception. Offering it otherwise invites a 400. */}
+                Only PNS sees it. PSP takes watched accounts, or a ticket the PNS Head
+                has opened on Alex's exception. Offering it otherwise invites a 400. */}
             {me.permissions.sendToPsp && mayGoToPsp(t) && (
               <Btn onClick={() => act(t.ref, () => api.status(t.ref,
                 { status: "Pending Review - PSP", reason: "escalated for a second opinion" }))}>
@@ -771,9 +771,9 @@ export function ToReview({ me, onOpen, notify }) {
                   </Btn>
                 </>
               )}
-              {/* Same escalation from either gate, same rule: PSP is for when there is no
-                  rate to price against. Gated on mayGoToPsp, so a Standard deal needs the
-                  Head to have opened it on Alex's exception first. */}
+              {/* Same PNS-only escalation from either gate: PSP is for when there is no
+                  rate to price against. Gated on mayGoToPsp, so an ordinary Standard deal
+                  needs the Head to have opened it on Alex's exception first. */}
               {me.permissions.sendToPsp && mayGoToPsp(t) && (
                 <Btn onClick={() => act(() => api.status(t.ref, {
                   status: "Pending Review - PSP",

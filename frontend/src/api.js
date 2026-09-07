@@ -241,7 +241,7 @@ export const FTL = ["FTL", "FTL on-call", "FTL monthly"];
 export const STATUSES = [
   "Pending CRM ID", "Open", "Pending Sales", "Pending PNS",
   "Pending Review - PNS", "Pending Review - Head PNS",
-  "Pending Review - PSP", "Pending Review - Head PSP", "Pending Vendor", "Pending Review - C-level", "Proposal Submitted",
+  "Pending Review - PSP", "Pending Vendor", "Pending Review - C-level", "Proposal Submitted",
   "Proposal Accepted / Ready to Ship", "Lost", "Cancel",
 ];
 
@@ -285,14 +285,14 @@ export const rp = (n) => "Rp " + Number(n || 0).toLocaleString("id-ID");
 // the server rejects the flag for anything else regardless of what the UI shows.
 export const BOTTOM_MARGIN = { LTL: 5, B2BR: 10 };
 
-// Mirrors backend may_go_to_psp(). PSP is discretionary-only for a managed account
-// (Hypercare/Strategic) or a ticket the PNS Head has opened on Alex's exception —
+// Mirrors backend may_go_to_psp(). PSP is discretionary-only for a watched account
+// (Hypercare, Strategic or Must Win) or a ticket the PNS Head opened on Alex's exception —
 // everything else reaches PSP only by rule (a manual-review band, Sameday >20%
 // discount), never through a person choosing to send it. Both places that let someone
 // forward a ticket to PSP (the To-review button, the Escalate button) use this same
 // check, and the server re-checks it independently either way.
 export const mayGoToPsp = (t) =>
-  t.acct_type === "Strategic" || t.acct_type === "Hypercare" || !!t.psp_allowed;
+  t.acct_type === "Strategic" || t.acct_type === "Hypercare" || !!t.must_win || !!t.psp_allowed;
 
 // Whether a ticket is PNS's business: PNS owes the price (resp on the backend,
 // priced_by here), or PNS reviews a price Sales built (needs_review, which is
