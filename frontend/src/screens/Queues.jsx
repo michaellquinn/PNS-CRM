@@ -4,7 +4,7 @@ import { api, BOTTOM_MARGIN, LIVE_STATUSES, PENDING, PICKABLE_LOSS_REASONS, SERV
          isNewIncoming, isPnsWork, mayGoToPsp, rp } from "../api";
 import {
   Btn, Card, Confirm, Empty, Head, MultiSelect, Pill, PriceChip, TicketCard, inputCls,
-  usePnsTeam, useSticky,
+  usePnsTeam, useSticky, useScrollMemory,
 } from "../ui";
 
 function useTickets(filters, dep = []) {
@@ -29,6 +29,13 @@ function useFilter(rows, extra = {}, key = "") {
   // `key` makes the filter survive leaving the screen and coming back. Every queue keeps
   // its own, so narrowing Awaiting price does not silently narrow Open as well.
   const [f, setF] = useSticky(key ? "filter:" + key : "", base);
+  // The place in the list, kept alongside the filter that produced it. Same key, so a
+  // queue's filter and its scroll position are remembered together and forgotten
+  // together -- coming back correctly filtered but scrolled to the top still loses the
+  // row you were on, which on a long queue is most of the work of finding it again.
+  // `rows !== null` is this screen's "the list is on screen": rows starts null and
+  // becomes an array when the fetch lands.
+  useScrollMemory(key, rows !== null);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const patch = (k, v) => setF((p) => ({ ...p, [k]: v }));
   const clear = () => setF(base);

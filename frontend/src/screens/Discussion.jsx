@@ -60,6 +60,19 @@ export default function Discussion({ ticketRef, me, notify, onCountChange,
   }, [focusThread, data]);
   const people = useDirectory();
   const box = useRef(null);
+  // Who is worth tagging ON THIS TICKET, ranked, with a reason on each. Falls back to the
+  // plain alphabetical directory if the call fails -- a picker that lists the wrong
+  // people in the wrong order still beats one that lists nobody.
+  const [ranked, setRanked] = useState([]);
+  useEffect(() => {
+    let live = true;
+    api.taggable(ticketRef).then((r) => { if (live) setRanked(r); }).catch(() => {});
+    return () => { live = false; };
+  }, [ticketRef]);
+  // The @ being typed right now: where it starts, and what has been typed after it.
+  // null when the caret is not inside one.
+  const [mention, setMention] = useState(null);
+  const [mHi, setMHi] = useState(0);
 
   const load = () =>
     api.comments(ticketRef)
@@ -102,10 +115,65 @@ export default function Discussion({ ticketRef, me, notify, onCountChange,
     box.current?.focus();
   };
 
+  // Typing @ opens the picker. The token runs from an @ that STARTS a word to the caret;
+  // an @ with a non-space before it is the domain separator of an address somebody is
+  // typing out in full, and interrupting that with a dropdown would be wrong.
+  const readMention = (v, caret) => {
+    const upto = v.slice(0, caret);
+    const at = upto.lastIndexOf("@");
+    if (at < 0) return null;
+    if (at > 0 && !/\s/.test(upto[at - 1])) return null;
+    const token = upto.slice(at + 1);
+    if (/\s/.test(token) || token.includes("@")) return null;
+    return { start: at, token };
+  };
+
+  const onText = (e) => {
+    setText(e.target.value);
+    setMention(readMention(e.target.value, e.target.selectionStart ?? e.target.value.length));
+    setMHi(0);
+  };
+
+  // Ranked first, because that is the whole point: the five people tied to this ticket
+  // before the other few hundred. The server already returns them in that order, and
+  // filtering preserves it. Matches on NAME as well as email -- nobody thinks of a
+  // colleague as the left-hand side of their address.
+  const pool = ranked.length
+    ? ranked
+    : people.map((p) => ({ ...p, why: "", relevant: false }));
+  const q_ = (mention?.token || "").toLowerCase();
+  const matches = !mention ? [] : pool
+    .filter((p) => p.email !== me.email
+      && (!q_ || (p.name || "").toLowerCase().includes(q_)
+              || p.email.toLowerCase().includes(q_)))
+    .slice(0, 8);
+
+  const choose = (p) => {
+    if (!mention) return;
+    const end = mention.start + 1 + mention.token.length;
+    setText((t) => `${t.slice(0, mention.start)}@${p.email} ${t.slice(end)}`);
+    if (!tags.includes(p.email)) setTags((ts) => [...ts, p.email]);
+    setMention(null);
+    box.current?.focus();
+  };
+
+  // Only swallow these keys while the picker is actually showing something, so Enter
+  // still starts a new line in every other case.
+  const onKey = (e) => {
+    if (!mention || !matches.length) return;
+    if (e.key === "ArrowDown") { e.preventDefault(); setMHi((i) => (i + 1) % matches.length); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); setMHi((i) => (i - 1 + matches.length) % matches.length); }
+    else if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); choose(matches[mHi]); }
+    else if (e.key === "Escape") { setMention(null); }
+  };
+
   if (err) return <p className="text-[13px] text-rose-700">{err}</p>;
   if (!data) return <p className="text-sm text-slate-400">Loading…</p>;
 
-  const untagged = people.filter((p) => p.email !== me.email && !tags.includes(p.email));
+  // Same ranking as the @ picker, so the two paths cannot disagree about who matters
+  // on this ticket. Falls back to the plain directory the same way.
+  const untagged = (ranked.length ? ranked : people)
+    .filter((p) => p.email !== me.email && !tags.includes(p.email));
 
   // Group into threads, General Discussion first, then each named thread in the order
   // it started. A thread is "open" while it still holds an unanswered question — that
@@ -242,9 +310,33 @@ export default function Discussion({ ticketRef, me, notify, onCountChange,
               placeholder="What is this thread about? e.g. Pickup window at Cikarang" />
           )}
         </div>
-        <textarea ref={box} className={`${inputCls} min-h-[76px]`} value={text}
-          onChange={(e) => setText(e.target.value)}
-          placeholder="Ask a question or reply. Tag someone with @their.email@ninjavan.co" />
+        <div className="relative">
+          <textarea ref={box} className={`${inputCls} min-h-[76px]`} value={text}
+            onChange={onText} onKeyDown={onKey}
+            /* Blur closes the picker, but not before a click on it has registered. */
+            onBlur={() => setTimeout(() => setMention(null), 150)}
+            placeholder="Ask a question or reply. Type @ to tag someone." />
+          {mention && matches.length > 0 && (
+            <div className="absolute left-0 right-0 z-30 mt-1 max-h-64 overflow-auto rounded-xl border border-slate-200 bg-white py-1 shadow-lg">
+              {matches.map((p, idx) => (
+                <button key={p.email} type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => choose(p)}
+                  onMouseEnter={() => setMHi(idx)}
+                  className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12.5px] ${
+                    idx === mHi ? "bg-slate-100" : "hover:bg-slate-50"}`}>
+                  <span className="font-medium text-slate-800">{p.name}</span>
+                  {p.why && (
+                    <span className="rounded bg-sky-50 px-1.5 py-0.5 text-[10.5px] font-semibold text-sky-800">
+                      {p.why}
+                    </span>
+                  )}
+                  <span className="ml-auto truncate pl-2 text-[11px] text-slate-400">{p.email}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
 
         {tags.length > 0 && (
           <div className="mt-2 flex flex-wrap items-center gap-1.5">

@@ -458,3 +458,51 @@ export function useSticky(key, initial) {
   }, [key, v]);
   return [v, setV];
 }
+
+
+// Where you were on the page, kept across leaving a screen and coming back.
+//
+// useSticky above keeps the FILTER; this keeps the place in the list it produced. Both
+// are needed for the same complaint: a queue that comes back correctly filtered and
+// scrolled to the top has still lost where you were, and on a long list that is most of
+// the work of finding your row again (Baskoro, 2026-09-07).
+//
+// `ready` is the whole trick. Restoring on mount scrolls a page that has no rows yet —
+// the browser clamps to 0, the data then arrives, and the reader is at the top having
+// been told their place was kept. So the caller passes what it means by "the rows are
+// on screen" (rows !== null, usually) and the restore waits for it.
+export function useScrollMemory(key, ready = true) {
+  const k = key ? "nx:scroll:" + key : null;
+  const restored = useRef(false);
+
+  useEffect(() => {
+    if (!k) return;
+    // Coalesced to one write per frame. Scroll fires far faster than sessionStorage
+    // wants to be written, and this runs on every list in the app.
+    let queued = false;
+    const save = () => {
+      if (queued) return;
+      queued = true;
+      requestAnimationFrame(() => {
+        queued = false;
+        try { sessionStorage.setItem(k, String(Math.round(window.scrollY))); } catch { /* ignore */ }
+      });
+    };
+    window.addEventListener("scroll", save, { passive: true });
+    // Save on the way out too: the last scroll before a click may not have fired.
+    return () => {
+      try { sessionStorage.setItem(k, String(Math.round(window.scrollY))); } catch { /* ignore */ }
+      window.removeEventListener("scroll", save);
+    };
+  }, [k]);
+
+  useEffect(() => {
+    if (!k || !ready || restored.current) return;
+    restored.current = true;
+    let y = 0;
+    try { y = parseInt(sessionStorage.getItem(k) || "0", 10) || 0; } catch { /* ignore */ }
+    // Two frames: one for this render to paint the rows, one for the layout they cause.
+    // A single frame lands short on a long table and the page sits above where it was.
+    if (y > 0) requestAnimationFrame(() => requestAnimationFrame(() => window.scrollTo(0, y)));
+  }, [k, ready]);
+}

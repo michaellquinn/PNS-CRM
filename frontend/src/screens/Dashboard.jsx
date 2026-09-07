@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, SERVICES, STATUSES, rp, dealName, accountDiffers } from "../api";
-import { Head, MultiSelect, Pill, Sla, StagePill, Tile, usePnsTeam, useSticky } from "../ui";
+import {
+  Head, MultiSelect, Pill, Sla, StagePill, Tile, usePnsTeam, useScrollMemory, useSticky,
+} from "../ui";
 
 const EMPTY = { search: "", status: [], service: [], acct: [], owner: "", sales: "",
                 line: "", stage: "", group: "", from: "", to: "" };
@@ -84,6 +86,11 @@ export default function Dashboard({ me, onOpen }) {
   // column is "what has just landed on us", which is the question the board is opened
   // to answer.
   const [sort, setSort] = useState({ key: "first_synced_on", dir: "desc" });
+  // The board is long and is normally left by clicking a ticket in the table below the
+  // tiles. `stats` is what the tiles render from, so it is the honest "the page has its
+  // real height now" signal -- restoring against the rows alone would land short,
+  // because the tiles above them are still empty and take up less room.
+  useScrollMemory("dash", stats !== null && rows.length > 0);
   const [stageNames, setStageNames] = useState([]);
   // Sales managers and heads, for the "whose team" filter. Only an admin can read
   // /users, so this degrades to an empty list and the control simply does not appear.

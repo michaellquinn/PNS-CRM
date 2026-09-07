@@ -3,6 +3,24 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-09-07",
+    title: "Back returns you to the list, where you left it; @ suggests the people on the ticket",
+    by: "Baskoro + Claude",
+    changes: [
+      "BACK NOW WORKS. Opening a ticket from a queue and pressing Back returns you to that queue instead of leaving the app. The address bar already carried the whole destination so it could be shared — the history entries were simply never pushed, and now they are.",
+      "The ticket's own Back button retraces the step you actually took, rather than always landing on Dashboard. It still falls back to Dashboard when the ticket WAS the entry point: somebody following a link from an email has no queue to go back to.",
+      "Your place in the list comes back too. Filters already survived (28 August); the scroll position did not, and a queue that returns correctly filtered but scrolled to the top has still lost the row you were on. It is kept under the same key as the filter, so the two are remembered and forgotten together — on every queue, the Dashboard board and the Review meeting list.",
+      "The restore waits for the rows. Putting it on mount scrolls a page that has no rows yet, the browser clamps to zero, the data then arrives, and you are at the top having been told your place was kept.",
+      "TYPE @ TO TAG SOMEONE, and the list is ordered by who is actually on this ticket: the assigned PNS PIC, their Head, the Sales PIC, and that PIC's Manager and Head come first, each with a label saying why, and the rest of the directory follows so nobody is unreachable. Arrow keys and Enter to pick; it matches on name as well as email, because nobody thinks of a colleague as the left-hand side of their address.",
+      "Before this you had to know and type a whole address — the placeholder literally said “@their.email@ninjavan.co” — or find the person in a dropdown of the entire company in alphabetical order. The ranking endpoint had been built since 13 August and had no screen on it.",
+      "The “Tag someone…” dropdown reads from the same ranked list, so the two paths cannot disagree about who matters on this ticket. Picking someone still inserts their address into the text, so the thread reads exactly as the notification did and the server's parsing is untouched.",
+      "The picker leaves an address alone once you are typing one out in full: an @ with a non-space in front of it is a domain separator, not the start of a name.",
+    ],
+    overruled: [
+      "Michael, on the URL sync: “replaceState, not pushState: the app has no history to walk back through, and Back should leave the app rather than replay screens.” That held while a screen was just a fresh list. It stopped holding once opening a ticket from a filtered, scrolled queue became the normal way to work — Back left the app, and getting back meant rebuilding the filter and hunting for your place again. Entries are pushed now, and a popstate sets state the URL already matches, so going back cannot push a new entry and fight itself.",
+    ],
+  },
+  {
+    date: "2026-09-07",
     title: "Ops and QC no longer see the sell price",
     by: "Baskoro + Claude",
     changes: [

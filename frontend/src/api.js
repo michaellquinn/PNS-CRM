@@ -192,6 +192,11 @@ export const api = {
 
   users: () => call("/users"),
   directory: () => call("/users/directory"),
+  // Who is worth tagging on THIS ticket, most relevant first with a reason attached.
+  // The plain directory is everyone in the company, alphabetical, which is the wrong
+  // shape for the question: at the moment of tagging you almost always want the PNS PIC,
+  // their Head, the Sales PIC, or that PIC's Manager or Head.
+  taggable: (ref) => call(`/tickets/${encodeURIComponent(ref)}/taggable`),
   assignable: () => call("/users/assignable"),
   registerUser: (body) => call("/users", { method: "POST", body: JSON.stringify(body) }),
   updateUser: (email, body) =>
