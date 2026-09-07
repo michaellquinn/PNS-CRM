@@ -2,6 +2,20 @@ import { Card, Head, Pill } from "../ui";
 
 const ENTRIES = [
   {
+    date: "2026-09-04",
+    title: "FIXED: the published API description was missing thirty endpoints",
+    by: "Michael + Claude",
+    changes: [
+      "FIXED: openapi.json documented 41 paths and 52 operations while the backend registered 82 routes. Thirty operations were missing — the whole Import queue, settings, sync queue, comment threads and bulk-delete surface. It was last written by hand on 24 August.",
+      "That file is not decoration. It ships inside every deploy and becomes the app’s published API description on the platform, so it is what other builders see in Substrait’s API Library, and it takes precedence over anything harvested from the running app. For eleven days it advertised an app a third smaller than the real one, and the deploy printed a staleness warning on every single run.",
+      "It is generated now, not written. FastAPI already knows every route, its parameters, its request body and its response model, so tools/gen_openapi.py asks the app and writes the answer. 82 operations, 84 schemas, checked against the route decorators in main.py: nothing missing, nothing invented.",
+      "One thing added on top of what FastAPI produces: it derives a summary from the function name (“List Queue”), which restates the path rather than saying what the endpoint does. Every handler here opens with a one-line docstring that IS the summary, so those are promoted — 51 of the 82 now read like “Record that Alex (CSO) and Dhinesh (COO) have signed off the solution” instead of “Exec Signoff”.",
+      "The spec carries the BUILD it was generated from, so a published description can be traced to the deploy that produced it.",
+      "Scanned before publishing: no tokens, keys, credentials, staff emails or internal hostnames in the generated file.",
+    ],
+    overruled: [],
+  },
+  {
     date: "2026-09-02",
     title: "A ticket coming back counts as arriving; New incoming moves under Dashboard",
     by: "Michael + Claude",
