@@ -1286,7 +1286,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-07.89"
+BUILD = "2026-09-07.90"
 
 
 class Me(BaseModel):
@@ -2162,7 +2162,12 @@ def account_link(account_id: str | None) -> str | None:
 SYNC_BUDGET_S = int(os.getenv("SYNC_BUDGET_S", "25") or 25)
 # Concurrent Sales CRM reads. At 16 a page of accounts resolves in about 5s instead of
 # 73s sequentially, which is the difference between finishing and being cut off.
-SYNC_CONCURRENCY = int(os.getenv("SYNC_CONCURRENCY", "24") or 24)
+# Lowered from 24 (Michael, 2026-09-07). Sales CRM answered 429 on an account read,
+# which is the API saying twenty-four at once is too many. The retry above recovers
+# from a throttle; asking more politely means hitting it far less often. Still
+# concurrent - sequential reads put the sweep past the ingress timeout, which is
+# what the concurrency was introduced for.
+SYNC_CONCURRENCY = int(os.getenv("SYNC_CONCURRENCY", "8") or 8)
 # Ceiling on how many existing tickets get re-read in one run. Fine while PNS holds
 # hundreds; revisit if it ever holds thousands.
 SYNC_REFRESH_MAX = int(os.getenv("SYNC_REFRESH_MAX", "400") or 400)
@@ -2336,6 +2341,29 @@ def tier_from_csm(raw) -> str | None:
     return None
 
 
+# How many times one read is attempted before it is reported as failed, and the
+# longest a single backoff may sleep. Three attempts covers a burst of throttling
+# without letting one account eat the sweep's whole time budget.
+_CRM_TRIES = int(os.getenv("SALESCRM_TRIES", "3") or 3)
+_CRM_MAX_WAIT = float(os.getenv("SALESCRM_MAX_WAIT", "4") or 4)
+
+
+def _retry_after(r, fallback: float) -> float:
+    """How long to wait before asking again.
+
+    Prefers the server's own Retry-After over our guess - it knows when the window
+    resets and we do not. Capped either way, because a header asking for two minutes
+    would stall the sweep far past its budget for one account."""
+    raw = (r.headers.get("Retry-After") or "").strip()
+    try:
+        # Only the seconds form is handled. The HTTP-date form is legal but Sales CRM
+        # does not send it, and parsing a date to sleep on would be more code than the
+        # fallback is worth.
+        return min(max(float(raw), 0.0), _CRM_MAX_WAIT) if raw else fallback
+    except ValueError:
+        return fallback
+
+
 class SalesCrm:
     """Thin read-only client. Every call is a GET, this never writes to Sales CRM."""
 
@@ -2351,13 +2379,36 @@ class SalesCrm:
         self._account_errs: dict[str, str] = {}
 
     async def records(self, obj: str, **params):
-        r = await self.c.get(f"{SALESCRM_BASE}/objects/{obj}/records", params=params)
-        if r.status_code == 401:
-            raise HTTPException(502, "Sales CRM rejected the API key. It may have expired "
-                                     "(keys last 30 days). Issue a new one and update "
-                                     "SALESCRM_API_KEY.")
-        r.raise_for_status()
-        return r.json()
+        """One read from Sales CRM, retried if it is throttled.
+
+        429 is a TEMPORARY answer and was being treated as a permanent one (Michael,
+        2026-09-07): opportunity 907113 failed to import because account 1419431 came
+        back 429, warm_accounts() cached the miss, and the ticket was marked failed for
+        good. Nothing was wrong with the account - we were asking too fast, and a second
+        ask a moment later would have worked.
+
+        503 is retried on the same reasoning. Everything else still raises immediately:
+        a 404 will not become a 200 by asking again, and retrying a real error only
+        delays the report of it.
+
+        Sleeps honour Retry-After when Sales CRM sends one, because a server saying how
+        long to wait knows better than a guess. Each wait is capped, and there are only
+        three of them, so a throttled sweep still finishes inside SYNC_BUDGET_S rather
+        than stalling on one account.
+        """
+        delay = 0.5
+        for attempt in range(_CRM_TRIES):
+            r = await self.c.get(f"{SALESCRM_BASE}/objects/{obj}/records", params=params)
+            if r.status_code == 401:
+                raise HTTPException(502, "Sales CRM rejected the API key. It may have "
+                                         "expired (keys last 30 days). Issue a new one "
+                                         "and update SALESCRM_API_KEY.")
+            if r.status_code in (429, 503) and attempt < _CRM_TRIES - 1:
+                await asyncio.sleep(_retry_after(r, delay))
+                delay = min(delay * 2, _CRM_MAX_WAIT)
+                continue
+            r.raise_for_status()
+            return r.json()
 
     async def account(self, aid) -> dict | None:
         aid = str(aid or "")

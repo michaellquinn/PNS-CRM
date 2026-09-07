@@ -3,6 +3,19 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-09-07",
+    title: "FIXED: a rate-limited account read was losing the ticket for good",
+    by: "Michael + Claude",
+    changes: [
+      "FIXED: opportunity 907113 (PT Hermed - Emaklon - FTL) would not import. Sales CRM answered HTTP 429 - too many requests - on account 1419431, and the client treated that TEMPORARY refusal as a permanent one: the account was cached as missing, the shipper had no name, and the row was marked failed for good. Nothing was wrong with the account. Asking again a moment later would have worked.",
+      "429 and 503 are retried now, up to three attempts, honouring the Retry-After header when Sales CRM sends one. Everything else still fails at once: a 404 will not become a 200 by asking again, and retrying a real error only delays reporting it.",
+      "The retry is BOUNDED on purpose - three attempts, each wait capped, Retry-After included. An unbounded one is worse than none: SYNC_BUDGET_S exists because a sweep that overruns hits the ingress timeout and comes back a bare 502, so one throttled account must never be able to eat the whole run.",
+      "Concurrency drops from 24 parallel account reads to 8. Twenty-four at once is what provoked the throttle - Sales CRM has no bulk-by-id endpoint, so a page of opportunities means one request per account and the sweep fired them in a burst. Still concurrent, because sequential reads are what put the sweep past the timeout in the first place.",
+      "New verify_crm_retry suite pins all of it: a throttle is retried, a 404 is not, the retry stops, and an outsized Retry-After is capped rather than obeyed. Executed rather than read - this is control flow over status codes, and no source match shows whether the loop actually stops. Confirmed it fails 8 checks with the retry taken out.",
+    ],
+    overruled: [],
+  },
+  {
+    date: "2026-09-07",
     title: "A failed import now says WHY the account could not be read",
     by: "Michael + Claude",
     changes: [

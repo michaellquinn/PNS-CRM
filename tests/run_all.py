@@ -58,6 +58,14 @@ Each suite exists because something was actually wrong:
                      question - filing each one as a question grew the unanswered count
                      by one per deal per week and never brought it back down.
 
+  verify_crm_retry   Sales CRM answered 429 on an account read and the client treated
+                     that TEMPORARY refusal as permanent: the account was cached as
+                     missing and the ticket failed for good, when asking again a moment
+                     later would have worked. Pins that a throttle is retried, that a
+                     404 is not, and that the retry is BOUNDED - an unbounded one would
+                     put the sweep past the ingress timeout, which is what
+                     SYNC_BUDGET_S exists to prevent.
+
   verify_transitions POST /status took whatever string it was handed, so a status the
                      running code cannot act on could be written straight onto a ticket.
                      Also pins that a "*" row does not let a Lost deal be walked
@@ -72,7 +80,7 @@ SUITES = ["verify_rules.py", "verify_assign.py", "verify_charter.py",
           "verify_psp_gate.py", "verify_permissions.py", "verify_review_level.py",
           "verify_transitions.py", "verify_sync_guards.py", "verify_names.py",
           "verify_service_line.py", "verify_stages.py", "verify_threads.py",
-          "verify_onboarding.py"]
+          "verify_onboarding.py", "verify_crm_retry.py"]
 
 # Suites that EXECUTE backend/main.py rather than reading it need the backend's own
 # dependencies installed. Most suites here deliberately parse the AST instead, precisely
