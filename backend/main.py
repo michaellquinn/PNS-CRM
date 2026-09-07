@@ -1286,7 +1286,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-07.90"
+BUILD = "2026-09-07.91"
 
 
 class Me(BaseModel):
@@ -3475,6 +3475,31 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
                         revenue = int(float(o.get("total_potential_revenue_mth") or 0))
                         shipper_name = (o.get("account_name")
                                         or (account or {}).get("name") or "").strip()
+                        # Re-derive the service line now that the shipper's real name
+                        # is known (Michael, 2026-09-07, comparing 907113 against
+                        # 906119).
+                        #
+                        # The first call above happens BEFORE the account is fetched, so
+                        # the only name it can see is o["account_name"] - and that field
+                        # is blank on both of those opportunities, and on plenty of
+                        # others. The FTL-in-the-shipper-name rule was therefore reading
+                        # an empty string and never firing.
+                        #
+                        # 907113 is exactly the case: account "PT Hermed - FTL (B2BR)",
+                        # NV Product Line "Restock", Service Level "FTL". Without this it
+                        # imports as B2BR - wrong service line, wrong 5A ceiling, wrong
+                        # side of the routing - and nothing says so.
+                        #
+                        # Safe to re-run: the skip list is keyed on the PRODUCT LINE,
+                        # which has not changed, so this can only turn a mapped line into
+                        # FTL. It can never turn a line into None and strand a deal that
+                        # already passed the skip check.
+                        if shipper_name and shipper_name != o.get("account_name"):
+                            re_service, re_prov = service_line_for(
+                                raw_line, raw_level, shipper_name)
+                            if re_service and re_service != service:
+                                service, provisional = re_service, re_prov
+
                         if not shipper_name:
                             # Three different problems used to share one message, and
                             # they need three different fixes (Michael, 2026-09-07, on

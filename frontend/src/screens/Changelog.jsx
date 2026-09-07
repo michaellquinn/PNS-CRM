@@ -3,6 +3,19 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-09-07",
+    title: "FIXED: the FTL-in-the-name rule was reading a blank field",
+    by: "Michael + Claude",
+    changes: [
+      "FIXED: the import decided the service line BEFORE fetching the account, so the only shipper name available to it was the opportunity’s own account_name field — which is blank on plenty of real opportunities. The FTL-in-the-shipper-name rule was matching against an empty string and never firing.",
+      "Found comparing 907113 with 906119 side by side in Sales CRM. 907113 has account “PT Hermed - FTL (B2BR)”, NV Product Line Restock, Service Level FTL, and a blank account_name. It would have imported as B2BR: wrong service line, wrong 5A ceiling, wrong side of the routing, with nothing anywhere saying so.",
+      "The service line is now re-derived once the account has been read and the real shipper name is known. Safe to re-run, and the reason is worth keeping: the skip list is keyed on the PRODUCT LINE, which has not changed, so a second pass can only turn a mapped line into FTL — never into nothing, which would strand a deal that already passed the skip check.",
+      "The early call stays where it is. It is what stops an out-of-scope product line costing an account round trip before we know we are dropping it.",
+      "Pinned in verify_service_line structurally, over the AST, because a unit test cannot see this one: service_line_for was always correct — it was being handed the wrong argument. Only the call site shows it. Confirmed it fails when the argument is put back.",
+    ],
+    overruled: [],
+  },
+  {
+    date: "2026-09-07",
     title: "FIXED: a rate-limited account read was losing the ticket for good",
     by: "Michael + Claude",
     changes: [

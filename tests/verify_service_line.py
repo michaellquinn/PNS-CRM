@@ -180,6 +180,35 @@ for line, lvl in [("Restock", "Standard"), ("LTL", "Standard"),
     check(f"{line or '(blank)'} / {lvl or '(none)'} -> FTL", got == FTL, f"got {got!r}")
     check(f"{line or '(blank)'} says the line is provisional", bool(why))
 
+# ------------------------------------------- the name rule must see the REAL name
+# The FTL rule reads the shipper's name, and the import used to decide the service line
+# BEFORE fetching the account - so the only name available was o["account_name"], which
+# is blank on plenty of real opportunities. 907113 is the case that surfaced it: account
+# "PT Hermed - FTL (B2BR)", NV Product Line "Restock", Service Level "FTL", and a blank
+# account_name. It mapped to B2BR, which is the wrong ceiling and the wrong side of the
+# routing, and nothing anywhere said so.
+#
+# Checked structurally, over the AST: the outcome is identical either way in a unit test
+# (service_line_for is correct - it was being handed the wrong argument), so only the
+# CALL SITE shows the bug.
+print()
+print("the import re-derives the service line from the resolved shipper name")
+_src = io.open(_SRC_PATH, encoding="utf-8").read() if "_SRC_PATH" in dir() else open(
+    __import__("os").path.join(_REPO, "backend", "main.py"), encoding="utf-8").read()
+_tree = ast.parse(_src)
+_calls = [n for n in ast.walk(_tree)
+          if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+          and n.func.id == "service_line_for"]
+_with_shipper = [c for c in _calls
+                 if any(isinstance(a, ast.Name) and a.id == "shipper_name" for a in c.args)]
+check("service_line_for is called somewhere with shipper_name",
+      bool(_with_shipper),
+      "the FTL-in-the-name rule can only fire on the name the ACCOUNT carries; "
+      "o['account_name'] is blank on real opportunities")
+check("and it still runs early too, so an out-of-scope line is skipped before the fetch",
+      len(_calls) >= 2,
+      "the early call is what stops a cold-chain deal costing an account round trip")
+
 print()
 if fails:
     print("FAILED %d check(s):" % len(fails))
