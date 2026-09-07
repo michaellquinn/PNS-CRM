@@ -159,7 +159,11 @@ export default function TicketDetail({ ticketRef: initialRef, me, notify, onBack
   // The charter gets emailed to stakeholders, so it goes on the clipboard as a real
   // HTML table with inline styles — pasting into Gmail keeps the formatting.
   const copyCharter = async () => {
-    const extras = [["Pricing", d.price_url || d.price_file || "not yet priced"]];
+    // Ops and QC never get the price on the clipboard either — "Copy for email" is
+    // reachable from the charter tab, which they can open.
+    const extras = p.seePrice
+      ? [["Pricing", d.price_url || d.price_file || "not yet priced"]]
+      : [];
     if (photos.length) extras.push(["Photos of the goods", `${photos.length} attached in the app`]);
     try {
       const how = await copyRich(
@@ -202,7 +206,12 @@ export default function TicketDetail({ ticketRef: initialRef, me, notify, onBack
   };
 
   const openQ = qCount ?? t.open_questions;
-  const tabs = [["charter", "Project Charter"], ["input", "Input"], ["pricing", "Pricing"],
+  // The whole Pricing tab goes for Ops and QC, rather than emptying its rows one by one.
+  // Two of the five were already gated and the other three were not, which is what the
+  // row-by-row approach costs. The server strips the fields either way — this only stops
+  // the tab rendering as five em dashes and a "Margin and cost" placeholder.
+  const tabs = [["charter", "Project Charter"], ["input", "Input"],
+                ...(p.seePrice ? [["pricing", "Pricing"]] : []),
                 ["files", "Attachments", fCount], ["discussion", "Discussion", openQ],
                 ["history", "History"]];
 
@@ -504,7 +513,9 @@ export default function TicketDetail({ ticketRef: initialRef, me, notify, onBack
                         )}
                       </Row>
                     )}
-                    {label.startsWith("3") && (
+                    {/* The charter's own pricing row, which is not the Pricing tab and
+                        so is not covered by hiding it. */}
+                    {label.startsWith("3") && p.seePrice && (
                       <Row label="Pricing">
                         <PriceChip file={d.price_file} url={d.price_url} />
                       </Row>
@@ -629,7 +640,7 @@ export default function TicketDetail({ ticketRef: initialRef, me, notify, onBack
             </>
           )}
 
-          {tab === "pricing" && (
+          {tab === "pricing" && p.seePrice && (
             <dl>
               <Row label="Rate card">
                 {d.rate_card_url ? (

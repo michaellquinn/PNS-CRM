@@ -832,6 +832,24 @@ def can(u: User, action: str, t: dict | None = None) -> bool:
     # they already correct intake, so raising one is no wider a right.
     works_group = u.group not in READ_ONLY_GROUPS
 
+    # Who may see what the shipper is being charged (Baskoro, 2026-09-07).
+    #
+    # Answered HERE, deliberately above the read-only early return below, and not in the
+    # map with the others. Ops and QC must not see the price — but Ops sits in the same
+    # READ_ONLY_GROUPS tuple as Visitor and Finance, and Finance read the charter for
+    # exactly this figure. Answering it after the early return would have taken the price
+    # away from Finance as a side effect of a rule that was only ever about Ops and QC.
+    #
+    # This is new because until now nobody outside the commercial teams had a reason to
+    # open a ticket. Onboarding gives Ops and QC one, every day, on shippers whose
+    # commercial terms are none of their business. Cost and margin were already behind
+    # seeMargin; the sell price never was.
+    #
+    # Potential revenue is NOT covered: Baskoro's call, asked and answered — it is the
+    # size of the deal, not what the shipper pays per parcel, and Ops keep seeing it.
+    if action == "seePrice":
+        return u.group not in ("Ops", "QC")
+
     # Read-mostly audiences never mutate. Stated once here rather than being spelled out
     # as an exclusion on every line below, where one omission would grant a right nobody
     # intended. They can still be tagged in a discussion and reply, that is a comment
@@ -1227,7 +1245,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-02.84"
+BUILD = "2026-09-07.85"
 
 
 class Me(BaseModel):
@@ -1435,7 +1453,8 @@ async def me(u: User = Depends(current_user)):
                "capaClose", "capaSubmit", "manageUsers", "grantAdmin", "setPricedBy",
                "pspAssign", "pspOverride", "allowPsp", "syncSalesCrm",
                "pspHeadDecide", "manageIgnored",
-               "queueSync", "editSyncSettings", "bulkDelete", "manageImportQueue"]
+               "queueSync", "editSyncSettings", "bulkDelete", "manageImportQueue",
+               "seePrice"]
     return Me(email=u.email, name=u.name, group=u.group, level=u.level, team=u.team,
               permissions={a: can(u, a) for a in actions},
               sso=u.sso, dev_fallback=not u.sso and bool(DEV_USER),
@@ -1446,6 +1465,10 @@ async def me(u: User = Depends(current_user)):
 
 
 def shape(t: dict, u: User) -> Ticket:
+    # The price sheet and its link never leave the server for Ops or QC. Stripped here
+    # rather than hidden in the page: the label is a rate card name and the url opens the
+    # actual sheet, so leaving them in the JSON and not rendering them is not hiding them.
+    sees_price = can(u, "seePrice")
     out = Ticket(
         ref=t["ticket_ref"], shipper=t["shipper"], acct_type=t["acct_type"],
         service=t["service_type"], revenue=int(t["potential_rev"]), status=t["status"],
@@ -1453,7 +1476,8 @@ def shape(t: dict, u: User) -> Ticket:
         owner=t["owner_name"], sales=t["sales_name"],
         region=t["region"], submitted_on=str(t["submitted_on"]),
         sla_elapsed=sla_days_elapsed(t), sla_target=int(t["sla_days"]),
-        price_file=t.get("price_file"), price_url=t.get("price_url"),
+        price_file=(t.get("price_file") if sees_price else None),
+        price_url=(t.get("price_url") if sees_price else None),
         open_questions=int(t.get("open_q") or 0),
         psp_assignee=t.get("psp_assignee"), psp_ready=bool(t.get("psp_ready")),
         psp_allowed=bool(t.get("psp_allowed")),
@@ -5774,6 +5798,13 @@ async def ticket_detail(ref: str, u: User = Depends(current_user)):
         out.cost = float(t["cost"]) if t.get("cost") is not None else None
         out.margin = float(t["margin_pct"]) if t.get("margin_pct") is not None else None
         out.bottom_margin = BOTTOM_MARGIN.get(t["service_type"])
+    # And the sell price never leaves it for Ops or QC. Four fields, not two: the rate
+    # card reads like a category label but rate_card_url opens the published card, which
+    # is a price list. Cleared after construction so the ticket inside `out` is shaped by
+    # shape() above and this stays the one place the detail's own extras are answered.
+    if not can(u, "seePrice"):
+        out.price_file = out.price_url = None
+        out.rate_card = out.rate_card_url = None
     return out
 
 

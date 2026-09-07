@@ -2,6 +2,20 @@ import { Card, Head, Pill } from "../ui";
 
 const ENTRIES = [
   {
+    date: "2026-09-07",
+    title: "Ops and QC no longer see the sell price",
+    by: "Baskoro + Claude",
+    changes: [
+      "The price a shipper is charged is now hidden from Ops and QC. Cost and margin were already behind seeMargin; the sell price never was, because until now nobody outside the commercial teams had a reason to open a ticket. Onboarding gives Ops and QC one, every day, on shippers whose commercial terms are none of their business.",
+      "Four fields go, not two: the price sheet label, its link, and the rate card WITH its url. The rate card reads like a category name, but rate_card_url opens the published card, which is a price list.",
+      "Stripped on the SERVER, in shape() and in the ticket detail, next to where seeMargin already does it. Hiding the tab in the page would have left the links sitting in the JSON for anyone who opened a browser network tab — and the links are the part that matters, because they open the actual sheet.",
+      "In the page: the whole Pricing tab stops rendering rather than emptying its five rows one at a time. Two of those rows were already gated and three were not, which is exactly what the row-by-row approach costs. The charter's own pricing row goes too — it is not on the Pricing tab, so hiding that tab would not have caught it — and so does the Pricing line that “Copy for email” put on the clipboard.",
+      "Potential revenue is NOT covered, on purpose. It is the size of the deal, not what the shipper pays per parcel, and Ops keep seeing it — the Onboarding table still shows it.",
+      "The permission is answered ABOVE the read-only early return in can(), which is the part worth knowing. Ops sits in the same READ_ONLY_GROUPS tuple as Visitor and Finance, and that tuple returns False for everything. Written in the normal place, a rule about Ops and QC would have quietly taken the price away from Finance, who read the charter for exactly that figure.",
+    ],
+    overruled: [],
+  },
+  {
     date: "2026-09-02",
     title: "A ticket coming back counts as arriving; New incoming moves under Dashboard",
     by: "Michael + Claude",
