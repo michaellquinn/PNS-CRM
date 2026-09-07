@@ -21,7 +21,28 @@ that is easy to break silently in code.
 import importlib.util
 import os
 import sys
+import types
 from datetime import date, timedelta
+
+# This suite EXECUTES main.py rather than reading it, which the other suites
+# deliberately avoid - and importing it pulls in asyncmy, the OceanBase driver,
+# which needs a compiler and is not installed on a plain checkout. Without this
+# stub the whole run_all goes red on any machine that has not built the backend
+# environment, which is a broken gate rather than a failing test.
+#
+# Stubbing is safe here: the driver is only touched by lifespan(), which an import
+# never runs. Nothing else about the module is faked.
+_asyncmy = types.ModuleType("asyncmy")
+_asyncmy.create_pool = None
+
+
+class _DictCursor:
+    pass
+
+
+_asyncmy.cursors = types.SimpleNamespace(DictCursor=_DictCursor)
+sys.modules.setdefault("asyncmy", _asyncmy)
+sys.modules.setdefault("asyncmy.cursors", _asyncmy.cursors)
 
 SRC = os.path.join(os.path.dirname(__file__), "..", "backend", "main.py")
 spec = importlib.util.spec_from_file_location("m", SRC)

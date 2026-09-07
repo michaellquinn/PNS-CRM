@@ -3402,7 +3402,32 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
                         shipper_name = (o.get("account_name")
                                         or (account or {}).get("name") or "").strip()
                         if not shipper_name:
-                            raise ValueError("opportunity has no account name")
+                            # Three different problems used to share one message, and
+                            # they need three different fixes (Michael, 2026-09-07, on
+                            # opportunity 907113). A ticket cannot be raised without a
+                            # shipper name - that is the ticket's identity - so this is
+                            # correctly a failure; what was wrong is that "opportunity
+                            # has no account name" told nobody what to go and do.
+                            #
+                            # crm.account() returns None BOTH when there is no id to
+                            # look up and when the lookup came back empty, and
+                            # warm_accounts() caches a failed read as {} which reads as
+                            # None too - so the id being present is what separates "no
+                            # account linked" from "could not read the account".
+                            aid = str(o.get("account_id") or "").strip()
+                            if not aid:
+                                why = ("the opportunity has no account linked in Sales "
+                                       "CRM. Attach the account there, then queue this "
+                                       "id again")
+                            elif not account:
+                                why = (f"account {aid} could not be read from Sales CRM "
+                                       f"- it may have been deleted, or the sweep hit an "
+                                       f"error fetching it. Queue this id again to retry")
+                            else:
+                                why = (f"account {aid} exists in Sales CRM but has no "
+                                       f"name on it. Give it one there, then queue this "
+                                       f"id again")
+                            raise ValueError(why)
 
                         plan = {
                             "opportunity_id": oid,
