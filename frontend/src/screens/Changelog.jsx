@@ -3,6 +3,17 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-09-07",
+    title: "FIXED: Quinn was missing from Workload",
+    by: "Michael + Codex",
+    changes: [
+      "FIXED: Workload filtered the team to accounts whose role was literally PNS. Michael Quinnfarand is an Admin account, and Admin is intentionally a superset of PNS everywhere else in the app, so Quinn could own solutioning work while being absent from the capacity screen.",
+      "Workload now includes active PNS and Admin accounts. Michael's row is labelled Quinn there, while the login, audit identity and canonical ticket owner name remain unchanged so existing ownership and history still match.",
+      "Pinned in verify_workload by executing the real endpoint with an Admin row: it checks both the role filter and the Quinn display alias, including the join back to performance history under the canonical name.",
+    ],
+    overruled: [],
+  },
+  {
+    date: "2026-09-07",
     title: "FIXED: the FTL-in-the-name rule was reading a blank field",
     by: "Michael + Claude",
     changes: [

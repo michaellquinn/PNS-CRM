@@ -370,6 +370,14 @@ AUTO_ASSIGN = os.getenv("AUTO_ASSIGN", "1").strip() not in ("0", "false", "False
 PNS_DEFAULT_PAIR = ["m.ramdhani@ninjavan.co", "niko.yannova@ninjavan.co"]
 PNS_WIP_CAP = 10          # tickets one person may hold at Pending PNS before it stops
 
+# Workload is a people-facing capacity view, so it may use a familiar short name while
+# the account and ticket ownership keep their canonical directory name. Key this by
+# email, not name: names are editable and the join to tickets depends on the canonical
+# value remaining unchanged.
+WORKLOAD_DISPLAY_NAMES = {
+    "michael.quinnfarand@ninjavan.co": "Quinn",
+}
+
 # Who checks a Sales-built price on a non-managed deal at or above 30 Mio.
 #
 # Baskoro's call (2026-08-11) was to delegate that band standing to one named reviewer,
@@ -1286,7 +1294,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-07.91"
+BUILD = "2026-09-07.92"
 
 
 class Me(BaseModel):
@@ -4008,15 +4016,15 @@ async def workload(u: User = Depends(current_user)):
     full = can(u, "manageUsers")
 
     pns = await q(
-        "SELECT u.name, "
+        "SELECT u.email, u.name, "
         "  SUM(t.status='Pending PNS') AS pending_pns, "
         "  SUM(t.status IN ('Pending PNS','Pending Review - Head PNS','Pending Vendor')) AS open_total, "
         "  SUM(t.outcome='accepted') AS won, "
         "  SUM(t.outcome IS NOT NULL) AS decided "
         "FROM users u LEFT JOIN tickets t "
         "  ON t.owner_name=u.name AND t.deleted_at IS NULL "
-        "WHERE u.role_group='PNS' AND u.active=1 "
-        "GROUP BY u.name ORDER BY pending_pns DESC, u.name")
+        "WHERE u.role_group IN ('PNS','Admin') AND u.active=1 "
+        "GROUP BY u.email, u.name ORDER BY pending_pns DESC, u.name")
 
     # Median would be the honest average here, but MySQL has no median and the volumes
     # are small enough that a mean plus the worst case tells the same story.
@@ -4040,7 +4048,7 @@ async def workload(u: User = Depends(current_user)):
     for r in pns:
         l = lead_by.get(r["name"], {})
         row = {
-            "name": r["name"],
+            "name": WORKLOAD_DISPLAY_NAMES.get(r["email"], r["name"]),
             "pending_pns": int(r["pending_pns"] or 0),
             "open_total": int(r["open_total"] or 0),
             "at_cap": int(r["pending_pns"] or 0) >= PNS_WIP_CAP,
