@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, GENERAL_TITLE, PENDING, groupTone, rp } from "../api";
-import { Btn, Card, Head, MultiSelect, Pill, inputCls, useSticky } from "../ui";
+import {
+  Btn, Card, Head, MultiSelect, Pill, inputCls, useScrollMemory, useSticky,
+} from "../ui";
 import { ProposalActions } from "./Queues";
 
 // Pending & proposals, run by region. Pick the regions in the room, and both people
@@ -212,6 +214,9 @@ export function ReviewMeeting({ me, onOpen, notify }) {
   const [people, setPeople] = useSticky("filter:pending:sales", []);
   const [owners_, setOwners] = useSticky("filter:pending:owners", []);
   const [err, setErr] = useState(null);
+  // Walked ticket by ticket on a call, which is exactly the case where losing your place
+  // costs the most: you come back for the next row, not to start the list again.
+  useScrollMemory("meeting", props_ !== null && pend !== null);
 
   const load = () => {
     const region = regions.length ? regions : undefined;

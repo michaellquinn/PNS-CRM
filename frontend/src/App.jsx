@@ -1,4 +1,4 @@
-import { Component, useCallback, useEffect, useState } from "react";
+import { Component, useCallback, useEffect, useRef, useState } from "react";
 import { api, LIVE_STATUSES, NEW_TICKET_DAYS, isNewIncoming, isPnsWork } from "./api";
 import Dashboard from "./screens/Dashboard";
 import Matrix from "./screens/Matrix";
@@ -192,6 +192,27 @@ const NAV = [
 // What ?screen= is allowed to name. "detail" is deliberately absent: it is useless
 // without a ticket, and ?ticket= already covers that link.
 const NAV_IDS = new Set(NAV.flatMap(([, items]) => items.map((i) => i.id)));
+
+// Where the URL says we are. One reader for all three callers -- the first render, the
+// Back button, and the effect that decides whether a move is worth a history entry -- so
+// the address bar and the screen cannot disagree about what the app is showing.
+// A ticket wins over a screen: it is the more specific destination.
+function readEntry() {
+  const params = new URLSearchParams(window.location.search);
+  const ticket = params.get("ticket");
+  const wanted = params.get("screen");
+  if (ticket) return { screen: "detail", ticketRef: ticket };
+  if (NAV_IDS.has(wanted)) return { screen: wanted, ticketRef: null };
+  return { screen: "dashboard", ticketRef: null };
+}
+
+// The address for a given destination. Kept beside readEntry because the two must stay
+// each other's inverse -- a mismatch would push a history entry on every render.
+function entryUrl(screen, ticketRef) {
+  return window.location.pathname + (screen === "detail" && ticketRef
+    ? `?ticket=${encodeURIComponent(ticketRef)}`
+    : `?screen=${encodeURIComponent(screen)}`);
+}
 
 // The header search reaches everything: tickets by ref, shipper or opportunity id
 // (the server already matches all three), and every screen this person may open —
@@ -454,8 +475,14 @@ class ScreenError extends Component {
 export default function App() {
   const [me, setMe] = useState(null);
   const [err, setErr] = useState(null);
-  const [screen, setScreen] = useState("dashboard");
-  const [ticketRef, setTicketRef] = useState(null);
+  // Read from the URL on the FIRST render, not in an effect. An effect would have the
+  // app render as Dashboard, write "?screen=dashboard" over an emailed "?ticket=SOF-1234"
+  // link, and only then correct itself -- leaving a phantom entry that Back walks into.
+  const [screen, setScreen] = useState(() => readEntry().screen);
+  const [ticketRef, setTicketRef] = useState(() => readEntry().ticketRef);
+  // Whether anything has been pushed in this session, so the ticket's own Back button
+  // knows if there is somewhere to go back TO.
+  const pushed = useRef(0);
   const [notes, setNotes] = useState({ notes: [], unread: 0 });
   const [counts, setCounts] = useState({});
   const [toast, setToast] = useState(null);
@@ -471,31 +498,56 @@ export default function App() {
     setTimeout(() => setToast(null), 3200);
   }, []);
 
+  useEffect(() => { api.me().then(setMe).catch((e) => setErr(e.message)); }, []);
+
+  // Back goes back through the app, instead of leaving it.
+  //
+  // This was replaceState, deliberately: "the app has no history to walk back through,
+  // and Back should leave the app rather than replay screens". That held while a screen
+  // was just a fresh list. It stopped holding once opening a ticket from a filtered,
+  // scrolled queue became the normal way to work -- Back left the app entirely, and
+  // getting back meant rebuilding the filter and hunting for your place in the list
+  // again (Baskoro, 2026-09-07).
+  //
+  // Nothing new is encoded: the URL already carried the whole destination for sharing.
+  // The entries were simply never pushed.
+  //
+  // The guard is the comparison against the address bar, and it is what makes Back work
+  // rather than fight itself. Going back fires popstate, which sets state the URL ALREADY
+  // matches -- so this effect re-runs, finds nothing to write, and pushes nothing.
+  // Normalising the entry URL (a bare "/" becomes "?screen=dashboard") is not a move the
+  // reader made, so it replaces rather than pushes. It happens ONCE, on mount, and is
+  // counted — folding it into the effect below instead meant that when the entry URL
+  // already matched, nothing was written, the "first write" was still owed, and the
+  // reader's first real navigation spent it. Opening a ticket then REPLACED the queue
+  // entry and Back walked straight past it, out of the app: the exact bug being fixed.
   useEffect(() => {
-    api.me().then(setMe).catch((e) => setErr(e.message));
-    // Emails link to /?ticket=SOF-1234, people link to each other with /?screen=awaiting.
-    // The app has no router, so read the entry point once, before the sync effect below
-    // starts writing to the URL. A ticket wins: it is the more specific destination.
-    const params = new URLSearchParams(window.location.search);
-    const wanted = params.get("ticket");
-    const wantedScreen = params.get("screen");
-    if (wanted) {
-      setTicketRef(wanted);
-      setScreen("detail");
-    } else if (NAV_IDS.has(wantedScreen)) {
-      setScreen(wantedScreen);
-    }
+    window.history.replaceState({ nx: true }, "", entryUrl(screen, ticketRef));
+    pushed.current = 1;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Keep the URL on the current screen so any view can be sent to a colleague.
-  // replaceState, not pushState: the app has no history to walk back through, and Back
-  // should leave the app rather than replay screens.
   useEffect(() => {
-    const q = screen === "detail" && ticketRef
-      ? `?ticket=${encodeURIComponent(ticketRef)}`
-      : `?screen=${encodeURIComponent(screen)}`;
-    window.history.replaceState({}, "", window.location.pathname + q);
+    if (!pushed.current) return;          // the mount effect above has not run yet
+    const url = entryUrl(screen, ticketRef);
+    if (url === window.location.pathname + window.location.search) return;
+    window.history.pushState({ nx: true }, "", url);
+    pushed.current += 1;
   }, [screen, ticketRef]);
+
+  useEffect(() => {
+    const onPop = () => {
+      const e = readEntry();
+      setTicketRef(e.ticketRef);
+      setScreen(e.screen);
+      // The thread to land on came from the notification that opened the ticket, not
+      // from the URL. Walking back into that ticket should not re-open that thread.
+      setFocusThread(null);
+      setNavOpen(false);
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
 
   const refreshNotes = () => api.notifications().then(setNotes).catch(() => {});
 
@@ -548,6 +600,14 @@ export default function App() {
     setNavOpen(false);
   };
   const go = (id) => { setScreen(id); setNavOpen(false); };
+  // The ticket's Back button. It used to always land on Dashboard, which was the only
+  // honest thing it could do when no history was kept. Now it retraces the actual step,
+  // and falls back to Dashboard only when the ticket WAS the entry point -- somebody
+  // following a link from an email has no queue to go back to.
+  const goBack = () => {
+    if (pushed.current > 1) window.history.back();
+    else go("dashboard");
+  };
 
   if (err)
     return (
@@ -599,7 +659,7 @@ export default function App() {
     checks: <DataChecks me={me} onOpen={open} notify={notify} />,
     cancelled: <Cancelled me={me} notify={notify} onOpen={open} />,
     detail: <TicketDetail ticketRef={ticketRef} me={me} notify={notify}
-              focusThread={focusThread} onBack={() => go("dashboard")} />,
+              focusThread={focusThread} onBack={goBack} />,
     "capa-all": <Capa view="all" me={me} notify={notify} onRaise={() => go("capa-raise")} />,
     "capa-new": <Capa view="new" me={me} notify={notify} onRaise={() => go("capa-raise")} />,
     "capa-submitted": <Capa view="submitted" me={me} notify={notify} onRaise={() => go("capa-raise")} />,
@@ -607,7 +667,7 @@ export default function App() {
     "capa-raise": <NewCapa notify={notify} onCreated={() => go("capa-all")} />,
     guide: <Guide onGo={go} />,
     handover: <ToHandOver me={me} notify={notify} onOpen={open} />,
-    onboarding: <Onboarding onOpen={open} />,
+    onboarding: <Onboarding me={me} notify={notify} onOpen={open} />,
     matrix: <Matrix />,
     changelog: <Changelog />,
     users: <Users me={me} notify={notify} />,

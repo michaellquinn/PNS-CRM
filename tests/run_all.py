@@ -45,6 +45,10 @@ Each suite exists because something was actually wrong:
                      pins that every stage test compares NORMALISED - three of the four
                      compared raw, so a trailing space changed what a stage did.
 
+  verify_onboarding  the gray-week boundaries, one-shipper-per-ticket, and the two
+                     narrow grants -- that Ops gained markReady and ackRequirement and
+                     NOT createTicket, and that hiding the price from Ops and QC did not
+                     take it from Finance, who share the read-only tuple with Ops.
   verify_threads     "General Discussion" is thread_key IS NULL, which no branch
                      asserts - it is the fall-through when neither a title nor a key
                      is sent. A future edit could take it away without touching a line
@@ -67,7 +71,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SUITES = ["verify_rules.py", "verify_assign.py", "verify_charter.py",
           "verify_psp_gate.py", "verify_permissions.py", "verify_review_level.py",
           "verify_transitions.py", "verify_sync_guards.py", "verify_names.py",
-          "verify_service_line.py", "verify_stages.py", "verify_threads.py"]
+          "verify_service_line.py", "verify_stages.py", "verify_threads.py",
+          "verify_onboarding.py"]
 
 failed = []
 for name in SUITES:

@@ -227,7 +227,17 @@ export function Confirm({ open, title, body, confirmLabel = "Confirm", onConfirm
 
 // The attached price. A link opens the spreadsheet; without one it degrades to the label,
 // because plenty of older tickets only ever had a filename typed into them.
-export function PriceChip({ file, url, empty = "not yet priced" }) {
+export function PriceChip({ file, url, empty = "not yet priced", priced = false }) {
+  // Priced, but this reader may not see what the price IS (Ops and QC). Saying "not yet
+  // priced" to them would be a different statement from "you cannot see this", and the
+  // wrong one — the queues are open to everybody and have to stay truthful.
+  if (!file && !url && priced) {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-md bg-slate-100 px-2 py-1 text-[12.5px] text-slate-600">
+        priced <span className="text-[11px] text-slate-400">(not shown to your team)</span>
+      </span>
+    );
+  }
   if (!file && !url) return <span className="text-slate-400">{empty}</span>;
   const label = file || url;
   if (!url) {
@@ -457,4 +467,64 @@ export function useSticky(key, initial) {
     try { sessionStorage.setItem("nx:" + key, JSON.stringify(v)); } catch { /* ignore */ }
   }, [key, v]);
   return [v, setV];
+}
+
+
+// Where you were on the page, kept across leaving a screen and coming back.
+//
+// useSticky above keeps the FILTER; this keeps the place in the list it produced. Both
+// are needed for the same complaint: a queue that comes back correctly filtered and
+// scrolled to the top has still lost where you were, and on a long list that is most of
+// the work of finding your row again (Baskoro, 2026-09-07).
+//
+// `ready` is the whole trick. Restoring on mount scrolls a page that has no rows yet —
+// the browser clamps to 0, the data then arrives, and the reader is at the top having
+// been told their place was kept. So the caller passes what it means by "the rows are
+// on screen" (rows !== null, usually) and the restore waits for it.
+export function useScrollMemory(key, ready = true) {
+  const k = key ? "nx:scroll:" + key : null;
+  const restored = useRef(false);
+
+  useEffect(() => {
+    if (!k) return;
+    // `last` is read SYNCHRONOUSLY on every scroll event; the write to sessionStorage is
+    // coalesced to one per frame, because scroll fires far faster than storage wants to
+    // be written and this runs on every list in the app.
+    let last = Math.round(window.scrollY);
+    let queued = false;
+    let raf = 0;
+    let dead = false;
+    const write = () => {
+      try { sessionStorage.setItem(k, String(last)); } catch { /* ignore */ }
+    };
+    const save = () => {
+      if (dead) return;
+      last = Math.round(window.scrollY);
+      if (queued) return;
+      queued = true;
+      raf = requestAnimationFrame(() => { queued = false; if (!dead) write(); });
+    };
+    window.addEventListener("scroll", save, { passive: true });
+    return () => {
+      // `dead` and the cancel are load-bearing, and this cost an hour to find. Leaving
+      // the frame queued let it fire AFTER the screen unmounted -- by which point the
+      // replacement screen was shorter, the browser had clamped the page to the top, and
+      // the callback cheerfully saved 0 over the position it was supposed to remember.
+      // Every restore then landed at the top and the feature looked like it did nothing.
+      dead = true;
+      cancelAnimationFrame(raf);
+      write();
+      window.removeEventListener("scroll", save);
+    };
+  }, [k]);
+
+  useEffect(() => {
+    if (!k || !ready || restored.current) return;
+    restored.current = true;
+    let y = 0;
+    try { y = parseInt(sessionStorage.getItem(k) || "0", 10) || 0; } catch { /* ignore */ }
+    // Two frames: one for this render to paint the rows, one for the layout they cause.
+    // A single frame lands short on a long table and the page sits above where it was.
+    if (y > 0) requestAnimationFrame(() => requestAnimationFrame(() => window.scrollTo(0, y)));
+  }, [k, ready]);
 }

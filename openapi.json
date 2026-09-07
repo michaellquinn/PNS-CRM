@@ -1242,6 +1242,34 @@
         "title": "Gate",
         "type": "object"
       },
+      "GoliveIn": {
+        "properties": {
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "on": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "On"
+          }
+        },
+        "title": "GoliveIn",
+        "type": "object"
+      },
       "GuideField": {
         "properties": {
           "blocks": {
@@ -1357,6 +1385,35 @@
           "at"
         ],
         "title": "HistoryEntry",
+        "type": "object"
+      },
+      "IdsIn": {
+        "properties": {
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "values": {
+            "title": "Values",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "values"
+        ],
+        "title": "IdsIn",
         "type": "object"
       },
       "IgnoreIn": {
@@ -1500,7 +1557,7 @@
       "Me": {
         "properties": {
           "build": {
-            "default": "2026-09-04.85",
+            "default": "2026-09-07.88",
             "title": "Build",
             "type": "string"
           },
@@ -1971,6 +2028,289 @@
           "ok"
         ],
         "title": "Ok",
+        "type": "object"
+      },
+      "OnboardingIdRow": {
+        "properties": {
+          "added_at": {
+            "title": "Added At",
+            "type": "string"
+          },
+          "added_by_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Added By Name"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "value",
+          "added_at"
+        ],
+        "title": "OnboardingIdRow",
+        "type": "object"
+      },
+      "OnboardingList": {
+        "properties": {
+          "areas": {
+            "default": [],
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Areas",
+            "type": "array"
+          },
+          "kinds": {
+            "additionalProperties": true,
+            "default": {},
+            "title": "Kinds",
+            "type": "object"
+          },
+          "onboardings": {
+            "items": {
+              "$ref": "#/components/schemas/OnboardingRow"
+            },
+            "title": "Onboardings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "onboardings"
+        ],
+        "title": "OnboardingList",
+        "type": "object"
+      },
+      "OnboardingPatch": {
+        "properties": {
+          "outcome": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outcome"
+          },
+          "outcome_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outcome Note"
+          },
+          "target_golive": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Golive"
+          }
+        },
+        "title": "OnboardingPatch",
+        "type": "object"
+      },
+      "OnboardingRow": {
+        "properties": {
+          "actual_golive": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actual Golive"
+          },
+          "days_to_golive": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Days To Golive"
+          },
+          "golive_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Golive Source"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "ids": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/OnboardingIdRow"
+            },
+            "title": "Ids",
+            "type": "array"
+          },
+          "ops_ready_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ops Ready By"
+          },
+          "outcome_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outcome Note"
+          },
+          "owner": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner"
+          },
+          "phase": {
+            "title": "Phase",
+            "type": "string"
+          },
+          "phase_label": {
+            "title": "Phase Label",
+            "type": "string"
+          },
+          "qc_ready_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Qc Ready By"
+          },
+          "ref": {
+            "title": "Ref",
+            "type": "string"
+          },
+          "requirements": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/RequirementRow"
+            },
+            "title": "Requirements",
+            "type": "array"
+          },
+          "revenue": {
+            "default": 0,
+            "title": "Revenue",
+            "type": "integer"
+          },
+          "sales": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sales"
+          },
+          "service": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Service"
+          },
+          "shipper": {
+            "title": "Shipper",
+            "type": "string"
+          },
+          "shipper_id": {
+            "title": "Shipper Id",
+            "type": "string"
+          },
+          "target_golive": {
+            "title": "Target Golive",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "ref",
+          "shipper",
+          "shipper_id",
+          "target_golive",
+          "phase",
+          "phase_label"
+        ],
+        "title": "OnboardingRow",
         "type": "object"
       },
       "Options": {
@@ -2487,6 +2827,95 @@
         "title": "ReopenIn",
         "type": "object"
       },
+      "RequirementIn": {
+        "properties": {
+          "area": {
+            "title": "Area",
+            "type": "string"
+          },
+          "body": {
+            "title": "Body",
+            "type": "string"
+          }
+        },
+        "required": [
+          "area",
+          "body"
+        ],
+        "title": "RequirementIn",
+        "type": "object"
+      },
+      "RequirementRow": {
+        "properties": {
+          "acked_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Acked At"
+          },
+          "acked_by_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Acked By Name"
+          },
+          "area": {
+            "title": "Area",
+            "type": "string"
+          },
+          "area_label": {
+            "title": "Area Label",
+            "type": "string"
+          },
+          "body": {
+            "title": "Body",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "owner": {
+            "title": "Owner",
+            "type": "string"
+          },
+          "raised_at": {
+            "title": "Raised At",
+            "type": "string"
+          },
+          "raised_by_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Raised By Name"
+          }
+        },
+        "required": [
+          "id",
+          "area",
+          "area_label",
+          "owner",
+          "body",
+          "raised_at"
+        ],
+        "title": "RequirementRow",
+        "type": "object"
+      },
       "SalesIn": {
         "properties": {
           "name": {
@@ -2655,6 +3084,29 @@
           "why"
         ],
         "title": "StageRule",
+        "type": "object"
+      },
+      "StartOnboarding": {
+        "properties": {
+          "force": {
+            "default": false,
+            "title": "Force",
+            "type": "boolean"
+          },
+          "shipper_id": {
+            "title": "Shipper Id",
+            "type": "string"
+          },
+          "target_golive": {
+            "title": "Target Golive",
+            "type": "string"
+          }
+        },
+        "required": [
+          "shipper_id",
+          "target_golive"
+        ],
+        "title": "StartOnboarding",
         "type": "object"
       },
       "Stats": {
@@ -3071,6 +3523,11 @@
               }
             ],
             "title": "Price Url"
+          },
+          "priced": {
+            "default": false,
+            "title": "Priced",
+            "type": "boolean"
           },
           "priced_by": {
             "title": "Priced By",
@@ -3748,7 +4205,7 @@
   "info": {
     "description": "Ninja PNS - solutioning and pricing workflow for Ninja Xpress Indonesia. Every route below requires a signed-in session: identity arrives from the platform's auth proxy as an X-Forwarded-Email header the browser cannot set, and the app resolves a role from it. GET /health is the only unauthenticated route. Generated from the app's own route table by tools/gen_openapi.py - do not hand-edit.",
     "title": "Ninja PNS, Solutioning",
-    "version": "2026-09-04.85"
+    "version": "2026-09-07.88"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -4647,6 +5104,351 @@
         "summary": "Mark Read"
       }
     },
+    "/api/onboarding": {
+      "get": {
+        "description": "Every onboarding, soonest go-live first.\n\nOpen to everyone who can sign in. Ops and QC live here, and the whole point of the\nscreen is that they can see what is coming without asking anybody.",
+        "operationId": "list_onboarding_api_onboarding_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "active",
+            "required": false,
+            "schema": {
+              "default": true,
+              "title": "Active",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OnboardingList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Every onboarding, soonest go-live first."
+      }
+    },
+    "/api/onboarding/export.csv": {
+      "get": {
+        "description": "Every active onboarding's ids, as a CSV QC can paste into their monitoring.\n\nONE ROW PER ID, with the shipper repeated on each. A cell holding eight comma-joined\nids looks tidier and puts the reader straight back into manual work, which is the\nthing this button exists to remove.",
+        "operationId": "export_onboarding_api_onboarding_export_csv_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Every active onboarding's ids, as a CSV QC can paste into their monitoring."
+      }
+    },
+    "/api/onboarding/{oid}": {
+      "patch": {
+        "description": "Slip the target date, or record that the shipper never started.",
+        "operationId": "patch_onboarding_api_onboarding__oid__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "oid",
+            "required": true,
+            "schema": {
+              "title": "Oid",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OnboardingPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ok"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Slip the target date, or record that the shipper never started."
+      }
+    },
+    "/api/onboarding/{oid}/ack": {
+      "post": {
+        "description": "QC acknowledge a go-live whose target passed with nobody confirming it. Door two.\n\nWhile no QC user is registered, PNS may acknowledge in QC's place -- otherwise an\noverdue onboarding sits forever waiting on a team that cannot sign in yet.",
+        "operationId": "ack_golive_api_onboarding__oid__ack_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "oid",
+            "required": true,
+            "schema": {
+              "title": "Oid",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GoliveIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ok"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "QC acknowledge a go-live whose target passed with nobody confirming it. Door two."
+      }
+    },
+    "/api/onboarding/{oid}/golive": {
+      "post": {
+        "description": "Sales confirm the shipper actually started shipping. Door one of two.",
+        "operationId": "confirm_golive_api_onboarding__oid__golive_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "oid",
+            "required": true,
+            "schema": {
+              "title": "Oid",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GoliveIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ok"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Sales confirm the shipper actually started shipping. Door one of two."
+      }
+    },
+    "/api/onboarding/{oid}/ids": {
+      "post": {
+        "operationId": "add_onboarding_ids_api_onboarding__oid__ids_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "oid",
+            "required": true,
+            "schema": {
+              "title": "Oid",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IdsIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ok"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Add Onboarding Ids"
+      }
+    },
+    "/api/onboarding/{oid}/ids/{rid}": {
+      "delete": {
+        "operationId": "remove_onboarding_id_api_onboarding__oid__ids__rid__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "oid",
+            "required": true,
+            "schema": {
+              "title": "Oid",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "rid",
+            "required": true,
+            "schema": {
+              "title": "Rid",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ok"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Remove Onboarding Id"
+      }
+    },
+    "/api/onboarding/{oid}/ready": {
+      "post": {
+        "description": "Ops or QC say they are ready for this shipper.\n\nWhich column is written is decided by the caller's own group, never by the request --\na team cannot tick the other team's box.",
+        "operationId": "mark_ready_api_onboarding__oid__ready_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "oid",
+            "required": true,
+            "schema": {
+              "title": "Oid",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ok"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Ops or QC say they are ready for this shipper."
+      }
+    },
     "/api/options": {
       "get": {
         "description": "Values the intake form suggests. `remembered` is built from what people have\nactually typed on past tickets, so a one-off commodity becomes a suggestion for\neveryone next time instead of being lost.",
@@ -4702,6 +5504,86 @@
           }
         },
         "summary": "What moves a ticket from each status to the next, and who does it."
+      }
+    },
+    "/api/requirements/{rid}": {
+      "delete": {
+        "description": "Withdraw a requirement. PNS raised it, so PNS take it back.",
+        "operationId": "delete_requirement_api_requirements__rid__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "rid",
+            "required": true,
+            "schema": {
+              "title": "Rid",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ok"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Withdraw a requirement. PNS raised it, so PNS take it back."
+      }
+    },
+    "/api/requirements/{rid}/ack": {
+      "post": {
+        "description": "The owning team acknowledge one specific requirement.\n\nOps cannot acknowledge a QC area and QC cannot acknowledge an Ops one: the area names\nwho was asked, and an acknowledgement from anybody else records that the wrong team\nread it.",
+        "operationId": "ack_requirement_api_requirements__rid__ack_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "rid",
+            "required": true,
+            "schema": {
+              "title": "Rid",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ok"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "The owning team acknowledge one specific requirement."
       }
     },
     "/api/salescrm/ignored": {
@@ -6115,6 +6997,56 @@
         "summary": "Tag or untag this deal as Must Win."
       }
     },
+    "/api/tickets/{ref}/onboarding": {
+      "post": {
+        "description": "Hand an accepted deal to Ops and QC.\n\nThis is the trigger. It creates the record, sends the Kick-off, and tells PNS, QC and\nOps that a shipper is coming -- one act, so there is no gap where the record exists\nand nobody has been told.",
+        "operationId": "start_onboarding_api_tickets__ref__onboarding_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartOnboarding"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ok"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Hand an accepted deal to Ops and QC."
+      }
+    },
     "/api/tickets/{ref}/pns-final": {
       "post": {
         "description": "The Head of PNS signs off the solution and its pricing, and it moves on.\n\nDeliberately not a plain status change: what comes next is not one destination. The\napproval chain that applies was decided when the price was attached, so this asks\nnext_after_head_pns() rather than letting the caller name a status and risk skipping\nPSP or C-level. Approving used to jump straight to \"Proposal Submitted\", which on a\nHypercare deal would have bypassed the executive sign-off entirely.",
@@ -6481,6 +7413,98 @@
           }
         },
         "summary": "Put a lost or cancelled deal back into the pipeline. Any Commercial user."
+      }
+    },
+    "/api/tickets/{ref}/requirements": {
+      "get": {
+        "description": "What PNS have asked of Ops and QC on this ticket.\n\nDrives the Operations tab: an area with nothing raised against it does not appear.",
+        "operationId": "ticket_requirements_api_tickets__ref__requirements_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/RequirementRow"
+                  },
+                  "title": "Response Ticket Requirements Api Tickets  Ref  Requirements Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "What PNS have asked of Ops and QC on this ticket."
+      },
+      "post": {
+        "description": "PNS record something far from standard, for one operational area.\n\nPNS exclusively (Baskoro, 2026-09-07): they designed the solution, so they are the\nones who know what is not standard about it. The area decides who is being asked.",
+        "operationId": "raise_requirement_api_tickets__ref__requirements_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RequirementIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ok"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "PNS record something far from standard, for one operational area."
       }
     },
     "/api/tickets/{ref}/restore": {
