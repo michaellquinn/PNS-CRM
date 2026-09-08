@@ -2,6 +2,18 @@ import { Card, Head, Pill } from "../ui";
 
 const ENTRIES = [
   {
+    date: "2026-09-08",
+    title: "FIXED: the import queue loaded your ids and then never read them",
+    by: "Michael + Claude",
+    changes: [
+      "FIXED: queued opportunities sat “pending” for days and were never fetched — 907113, then 907174, 904840 and 907124. The queue looked like it was working: rows appeared, they said pending, nothing was visibly broken, and nothing was ever going to happen to them.",
+      "This is the SECOND fix for it, and the first one is the interesting part. Yesterday’s change stopped the sweep only loading the queue in queue-only mode — correct, and not enough, because the FETCH was still a branch of the day-window chain (elif queue_only). So the ids were loaded and then never read. The fix looked right, the tests were green, and the behaviour did not change at all.",
+      "The fetch is now its own step that runs on every sweep, not a branch competing with the day window. queue_only goes back to meaning only what it says: whether the sweep may ALSO discover deals of its own.",
+      "New verify_import_queue suite pins both halves separately, because passing one and failing the other is exactly what happened: the queue must be LOADED without regard to queue_only, and the loaded ids must be FETCHED without regard to it either. Confirmed against both original bugs — reintroducing the first fails 2 checks, the second fails 3.",
+    ],
+    overruled: [],
+  },
+  {
     date: "2026-09-07",
     title: "Open is an assignment inbox; the brief is Sales' to write; the import queue actually runs",
     by: "Michael + Claude",

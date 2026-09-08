@@ -73,6 +73,13 @@ Each suite exists because something was actually wrong:
                      put the sweep past the ingress timeout, which is what
                      SYNC_BUDGET_S exists to prevent.
 
+  verify_import_queue Four opportunities sat "pending" for days without ever being
+                     fetched. Two faults in a row: passing queued ids WAS switching
+                     discovery off, so the sweep only loaded the queue in queue-only
+                     mode; and fixing that was not enough, because the fetch itself was
+                     still a branch of the window chain. The first fix looked right and
+                     changed nothing, which is the failure this pins.
+
   verify_transitions POST /status took whatever string it was handed, so a status the
                      running code cannot act on could be written straight onto a ticket.
                      Also pins that a "*" row does not let a Lost deal be walked
@@ -88,7 +95,7 @@ SUITES = ["verify_rules.py", "verify_assign.py", "verify_workload.py", "verify_a
           "verify_psp_gate.py", "verify_permissions.py", "verify_review_level.py",
           "verify_transitions.py", "verify_sync_guards.py", "verify_names.py",
           "verify_service_line.py", "verify_stages.py", "verify_threads.py",
-          "verify_onboarding.py", "verify_crm_retry.py"]
+          "verify_onboarding.py", "verify_crm_retry.py", "verify_import_queue.py"]
 
 # Suites that EXECUTE backend/main.py rather than reading it need the backend's own
 # dependencies installed. Most suites here deliberately parse the AST instead, precisely

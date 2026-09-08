@@ -1330,7 +1330,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-08.96"
+BUILD = "2026-09-08.97"
 
 
 class Me(BaseModel):
@@ -3204,45 +3204,27 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
             caught_up = False
             batches: list[tuple[str, list[dict]]] = []
 
-            # 0. Named opportunity ids. `id` is the one other filter this API accepts,
-            #    so a list of ids is the cheapest and most precise call there is: one
-            #    round trip each, no date window, nothing else swept in. This is how you
-            #    rebuild a dashboard deliberately — start empty and pull in exactly the
-            #    opportunities you want, rather than importing a range and deleting the
-            #    rest afterwards.
-            if body.ids:
-                wanted_ids = [str(i).strip() for i in body.ids if str(i).strip()][:200]
-                sem_ids = asyncio.Semaphore(SYNC_CONCURRENCY)
-
-                async def by_id(oid: str):
-                    async with sem_ids:
-                        try:
-                            d = await crm.records("Opportunity", id=oid)
-                            items = d.get("items") or []
-                            return oid, (items[0] if items else None)
-                        except Exception as e:
-                            return oid, e
-
-                for oid, got in await asyncio.gather(*(by_id(i) for i in wanted_ids)):
-                    if isinstance(got, Exception):
-                        errors.append({"id": oid, "name": None,
-                                       "error": f"could not be read: {str(got)[:120]}"})
-                    elif got is None:
-                        # Said out loud: a typo in an id would otherwise look exactly
-                        # like an opportunity that exists but was filtered out.
-                        skipped.append({"id": oid, "name": None,
-                                        "why": "no opportunity with this id in Sales CRM"})
-                    else:
-                        batches.append((f"id {oid}", [got]))
-                wanted = []          # an id run asks for nothing else
-
-            # 0b. Queue mode fetches the queued ids DIRECTLY, in addition to whatever
-            #     window the run asks for. Without this a queued deal raised outside the
-            #     last two days would sit pending forever: the gate below would never
-            #     refuse it, because the sweep would simply never have fetched the record
-            #     to refuse. Already-held ids are left out — they are tickets, the
+            # 0a. The queued ids, fetched DIRECTLY by id, on EVERY run.
+            #
+            #     This was a branch of the chain below, guarded by queue_only — so
+            #     the Import queue only fetched anything when 'Only import what is
+            #     queued' was switched on. That setting is off by default, so
+            #     queueing a deal fetched nothing at all: the id fell outside the
+            #     day window and sat pending for ever. 907113 did that for three
+            #     days, then 907174, 904840 and 907124 did the same (Michael,
+            #     2026-09-08).
+            #
+            #     Fetching by id IS the queue — it is how a deal raised outside the
+            #     window gets in at all. Whether the sweep ALSO discovers deals of
+            #     its own is a separate question, and the only one queue_only
+            #     answers now.
+            #
+            #     Skipped when body.ids is set: that run already names exactly what
+            #     it wants and resolves those ids itself.
+            #
+            #     Already-held ids are left out of the fetch: they are tickets, the
             #     refresh half covers them, and the queue is about what arrives.
-            elif queue_only:
+            if queued and not body.ids:
                 # `queue_only`, not `queued` — an EMPTY queue is a real instruction to
                 # import nothing, and testing the set's truthiness would have quietly
                 # fallen through to the day window and swept as normal.
@@ -3276,11 +3258,45 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
                     if row and not body.dry_run:
                         await resolve_queue(oid, "imported", "already on the board",
                                             row["ticket_ref"])
-                # The queue IS the discovery mechanism now, so the day window is not
-                # asked for: every record it returned would meet the gate below and be
-                # refused, which is a round trip per day spent to reach a foregone
-                # conclusion. The held-ticket refresh still runs — that half is
-                # untouched by queue mode, and is the half that must never stop.
+
+            # 0. Named opportunity ids. `id` is the one other filter this API accepts,
+            #    so a list of ids is the cheapest and most precise call there is: one
+            #    round trip each, no date window, nothing else swept in. This is how you
+            #    rebuild a dashboard deliberately — start empty and pull in exactly the
+            #    opportunities you want, rather than importing a range and deleting the
+            #    rest afterwards.
+            if body.ids:
+                wanted_ids = [str(i).strip() for i in body.ids if str(i).strip()][:200]
+                sem_ids = asyncio.Semaphore(SYNC_CONCURRENCY)
+
+                async def by_id(oid: str):
+                    async with sem_ids:
+                        try:
+                            d = await crm.records("Opportunity", id=oid)
+                            items = d.get("items") or []
+                            return oid, (items[0] if items else None)
+                        except Exception as e:
+                            return oid, e
+
+                for oid, got in await asyncio.gather(*(by_id(i) for i in wanted_ids)):
+                    if isinstance(got, Exception):
+                        errors.append({"id": oid, "name": None,
+                                       "error": f"could not be read: {str(got)[:120]}"})
+                    elif got is None:
+                        # Said out loud: a typo in an id would otherwise look exactly
+                        # like an opportunity that exists but was filtered out.
+                        skipped.append({"id": oid, "name": None,
+                                        "why": "no opportunity with this id in Sales CRM"})
+                    else:
+                        batches.append((f"id {oid}", [got]))
+                wanted = []          # an id run asks for nothing else
+
+            # 0b. Queue-only: the queue IS the discovery mechanism, so no day window
+            #     is asked for. Every record a day sweep returned would meet the gate
+            #     below and be refused — a round trip per day to reach a foregone
+            #     conclusion. The held-ticket refresh still runs; that half is
+            #     untouched by queue mode and is the half that must never stop.
+            elif queue_only:
                 wanted = []
 
             # 1. Recent days. new_date is a plain date, it is populated on every
