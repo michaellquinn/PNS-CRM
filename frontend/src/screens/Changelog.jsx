@@ -2,6 +2,20 @@ import { Card, Head, Pill } from "../ui";
 
 const ENTRIES = [
   {
+    date: "2026-09-08",
+    title: "Accounts now means the real shipper, not the CRM account record",
+    by: "Michael + Codex",
+    changes: [
+      "The Accounts screen now groups Sales CRM account variants by their shared base shipper name. PT. LF Services Indonesia (Maersk OCF) opportunities and PT Hermed opportunities therefore sit on one card even when Sales CRM gave them different Account ids or parent shippers.",
+      "The match is deliberate rather than fuzzy: it ignores PT/PT., punctuation, case, extra spaces, Service/Services and the deal/service suffix after a spaced dash. Merely similar company names are not merged, which avoids silently combining unrelated customers.",
+      "A grouped card shows every original Sales CRM account, parent and tier. The grouping is display-only: no Account id, parent, ticket tier, responsibility, workflow or routing is rewritten.",
+      "The card takes the strongest tag found among its source accounts and opportunities: Hypercare first, then Strategic, then Must Win. That roll-up tag applies to the grouped display; each ticket keeps its original business rules.",
+    ],
+    overruled: [
+      "The Accounts view previously treated each local shipper row as a separate account. That mirrored Sales CRM's record structure but split one real customer across several cards whenever opportunities were created under different Account ids or parent shippers.",
+    ],
+  },
+  {
     date: "2026-09-07",
     title: "PSP is one shared approval; only PNS can raise it",
     by: "Michael + Codex",

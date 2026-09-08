@@ -30,6 +30,10 @@ Each suite exists because something was actually wrong:
   verify_workload    Admin is a PNS superset everywhere except the workload query,
                      which made Quinn assignable but invisible in the capacity view
 
+  verify_accounts    Sales CRM account ids and parents do not define the commercial
+                     shipper card; base-name variants roll up for display only, with the
+                     strongest watched-group tag and no mutation of ticket routing
+
   verify_sync_guards V24 created the salescrm_ignored table AND wired its permission,
                      and then nothing ever read the table. Also pins the revenue-0
                      import landing in Open, and that the import and the refresh walk
@@ -79,7 +83,8 @@ import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SUITES = ["verify_rules.py", "verify_assign.py", "verify_workload.py", "verify_charter.py",
+SUITES = ["verify_rules.py", "verify_assign.py", "verify_workload.py", "verify_accounts.py",
+          "verify_charter.py",
           "verify_psp_gate.py", "verify_permissions.py", "verify_review_level.py",
           "verify_transitions.py", "verify_sync_guards.py", "verify_names.py",
           "verify_service_line.py", "verify_stages.py", "verify_threads.py",

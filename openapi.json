@@ -23,7 +23,7 @@
         "type": "object"
       },
       "AccountRow": {
-        "description": "One Sales CRM account and every ticket under it.",
+        "description": "One commercial shipper name and every ticket filed under its CRM variants.",
         "properties": {
           "account_id": {
             "anyOf": [
@@ -159,6 +159,14 @@
             "title": "Siblings In Group",
             "type": "integer"
           },
+          "source_accounts": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/AccountSource"
+            },
+            "title": "Source Accounts",
+            "type": "array"
+          },
           "tickets": {
             "items": {
               "$ref": "#/components/schemas/Ticket"
@@ -195,6 +203,89 @@
           "tickets"
         ],
         "title": "AccountRow",
+        "type": "object"
+      },
+      "AccountSource": {
+        "description": "One untouched local/CRM account contributing to a display-only name group.",
+        "properties": {
+          "account_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Id"
+          },
+          "account_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Url"
+          },
+          "acct_type": {
+            "title": "Acct Type",
+            "type": "string"
+          },
+          "parent_account_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Account Id"
+          },
+          "parent_account_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Account Name"
+          },
+          "parent_account_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Account Url"
+          },
+          "shipper": {
+            "title": "Shipper",
+            "type": "string"
+          },
+          "shipper_id": {
+            "title": "Shipper Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "shipper_id",
+          "shipper",
+          "account_id",
+          "account_url",
+          "parent_account_id",
+          "parent_account_url",
+          "acct_type"
+        ],
+        "title": "AccountSource",
         "type": "object"
       },
       "AllowPspIn": {
@@ -1557,7 +1648,7 @@
       "Me": {
         "properties": {
           "build": {
-            "default": "2026-09-07.93",
+            "default": "2026-09-08.95",
             "title": "Build",
             "type": "string"
           },
@@ -4213,13 +4304,13 @@
   "info": {
     "description": "Ninja PNS - solutioning and pricing workflow for Ninja Xpress Indonesia. Every route below requires a signed-in session: identity arrives from the platform's auth proxy as an X-Forwarded-Email header the browser cannot set, and the app resolves a role from it. GET /health is the only unauthenticated route. Generated from the app's own route table by tools/gen_openapi.py - do not hand-edit.",
     "title": "Ninja PNS, Solutioning",
-    "version": "2026-09-07.94"
+    "version": "2026-09-08.95"
   },
   "openapi": "3.1.0",
   "paths": {
     "/api/accounts": {
       "get": {
-        "description": "Every ticket, grouped by the account it belongs to.\n\nA ticket is raised per opportunity and always will be — that is the level Sales CRM\nworks at and the level a solution is actually built at. But nobody manages a shipper\none opportunity at a time: the tier is an account fact, the relationship is an account\nfact, and a list of per-deal tickets makes one account with four live deals look like\nfour unrelated shippers (and, at a glance, like duplicates). So the same tickets are\nalso served grouped, and this is that view. Nothing is stored twice; the grouping is\ndone here.\n\nAn account is a `shippers` row — which carries the Sales CRM account_id when the deal\ncame from the sync. Where one account has arrived under two names, both rows appear;\n/api/diagnostics/duplicates is what finds them.",
+        "description": "Every ticket, grouped by the account it belongs to.\n\nA ticket is raised per opportunity and always will be — that is the level Sales CRM\nworks at and the level a solution is actually built at. Sales CRM may file multiple\nAccount records for the same commercial shipper under different parents, with the\nopportunity/service appended to the name. This display groups those local `shippers`\nrows by their normalised base name. Nothing is rewritten or stored twice: every ticket\nkeeps its original Account id, parent, tier and routing.\n\nThe roll-up tag is the strongest tier found anywhere in the name-group: Hypercare,\nthen Strategic, then Must Win. That tag describes the card only; it does not promote\nan ordinary ticket or change who prices it.",
         "operationId": "accounts_api_accounts_get",
         "parameters": [
           {

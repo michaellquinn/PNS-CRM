@@ -120,6 +120,47 @@ def big_group(t: dict) -> str | None:
         return acct
     return "Must Win" if t.get("must_win") else None
 
+
+def shipper_base_name(raw: str) -> str:
+    """The commercial shipper name before Sales CRM's deal/service suffix.
+
+    Sales CRM has several Account records for one real shipper. Their names normally
+    start with the same customer and then add the opportunity, product, region and
+    service after a spaced dash, for example::
+
+        PT. LF Services Indonesia (Maersk OCF) - Puma - Sameday - REG - (B2BR)
+
+    Accounts is a reporting view, so it may collapse those records without changing the
+    Account id, parent, tier or routing stored on any ticket. A dash inside a legal name
+    is left alone: only a dash surrounded by spaces is the CRM suffix delimiter.
+    """
+    name = str(raw or "").strip()
+    return re.split(r"\s+[\-\u2013\u2014]\s+", name, maxsplit=1)[0].strip() or name
+
+
+def shipper_name_key(raw: str) -> str:
+    """Stable comparison key for display-only account grouping.
+
+    This is deliberately narrower than fuzzy matching. It tolerates the differences in
+    real CRM names that do not change identity (PT/PT., punctuation, case, whitespace and
+    Service/Services), but it will not merge two merely similar company names.
+    """
+    words = re.sub(r"[^0-9a-z]+", " ", shipper_base_name(raw).casefold()).split()
+    if words[:1] == ["pt"]:
+        words = words[1:]
+    words = ["service" if word == "services" else word for word in words]
+    return " ".join(words) or str(raw or "").strip().casefold()
+
+
+def account_rollup_group(rows: list[dict]) -> str | None:
+    """Strongest display tag anywhere in a name-group; never changes ticket routing."""
+    tiers = {r.get("acct_type") for r in rows}
+    if "Hypercare" in tiers:
+        return "Hypercare"
+    if "Strategic" in tiers:
+        return "Strategic"
+    return "Must Win" if any(r.get("must_win") for r in rows) else None
+
 # Sales CRM API keys are issued per person and inherit that person's permissions, so a
 # sync run reads whatever its trigger can see. Until Ninja issues a service account, one
 # named owner runs it. Override per environment rather than editing this default.
@@ -1289,7 +1330,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-07.94"
+BUILD = "2026-09-08.95"
 
 
 class Me(BaseModel):
@@ -1734,8 +1775,20 @@ async def list_tickets(
     return {"tickets": [shape(r, u) for r in rows], "total": len(rows)}
 
 
+class AccountSource(BaseModel):
+    """One untouched local/CRM account contributing to a display-only name group."""
+    shipper_id: int
+    shipper: str
+    account_id: str | None
+    account_url: str | None
+    parent_account_id: str | None
+    parent_account_url: str | None
+    parent_account_name: str | None = None
+    acct_type: str
+
+
 class AccountRow(BaseModel):
-    """One Sales CRM account and every ticket under it."""
+    """One commercial shipper name and every ticket filed under its CRM variants."""
     shipper_id: int
     shipper: str
     account_id: str | None
@@ -1760,6 +1813,7 @@ class AccountRow(BaseModel):
     owners: list[str]
     sales: list[str]
     last_activity: str | None
+    source_accounts: list[AccountSource] = []
     tickets: list[Ticket]
 
 
@@ -1776,16 +1830,15 @@ async def accounts(u: User = Depends(current_user),
     """Every ticket, grouped by the account it belongs to.
 
     A ticket is raised per opportunity and always will be — that is the level Sales CRM
-    works at and the level a solution is actually built at. But nobody manages a shipper
-    one opportunity at a time: the tier is an account fact, the relationship is an account
-    fact, and a list of per-deal tickets makes one account with four live deals look like
-    four unrelated shippers (and, at a glance, like duplicates). So the same tickets are
-    also served grouped, and this is that view. Nothing is stored twice; the grouping is
-    done here.
+    works at and the level a solution is actually built at. Sales CRM may file multiple
+    Account records for the same commercial shipper under different parents, with the
+    opportunity/service appended to the name. This display groups those local `shippers`
+    rows by their normalised base name. Nothing is rewritten or stored twice: every ticket
+    keeps its original Account id, parent, tier and routing.
 
-    An account is a `shippers` row — which carries the Sales CRM account_id when the deal
-    came from the sync. Where one account has arrived under two names, both rows appear;
-    /api/diagnostics/duplicates is what finds them."""
+    The roll-up tag is the strongest tier found anywhere in the name-group: Hypercare,
+    then Strategic, then Must Win. That tag describes the card only; it does not promote
+    an ordinary ticket or change who prices it."""
     rows = await q(
         "SELECT t.*, s.name AS shipper, s.acct_type, s.account_id, s.account_name, "
         "s.parent_account_id, p.margin_pct, p.price_file, p.price_url, "
@@ -1798,9 +1851,9 @@ async def accounts(u: User = Depends(current_user),
         "LEFT JOIN pricing p ON p.ticket_id=t.id "
         "WHERE t.deleted_at IS NULL ORDER BY t.submitted_on DESC")
 
-    buckets: dict[int, list[dict]] = {}
+    buckets: dict[str, list[dict]] = {}
     for r in rows:
-        buckets.setdefault(int(r["shipper_id"]), []).append(r)
+        buckets.setdefault(shipper_name_key(r["shipper"]), []).append(r)
 
     # The account group. Sales CRM's parent account is an id on every child, and the
     # parent is usually itself a shipper we hold — so its name is already here and does
@@ -1822,23 +1875,43 @@ async def accounts(u: User = Depends(current_user),
             group_size[pid] = group_size.get(pid, 0) + 1
 
     out: list[AccountRow] = []
-    for sid, rs in buckets.items():
+    for _name_key, rs in buckets.items():
         live = [r for r in rs if r["status"] not in ("Lost", "Cancel",
                                                      "Proposal Accepted / Ready to Ship")]
         if open_only and not live:
             continue
         head = rs[0]
-        # The account's own group. Hypercare/Strategic sit on the account, so they apply
-        # to all of it; Must Win sits on one deal, so an account counts as Must Win when
-        # any live deal under it carries the tag.
-        acct_group = (head["acct_type"] if head["acct_type"] in MANAGED_ACCTS
-                      else ("Must Win" if any(r.get("must_win") for r in rs) else None))
+        # Use the most descriptive spelling as the card label. The comparison key may
+        # ignore PT. and Service/Services, but the person reading the screen should still
+        # see a real source spelling rather than a lower-case machine key.
+        labels = {shipper_base_name(r["shipper"]) for r in rs}
+        display_name = sorted(labels, key=lambda n: (-len(n), n.casefold()))[0]
+        acct_group = account_rollup_group(rs)
         if group and acct_group != group:
             continue
-        if search and search.lower() not in str(head["shipper"] or "").lower():
+        if search and search.lower() not in display_name.lower() and not any(
+                search.lower() in str(r["shipper"] or "").lower() for r in rs):
             continue
+
+        source_rows: dict[int, dict] = {}
+        for r in rs:
+            source_rows.setdefault(int(r["shipper_id"]), r)
+        sources = [AccountSource(
+            shipper_id=sid,
+            shipper=r["shipper"],
+            account_id=(str(r["account_id"]) if r.get("account_id") else None),
+            account_url=account_link(r.get("account_id")),
+            parent_account_id=(str(r["parent_account_id"])
+                               if r.get("parent_account_id") else None),
+            parent_account_url=account_link(r.get("parent_account_id")),
+            parent_account_name=parent_names.get(str(r.get("parent_account_id") or "")),
+            acct_type=r["acct_type"],
+        ) for sid, r in sorted(source_rows.items(), key=lambda item: item[1]["shipper"])]
+
         out.append(AccountRow(
-            shipper_id=sid, shipper=head["shipper"],
+            # Kept for API compatibility and as the React row key. It is only the first
+            # source id now; source_accounts is the complete membership of this card.
+            shipper_id=min(source_rows), shipper=display_name,
             account_id=(str(head["account_id"]) if head.get("account_id") else None),
             account_url=account_link(head.get("account_id")),
             parent_account_id=(str(head["parent_account_id"])
@@ -1847,7 +1920,8 @@ async def accounts(u: User = Depends(current_user),
             parent_account_name=parent_names.get(str(head.get("parent_account_id") or "")),
             siblings_in_group=max(0, group_size.get(
                 str(head.get("parent_account_id") or ""), 0) - 1),
-            acct_type=head["acct_type"], region=head.get("region"), group=acct_group,
+            acct_type=(acct_group if acct_group in MANAGED_ACCTS else "Standard"),
+            region=head.get("region"), group=acct_group,
             open_tickets=len(live),
             total_revenue=sum(int(r["potential_rev"] or 0) for r in live),
             won=sum(1 for r in rs if r.get("outcome") == "accepted"),
@@ -1856,6 +1930,7 @@ async def accounts(u: User = Depends(current_user),
             owners=sorted({r["owner_name"] for r in rs if r.get("owner_name")}),
             sales=sorted({r["sales_name"] for r in rs if r.get("sales_name")}),
             last_activity=(max(str(r["submitted_on"]) for r in rs) if rs else None),
+            source_accounts=sources,
             tickets=[shape(r, u) for r in rs],
         ))
 

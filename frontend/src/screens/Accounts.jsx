@@ -3,17 +3,22 @@ import { api, WATCHED_GROUPS, groupTone, rp } from "../api";
 import { Btn, Card, Empty, Head, Pill, inputCls } from "../ui";
 
 // A ticket is one opportunity and always will be — that is the level Sales CRM works at
-// and the level a solution is actually built and priced at. But nobody manages a shipper
-// one opportunity at a time: the tier is an account fact, the relationship is an account
-// fact, and a flat list of per-deal tickets makes one account with four live deals look
-// like four unrelated shippers. At a glance it also looks exactly like duplicates, which
-// is what sent people looking for a bug that was not there.
+// and the level a solution is actually built and priced at. But Sales CRM may create a
+// different Account record and parent for each opportunity from the same real shipper.
+// A flat list therefore splits one customer into several cards.
 //
 // So the same tickets are served grouped as well as flat (GET /api/accounts). Nothing is
 // stored twice; this is a second reading of the same rows.
 
 function Row({ a, onOpen }) {
   const [open, setOpen] = useState(false);
+  const sources = a.source_accounts || [];
+  // The fallback keeps the screen honest for a cached/older API response while a deploy
+  // rolls from one backend replica to the next.
+  const linkedSources = sources.length
+    ? sources.filter((s) => s.account_id)
+    : (a.account_id ? [a] : []);
+  const grouped = sources.length > 1;
   return (
     <Card>
       <button onClick={() => setOpen(!open)}
@@ -23,7 +28,12 @@ function Row({ a, onOpen }) {
           <div className="flex flex-wrap items-center gap-2">
             <b className="text-[14px]">{a.shipper}</b>
             {a.group && <Pill tone={groupTone(a.group)}>{a.group}</Pill>}
-            {!a.account_id && (
+            {grouped && (
+              <Pill tone="bg-sky-50 text-sky-700">
+                {sources.length} CRM accounts grouped by name
+              </Pill>
+            )}
+            {linkedSources.length === 0 && (
               // No Sales CRM account id means this shipper only exists here — it was
               // typed by hand and never matched to an account. Worth seeing: account
               // totals for it can never be complete.
@@ -48,7 +58,42 @@ function Row({ a, onOpen }) {
 
       {open && (
         <div className="border-t border-slate-100 px-4 py-3">
-          <p className="mb-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px]">
+          {grouped ? (
+            <div className="mb-3 rounded-lg border border-sky-100 bg-sky-50/60 p-3">
+              <p className="mb-2 text-[11.5px] text-slate-600">
+                Grouped by the shared base shipper name for this view only. Each CRM
+                account keeps its own parent, tier and ticket routing.
+              </p>
+              <div className="flex flex-col gap-1.5">
+                {sources.map((s) => (
+                  <div key={s.shipper_id}
+                    className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11.5px]">
+                    <span className="font-medium text-slate-700">{s.shipper}</span>
+                    {s.account_url ? (
+                      <a href={s.account_url} target="_blank" rel="noopener noreferrer"
+                        className="text-sky-700 hover:underline">
+                        CRM account {s.account_id} ↗
+                      </a>
+                    ) : (
+                      <span className="text-amber-700">not linked to Sales CRM</span>
+                    )}
+                    {s.parent_account_id && (
+                      <span className="text-slate-500">
+                        parent{" "}
+                        {s.parent_account_url ? (
+                          <a href={s.parent_account_url} target="_blank" rel="noopener noreferrer"
+                            className="text-sky-700 hover:underline">
+                            {s.parent_account_name || s.parent_account_id} ↗
+                          </a>
+                        ) : (s.parent_account_name || s.parent_account_id)}
+                      </span>
+                    )}
+                    <Pill tone={groupTone(s.acct_type)}>{s.acct_type}</Pill>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : <p className="mb-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px]">
             {a.account_url && (
               <a href={a.account_url} target="_blank" rel="noopener noreferrer"
                 className="text-sky-700 hover:underline">
@@ -74,7 +119,7 @@ function Row({ a, onOpen }) {
                 )}
               </span>
             )}
-          </p>
+          </p>}
           {a.tickets.map((t) => (
             <div key={t.ref}
               className="flex flex-wrap items-center gap-3 border-b border-slate-100 py-2 last:border-0">
@@ -115,13 +160,17 @@ export default function Accounts({ onOpen }) {
       .then((d) => setData(d.accounts)).catch((e) => setErr(e.message));
   }, [group, openOnly]);
 
-  const list = (data || []).filter(
-    (a) => !q.trim() || a.shipper.toLowerCase().includes(q.trim().toLowerCase()));
+  const needle = q.trim().toLowerCase();
+  const list = (data || []).filter((a) => {
+    if (!needle) return true;
+    const names = [a.shipper, ...(a.source_accounts || []).map((s) => s.shipper)];
+    return names.some((name) => (name || "").toLowerCase().includes(needle));
+  });
 
   return (
     <>
       <Head title="Accounts"
-        sub="The same tickets, grouped by the account they belong to. One account normally runs several opportunities at once — that is not duplication, it is the shape of the business. Genuine duplicates are on Reference / Data checks."
+        sub="The same tickets, grouped by their shared base shipper name even when Sales CRM created different accounts or parents for the opportunities. This view never changes the original CRM records or ticket routing."
         right={data && <span className="text-[12px] text-slate-500">{list.length} accounts</span>}
       />
 
