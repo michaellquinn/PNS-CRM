@@ -179,7 +179,20 @@ LOSS_REASONS = ["pricing", "shipper", "solution", "ops", "no_vendor", "billing",
 # an Open ticket may already have a PIC. Keeping it out would have hidden every
 # unstarted ticket from the one screen people go to looking for something to do.
 AWAIT_STATUSES = ("Open", "Pending Sales", "Pending PNS", "Pending Vendor")
-PENDING_STATUSES = ["Open", "Pending Sales", "Pending PNS", "Pending Review - PNS",
+# Sales owes REQUIREMENTS, not a price (Michael, 2026-09-08). Deliberately outside
+# AWAIT_STATUSES and WORK_STATUSES, and both exclusions are the point of the status
+# existing at all:
+#
+#   * out of AWAIT_STATUSES, so a deal sent back because PNS cannot tell what is being
+#     asked for does not sit in Pricing - Sales reading as a price somebody owes. Doing
+#     this as "Pending Sales" plus a marker was the alternative, and it would have meant
+#     one status meaning two different jobs and three screens special-casing which.
+#   * out of WORK_STATUSES, which gates on potential revenue being filled in. Missing
+#     revenue is itself a missing requirement, so gating the send-back on it would
+#     refuse exactly the tickets that most need sending back.
+REQUIREMENT_STATUS = "Pending Requirement"
+PENDING_STATUSES = ["Open", "Pending Requirement",
+                    "Pending Sales", "Pending PNS", "Pending Review - PNS",
                     "Pending Review - Head PNS",
                     "Pending Review - PSP", "Pending Vendor",
                     "Pending Review - C-level"]
@@ -211,7 +224,8 @@ RESP_OVERRIDE_PATH = "$." + RESP_OVERRIDE_KEY
 # "Pending Review - Head Sales" was removed on 2026-08-14 along with the gate itself.
 # Checked first: zero tickets held it, so nothing needed migrating and the
 # orphaned-status diagnostic stays at zero.
-ALL_STATUSES = [NO_CRM_STATUS, "Open", "Pending Sales", "Pending PNS", "Pending Vendor",
+ALL_STATUSES = [NO_CRM_STATUS, "Open", "Pending Requirement",
+                "Pending Sales", "Pending PNS", "Pending Vendor",
                 "Pending Review - PNS",
                 "Pending Review - Head PNS", "Pending Review - PSP",
                 "Pending Review - C-level", "Proposal Submitted",
@@ -253,6 +267,29 @@ TRANSITIONS = [
 
     ("Pending Sales", "Pending PNS", "Sent back or handed over, with a reason",
      "PNS or Sales", "POST /status"),
+
+    # Back to Sales for missing REQUIREMENTS, not for a price (Michael, 2026-09-08).
+    # Offered from every status the pricing queues show, because that is where PNS is
+    # standing when they find they cannot tell what is being asked for — a button that
+    # 409s on half the rows it appears on is worse than no button. The remark is
+    # mandatory and says which data is missing; it is what Sales is notified with, so it
+    # is the whole content of the request rather than an audit note nobody reads.
+    ("Open", REQUIREMENT_STATUS,
+     "PNS cannot price it until Sales supplies missing data, with a remark saying which",
+     "PNS or Sales", "POST /status"),
+    ("Pending PNS", REQUIREMENT_STATUS,
+     "PNS cannot price it until Sales supplies missing data, with a remark saying which",
+     "PNS or Sales", "POST /status"),
+    ("Pending Sales", REQUIREMENT_STATUS,
+     "PNS cannot price it until Sales supplies missing data, with a remark saying which",
+     "PNS or Sales", "POST /status"),
+    ("Pending Vendor", REQUIREMENT_STATUS,
+     "PNS cannot price it until Sales supplies missing data, with a remark saying which",
+     "PNS or Sales", "POST /status"),
+    (REQUIREMENT_STATUS, "Pending PNS", "Sales supplied what was missing and PNS owes "
+     "the price", "PNS or Sales", "POST /status"),
+    (REQUIREMENT_STATUS, "Pending Sales", "Sales supplied what was missing and Sales "
+     "owes the price", "PNS or Sales", "POST /status"),
     ("Pending PNS", "Pending Sales", "Sent back or handed over, with a reason",
      "PNS or Sales", "POST /status"),
     ("Pending PNS", "Pending Vendor", "FTL only — waiting on a haulage vendor's cost",
@@ -1266,7 +1303,11 @@ async def owed_by(t: dict, status: str) -> list[str]:
         # The ticket's PNS PIC. This used to prefer a separately-assigned reviewer; that
         # slot was retired on 2026-08-14 and there is one assignment now.
         return [owner] if owner else await names_in("PNS", head_only=True) or await names_in("PNS")
-    if status == "Pending Sales":
+    if status in ("Pending Sales", REQUIREMENT_STATUS):
+        # Both are Sales' to answer, so both land on the deal's own salesperson. Listed
+        # explicitly rather than falling through: this function returns [] for a status
+        # it does not know, which is silence — and a requirement nobody is told about is
+        # a ticket that stops moving with no one aware it is waiting on them.
         return [sales] if sales else await names_in("Commercial", head_only=True)
     if status == "Pending Vendor":
         return [owner] if owner else await names_in("PNS", head_only=True)
@@ -1330,7 +1371,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-08.104"
+BUILD = "2026-09-08.105"
 
 
 class Me(BaseModel):
@@ -4700,7 +4741,7 @@ async def change_status(ref: str, body: StatusIn, u: User = Depends(current_user
                      f"only {' and '.join(VENDOR_SERVICES)} can wait on vendor cost")
         if nxt == "Pending PNS":
             await execute("UPDATE tickets SET resp='PNS' WHERE id=%s", (t["id"],))
-        elif nxt == "Pending Sales":
+        elif nxt in ("Pending Sales", REQUIREMENT_STATUS):
             await execute("UPDATE tickets SET resp='Sales' WHERE id=%s", (t["id"],))
 
     if is_lost:

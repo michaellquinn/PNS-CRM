@@ -239,13 +239,27 @@ export const SERVICES = ["LTL", "B2BR", "B2C", "FTL", "FTL on-call", "FTL monthl
 export const FTL = ["FTL", "FTL on-call", "FTL monthly"];
 
 export const STATUSES = [
-  "Pending CRM ID", "Open", "Pending Sales", "Pending PNS",
+  "Pending CRM ID", "Open", "Pending Requirement", "Pending Sales", "Pending PNS",
   "Pending Review - PNS", "Pending Review - Head PNS",
   "Pending Review - PSP", "Pending Vendor", "Pending Review - C-level", "Proposal Submitted",
   "Proposal Accepted / Ready to Ship", "Lost", "Cancel",
 ];
 
 export const PENDING = STATUSES.filter((s) => s.startsWith("Pending"));
+
+// Sales owes REQUIREMENTS, not a price (Michael, 2026-09-08). PNS sends a deal here from
+// the pricing queue when it cannot tell what is being asked for, with a remark saying
+// which data is missing; the deal's own salesperson is notified with that remark.
+//
+// Mirrors REQUIREMENT_STATUS on the backend, which keeps it out of AWAIT_STATUSES so a
+// requirement gap never reads as a price somebody owes.
+export const REQUIREMENT_STATUS = "Pending Requirement";
+
+// What "Pending Solution" means: still being worked, minus the ones waiting on Sales to
+// say what the deal even is. The two have their own menu entries and must not both list
+// the same ticket — that is the whole reason the status exists rather than a marker on
+// Pending Sales. "Pending CRM ID" is already out; it waits on an id and has its own queue.
+export const PENDING_SOLUTION = PENDING.filter((s) => s !== REQUIREMENT_STATUS);
 
 // Everything still being worked, mirroring the backend's PENDING_STATUSES. "Pending CRM
 // ID" is deliberately out: it is blocked on an id rather than waiting on a person, it

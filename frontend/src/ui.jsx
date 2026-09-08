@@ -55,6 +55,10 @@ const TONE = {
   "Pending CRM ID": "bg-rose-50 text-rose-700",
   // Green because it is good news — ready, complete, waiting for a pair of hands.
   Open: "bg-emerald-50 text-emerald-700",
+  // Rose, like Pending CRM ID: both mean the deal is BLOCKED on something arriving
+  // rather than on somebody getting to it. Deliberately not the Sales sky-blue — a
+  // requirement gap should not read at a glance like an ordinary Sales price queue.
+  "Pending Requirement": "bg-rose-50 text-rose-700",
   "Pending Sales": "bg-sky-50 text-sky-700",
   "Pending PNS": "bg-violet-50 text-violet-700",
   "Pending Review - Head PNS": "bg-violet-50 text-violet-700",

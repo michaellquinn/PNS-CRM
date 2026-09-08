@@ -1,5 +1,8 @@
 import { Component, useCallback, useEffect, useRef, useState } from "react";
-import { api, LIVE_STATUSES, NEW_TICKET_DAYS, PENDING, isNewIncoming, isPnsWork } from "./api";
+import {
+  api, LIVE_STATUSES, NEW_TICKET_DAYS, PENDING_SOLUTION, REQUIREMENT_STATUS,
+  isNewIncoming, isPnsWork,
+} from "./api";
 import Dashboard from "./screens/Dashboard";
 import Matrix from "./screens/Matrix";
 import Capa from "./screens/Capa";
@@ -17,7 +20,7 @@ import Accounts from "./screens/Accounts";
 import Ignored from "./screens/Ignored";
 import Rdo from "./screens/Rdo";
 import Fields from "./screens/Fields";
-import { PendingReview, ProposalReview } from "./screens/Meetings";
+import { PendingReview, ProposalReview, RequirementReview } from "./screens/Meetings";
 import StatusFlow from "./screens/StatusFlow";
 import DataChecks from "./screens/DataChecks";
 import Cancelled from "./screens/Cancelled";
@@ -122,8 +125,14 @@ const NAV = [
     // The filters did NOT get split with them: both screens share one region, one
     // salesperson and one PNS PIC selection, so picking the people in the room once
     // holds across both. That is the half of the merge worth keeping.
-    { id: "pending", label: "Pending", icon: "☷", when: works, count: "pending:all",
-      keywords: "agenda review meeting sales region salesperson walk the list pending open" },
+    // Pending requirement leads: it is the earliest thing a deal can be stuck on, and
+    // the only one of the three that is waiting on somebody OUTSIDE PNS to act
+    // (Michael, 2026-09-08).
+    { id: "requirement", label: "Pending requirement", icon: "☷", when: works,
+      count: REQUIREMENT_STATUS,
+      keywords: "requirement missing data incomplete sent back to sales waiting on sales clarification" },
+    { id: "pending", label: "Pending solution", icon: "☷", when: works, count: "pending:solution",
+      keywords: "agenda review meeting sales region salesperson walk the list pending open solution" },
     { id: "proposals", label: "Proposal submitted", icon: "☷", when: works,
       count: "Proposal Submitted",
       keywords: "agenda review meeting proposal submitted outcome accepted lost shipper" },
@@ -606,10 +615,11 @@ export default function App() {
         // status half went with the Start-work button (Michael, 2026-09-07).
         c["open"] = all.tickets.filter(
           (t) => isPnsWork(t) && !t.owner && LIVE_STATUSES.includes(t.status)).length;
-        // The Pending screen lists every Pending-* status, so its badge is their sum.
-        // From PENDING in api.js, the same list the screen fetches, so the number on the
-        // menu and the number of rows behind it come from one definition.
-        c["pending:all"] = PENDING.reduce((n, s) => n + (c[s] || 0), 0);
+        // Pending solution lists every Pending-* status EXCEPT Pending Requirement,
+        // which has its own entry and whose badge is the plain status count. From
+        // PENDING_SOLUTION in api.js, the same list the screen fetches, so the number on
+        // the menu and the number of rows behind it come from one definition.
+        c["pending:solution"] = PENDING_SOLUTION.reduce((n, s) => n + (c[s] || 0), 0);
         setCounts(c);
       })
       .catch(() => {});
@@ -672,6 +682,7 @@ export default function App() {
     // Two entries, one component, one set of filters (Michael, 2026-09-08). An old
     // ?screen=meeting link still works — SCREEN_ALIASES resolves it to `pending` before
     // it gets here, so there is no second entry to keep in step with this one.
+    requirement: <RequirementReview me={me} notify={notify} onOpen={open} />,
     pending: <PendingReview me={me} notify={notify} onOpen={open} />,
     proposals: <ProposalReview me={me} notify={notify} onOpen={open} />,
     ship: <ReadyToShip me={me} onOpen={open} />,

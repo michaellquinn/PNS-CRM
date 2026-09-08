@@ -24,7 +24,9 @@ src = open(os.path.join(_REPO, "backend", "main.py"), encoding="utf-8").read()
 # Everything from the top of the module down to MANUAL_MOVES: the table is built by a
 # module-level loop, so it is executed rather than re-implemented here.
 WANT_VAR = {"NO_CRM_STATUS", "ALL_STATUSES", "TRANSITIONS", "REVIEW_STATUSES",
-            "MANUAL_MOVES", "KNOWN_STATUSES", "PENDING_STATUSES"}
+            "MANUAL_MOVES", "KNOWN_STATUSES", "PENDING_STATUSES",
+            # TRANSITIONS names this one, so the table cannot be executed without it.
+            "REQUIREMENT_STATUS", "AWAIT_STATUSES", "WORK_STATUSES"}
 keep = []
 for node in ast.parse(src).body:
     if isinstance(node, ast.FunctionDef) and node.name == "_sources":
@@ -119,6 +121,35 @@ CASES = [
 for frm, to, want in CASES:
     got = to in MOVES.get(frm, set())
     check(f"{frm} -> {to} is {'allowed' if want else 'refused'}", got == want)
+
+# ------------------------------------------------- Pending Requirement
+# Sales owes REQUIREMENTS, not a price (Michael, 2026-09-08). The status was added
+# instead of reusing "Pending Sales with a marker", and the entire argument for paying
+# that cost is the two exclusions below. If either one goes, the status has bought
+# nothing and the queues are mixed again — which is the thing it was created to stop.
+print()
+print("Pending Requirement is a wait on Sales, not a price nobody has attached")
+REQ = ns["REQUIREMENT_STATUS"]
+check("it is a real status", REQ in ALL)
+check("it is pending, so it reads as live work", REQ in ns["PENDING_STATUSES"])
+check("it is NOT awaiting-price", REQ not in ns["AWAIT_STATUSES"])
+check("it is NOT a work status", REQ not in ns["WORK_STATUSES"])
+
+print()
+print("PNS can reach it from anywhere the pricing queues show a ticket")
+# A button offered on a row it cannot act on is worse than no button: the person has
+# already typed the remark by the time the 409 comes back.
+for frm in ns["AWAIT_STATUSES"]:
+    check(f"{frm} -> {REQ} is allowed", REQ in MOVES.get(frm, set()))
+
+print()
+print("and it can be sent back out again once Sales answer")
+for to in ("Pending PNS", "Pending Sales"):
+    check(f"{REQ} -> {to} is allowed", to in MOVES.get(REQ, set()))
+for to in ("Lost", "Cancel"):
+    check(f"{REQ} -> {to} is allowed", to in MOVES.get(REQ, set()))
+check(f"{REQ} -> Proposal Submitted is refused",
+      "Proposal Submitted" not in MOVES.get(REQ, set()))
 
 print()
 if fails:

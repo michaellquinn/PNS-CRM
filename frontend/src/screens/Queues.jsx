@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { api, BOTTOM_MARGIN, LIVE_STATUSES, PENDING, PICKABLE_LOSS_REASONS, SERVICES,
+import { api, BOTTOM_MARGIN, LIVE_STATUSES, PENDING, PENDING_SOLUTION,
+         REQUIREMENT_STATUS, PICKABLE_LOSS_REASONS, SERVICES,
          FTL, WATCHED_GROUPS, NEW_TICKET_DAYS, arrivedAgo, groupFilter, groupTone,
          isNewIncoming, isPnsWork, mayGoToPsp, rp } from "../api";
 import {
@@ -355,6 +356,11 @@ export function AwaitingPrice({ me, onOpen, notify, side }) {
   // Only `drop` is still keyed by ref: the pricing fields moved into PriceForm, which
   // holds its own state per ticket and seeds it from what is already attached.
   const [drop, setDrop] = useState({});
+  // The missing-data remark, keyed by ref like `drop`. Separate box from the cancel
+  // reason on purpose: they are opposite decisions — one says "Sales, tell us more",
+  // the other says "this stops here" — and one shared box would let a half-typed
+  // sentence be submitted as whichever button was clicked.
+  const [req, setReq] = useState({});
   const [busy, setBusy] = useState(null);
   const [list, f, set, clear, patch] = useFilter(rows, { resp: [], review: [] }, "awaiting");
 
@@ -458,6 +464,30 @@ export function AwaitingPrice({ me, onOpen, notify, side }) {
               <Btn onClick={() => act(t.ref, () => api.status(t.ref, { status: t.priced_by === "PNS" ? "Pending PNS" : "Pending Sales", reason: "vendor cost received" }))}>
                 Vendor cost received
               </Btn>
+            )}
+            {/* Back to Sales because PNS cannot tell what is being asked for (Michael,
+                2026-09-08). Not the same as cancelling and not the same as handing the
+                price over: the deal is fine, the intake is incomplete, and the only
+                thing that unblocks it is Sales supplying data.
+
+                The remark is mandatory both here and on the server, and it is the whole
+                point of the action rather than an audit note — it is what the deal's
+                salesperson is notified with, so "which data is missing" has to be
+                readable on its own by somebody who was not in this queue. The ticket
+                leaves the pricing queues entirely: Pending Requirement is outside
+                AWAIT_STATUSES, so it stops reading as a price somebody owes. */}
+            {me.permissions.sendBackProposal && (
+              <>
+                <input className={`${inputCls} max-w-[300px]`}
+                  placeholder="Which data is missing (goes to Sales)"
+                  value={req[t.ref] || ""}
+                  onChange={(e) => setReq({ ...req, [t.ref]: e.target.value })} />
+                <Btn disabled={busy === t.ref || !((req[t.ref] || "").trim())}
+                  onClick={() => act(t.ref, () => api.status(t.ref, {
+                    status: REQUIREMENT_STATUS, reason: req[t.ref].trim() }))}>
+                  Back to Sales for requirements
+                </Btn>
+              </>
             )}
             {/* Dropping a request that cannot be built — no rate, no vendor on the lane,
                 a solution Ninja does not run (Michael, 2026-08-18). Leaving those sitting
@@ -971,7 +1001,7 @@ export function ExecSignoff({ me, onOpen, notify }) {
    screen offering a move the other has already retired. Per-row state, so each card
    keeps its own draft without a map keyed by ref. */
 export function ProposalActions({ t, me, notify, onDone }) {
-  const [next, setNext] = useState(PENDING[0]);
+  const [next, setNext] = useState(PENDING_SOLUTION[0]);
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const mayClose = me.permissions.acceptProposal;
@@ -990,7 +1020,10 @@ export function ProposalActions({ t, me, notify, onDone }) {
       <select className={`${inputCls} max-w-[220px]`} value={next}
         onChange={(e) => setNext(e.target.value)}>
         <optgroup label="Send back">
-          {PENDING.map((x) => <option key={x} value={x}>{x}</option>)}
+          {/* PENDING_SOLUTION, not PENDING: a proposal comes back for rework, and
+              Pending Requirement is not a move this screen can make — offering it here
+              would only ever produce a 409 from the transition map. */}
+          {PENDING_SOLUTION.map((x) => <option key={x} value={x}>{x}</option>)}
         </optgroup>
         {mayClose && (
           <optgroup label="Lost">

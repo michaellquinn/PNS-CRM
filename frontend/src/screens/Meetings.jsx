@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { api, GENERAL_TITLE, PENDING, groupTone, rp } from "../api";
+import { api, GENERAL_TITLE, PENDING_SOLUTION, REQUIREMENT_STATUS, groupTone, rp }
+  from "../api";
 import {
   Btn, Card, Head, MultiSelect, Pill, inputCls, useScrollMemory, useSticky,
 } from "../ui";
@@ -337,6 +338,7 @@ function Block({ label, sub, rows, tone, offset, onOpen, actions, notify, onDone
 function Review({ half, me, onOpen, notify }) {
   const [props_, setProps] = useState(null);
   const [pend, setPend] = useState(null);
+  const [reqs, setReqs] = useState(null);
   // Sticky, like every queue filter: this screen is walked ticket by ticket on a call,
   // and opening one unmounts the list, so the region and the names would otherwise have
   // to be picked again before every single ticket.
@@ -351,20 +353,23 @@ function Review({ half, me, onOpen, notify }) {
   // costs the most: you come back for the next row, not to start the list again. Keyed
   // PER HALF: they are two lists of different lengths, and one shared offset would drop
   // you somewhere arbitrary in whichever you opened second.
-  useScrollMemory(`meeting:${half}`, props_ !== null && pend !== null);
+  useScrollMemory(`meeting:${half}`, props_ !== null && pend !== null && reqs !== null);
 
   const load = () => {
     const region = regions.length ? regions : undefined;
-    setProps(null); setPend(null);
+    setProps(null); setPend(null); setReqs(null);
     Promise.all([
       api.tickets({ status: "Proposal Submitted", region }),
-      api.tickets({ status: PENDING, region }),
-    ]).then(([a, b]) => { setProps(a.tickets); setPend(b.tickets); })
+      // PENDING_SOLUTION, not PENDING: the requirement half is its own entry and the two
+      // must not list the same ticket twice.
+      api.tickets({ status: PENDING_SOLUTION, region }),
+      api.tickets({ status: REQUIREMENT_STATUS, region }),
+    ]).then(([a, b, c]) => { setProps(a.tickets); setPend(b.tickets); setReqs(c.tickets); })
       .catch((e) => setErr(e.message));
   };
   useEffect(load, [regions.join(",")]);
 
-  const all = [...(props_ || []), ...(pend || [])];
+  const all = [...(props_ || []), ...(pend || []), ...(reqs || [])];
 
   // Both name lists come from the tickets ALREADY narrowed to the chosen regions, so
   // they answer "who has deals in the room" rather than "who exists". There is no region
@@ -387,7 +392,7 @@ function Review({ half, me, onOpen, notify }) {
   // name against an empty list, cleared the selection, and useSticky then saved that
   // empty value straight over the good one. The filter came back, was wiped a frame
   // later, and looked like it had never been remembered at all.
-  const loaded = props_ !== null && pend !== null;
+  const loaded = props_ !== null && pend !== null && reqs !== null;
   useEffect(() => {
     if (!loaded) return;
     setPeople((p) => p.filter((x) => sales.includes(x)));
@@ -405,15 +410,26 @@ function Review({ half, me, onOpen, notify }) {
 
   const propRows = keep(props_);
   const pendRows = keep(pend);
+  const reqRows = keep(reqs);
 
-  const isProps = half === "proposals";
+  const HEADS = {
+    requirement: ["Pending requirement",
+      "Waiting on Sales to supply data PNS asked for. The remark on each ticket says "
+      + "what is missing; the salesperson was notified with it when it was sent back."],
+    pending: ["Pending solution",
+      "Being worked. Open the ticket and take it up in its discussion, or add a note to "
+      + "the row."],
+    proposals: ["Proposal submitted",
+      "Proposals out with the shipper. Record the outcome right here — accepted or lost, "
+      + "it moves off this list."],
+  };
+  const [title, sub] = HEADS[half];
+  // The other two entries, named so the shared-filter line can say where else it applies.
+  const others = Object.keys(HEADS).filter((k) => k !== half).map((k) => HEADS[k][0]);
 
   return (
     <>
-      <Head title={isProps ? "Proposal submitted" : "Pending"}
-        sub={isProps
-          ? "Proposals out with the shipper. Record the outcome right here — accepted or lost, it moves off this list."
-          : "Everything still open. Open the ticket and take it up in its discussion, or add a note to the row."}
+      <Head title={title} sub={sub}
         right={<Btn onClick={() => window.print()}>Print list</Btn>} />
 
       {err && <Card className="mb-4 border-rose-200 bg-rose-50 p-3 text-[13px] text-rose-700">{err}</Card>}
@@ -473,8 +489,8 @@ function Review({ half, me, onOpen, notify }) {
         {regions.length > 0 && (
           <p className="text-[11.5px] text-slate-400">
             The name lists are narrowed to whoever has a live deal in {regions.join(", ")} —
-            not the whole of Commercial or PNS. The same filters apply on
-            {isProps ? " Pending" : " Proposal submitted"}.
+            not the whole of Commercial or PNS. The same filters apply on{" "}
+            {others.join(" and ")}.
           </p>
         )}
       </Card>
@@ -482,14 +498,20 @@ function Review({ half, me, onOpen, notify }) {
       {/* One list per screen. `offset` is 0 on both, so each is numbered from 1 — a
           proposal list that starts at 24 because of how many pending tickets there are
           is a number about the other screen. */}
-      {isProps ? (
+      {half === "proposals" && (
         <Block label="Proposals submitted" sub="Out with the shipper. Record the outcome here."
           rows={propRows} tone="bg-teal-50 text-teal-700" offset={0} onOpen={onOpen}
           actions={(t) => <ProposalActions t={t} me={me} notify={notify} onDone={load} />}
           notify={notify} onDone={load} />
-      ) : (
-        <Block label="All pending" sub="Still open. Raise a point here, or open the ticket for the full discussion."
+      )}
+      {half === "pending" && (
+        <Block label="Pending solution" sub="Being worked. Raise a point here, or open the ticket for the full discussion."
           rows={pendRows} tone="bg-amber-50 text-amber-700" offset={0}
+          onOpen={onOpen} notify={notify} onDone={load} />
+      )}
+      {half === "requirement" && (
+        <Block label="Waiting on Sales" sub="PNS asked for data before this can be priced. Open the ticket to see the remark, or add a note to the row."
+          rows={reqRows} tone="bg-rose-50 text-rose-700" offset={0}
           onOpen={onOpen} notify={notify} onDone={load} />
       )}
     </>
@@ -498,5 +520,6 @@ function Review({ half, me, onOpen, notify }) {
 
 /* The two menu entries. Wrappers rather than two copies: everything above is shared,
    including the stored filter values, which is what makes them behave as one filter. */
+export function RequirementReview(p) { return <Review half="requirement" {...p} />; }
 export function PendingReview(p) { return <Review half="pending" {...p} />; }
 export function ProposalReview(p) { return <Review half="proposals" {...p} />; }

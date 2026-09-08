@@ -20,6 +20,9 @@ const WATCHED_TIERS = ["Hypercare", "Strategic"];
 // falls into a trailing group so it can never silently disappear from the filter.
 const STATUS_GROUPS = [
   ["Not started", ["Pending CRM ID", "Open"]],
+  // Its own group, not folded into "Being worked": nobody here is working it, it is
+  // parked until Sales answer, and that is the distinction the whole status exists for.
+  ["Waiting on Sales", ["Pending Requirement"]],
   ["Being worked", ["Pending Sales", "Pending PNS", "Pending Vendor"]],
   ["In approval", ["Pending Review - PSP", "Pending Review - Head PNS",
                    "Pending Review - C-level"]],
@@ -34,6 +37,7 @@ const STATUS_GROUPS = [
 const TILES = [
   ["Pending CRM ID", "blocked — no Sales CRM id"],
   ["Open", "ready, nobody on it yet"],
+  ["Pending Requirement", "Sales owes missing data"],
   ["Pending Sales", "Sales owes the price"],
   ["Pending PNS", "PNS owes the price"],
   ["Pending Vendor", "waiting on vendor cost"],
@@ -47,6 +51,7 @@ const TILES = [
 
 const TILE_TONE = {
   "Pending CRM ID": "text-rose-600",
+  "Pending Requirement": "text-rose-600",
   Open: "text-emerald-600",
   "Pending Review - Head PNS": "text-violet-600",
   "Pending Review - PSP": "text-amber-600",

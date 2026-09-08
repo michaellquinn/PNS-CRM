@@ -6,7 +6,10 @@ import { Card, Empty, Head, Pill, TicketCard } from "../ui";
 // sees what they were assigned. Both want the same first answer — what is waiting on me
 // right now — so the split at the top is by who owes the next move, not by status.
 
-const OWED_BY_SALES = ["Pending Sales"];
+// Pending Requirement is here for the same reason Pending Sales is: it is a ticket
+// waiting on this salesperson to act. Leaving it out would notify them that data is
+// missing and then not show the deal on the one screen they open to see their own work.
+const OWED_BY_SALES = ["Pending Sales", "Pending Requirement"];
 
 export default function Mine({ me, onOpen }) {
   const [rows, setRows] = useState(null);

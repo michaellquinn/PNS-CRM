@@ -3,6 +3,20 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-09-08",
+    title: "Pending requirement: PNS can send a deal back to Sales for missing data",
+    by: "Michael + Claude",
+    changes: [
+      "NEW STATUS - Pending Requirement. On Pricing - PNS there is now a box and a “Back to Sales for requirements” button: type which data is missing and the deal goes back to Sales. The remark is required, here and on the server.",
+      "The deal’s own salesperson is notified with that remark, and the ticket appears on their My requests as work owed by them. The remark is the whole content of the request, not an audit note — it has to be readable by somebody who was never in the pricing queue.",
+      "NEW MENU - Planning now reads Pending requirement, Pending solution, Proposal submitted. Pending was renamed to Pending solution, and it no longer lists requirement tickets: the two are separate entries and must not show the same deal twice. All three share one set of filters, as before.",
+      "It is a real status rather than Pending Sales with a marker, and the reason is that Pending Sales already means “Sales owes the price”. Reusing it would have put every requirement gap into Pricing - Sales reading as a price somebody owed — exactly the mixing this was asked for to avoid. Pending Requirement sits outside the awaiting-price list, so it leaves the pricing queues entirely.",
+      "It also sits outside the statuses that require potential revenue to be filled in. Missing revenue is itself a missing requirement, so gating the send-back on it would have refused exactly the tickets that most need sending back.",
+      "It can be reached from anywhere the pricing queues show a ticket — Open, Pending Sales, Pending PNS, Pending Vendor — and goes back to Pending PNS or Pending Sales once Sales answer. A button that fails on half the rows it appears on is worse than no button, since the remark has already been typed by then. verify_transitions pins all of it, including the two exclusions that are the entire argument for the status existing.",
+    ],
+    overruled: [],
+  },
+  {
+    date: "2026-09-08",
     title: "The dashboard is dated and ordered by First submitted",
     by: "Michael + Claude",
     changes: [
