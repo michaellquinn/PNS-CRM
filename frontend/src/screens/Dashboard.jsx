@@ -60,8 +60,7 @@ const TILE_TONE = {
 const COL_HINTS = {
   "Days active": "Days the ticket has spent in its current status, against the target for that status",
   "CRM ID": "The Sales CRM opportunity id. Blank means the ticket was raised by hand here.",
-  Submitted: "When Sales CRM says the opportunity was raised. A ticket raised here uses today's date until the sync links it, then Sales CRM's date replaces it.",
-  "First synced": "The first time this app saw the deal. Written once and never revised — the gap from Submitted is how long PNS was unaware of a live opportunity.",
+  "First submitted": "When Sales first raised the deal — Sales CRM's own date for the opportunity. A ticket raised here by hand uses today's date until the sync links it, then Sales CRM's date replaces it. Everything on this board is dated and ordered from here.",
   "Sales CRM": "The stage in Sales CRM. Reference only — it is not this app's status.",
 };
 
@@ -77,12 +76,14 @@ export default function Dashboard({ me, onOpen }) {
   // and clicking a tile is what pushes that scope down into the table.
   const [scope, setScope] = useSticky("filter:dash:scope", { owner: "", sales: "" });
   const [all, setAll] = useState([]);
-  // Opens on FIRST SYNCED, not Submitted (Michael, 2026-09-01). Submitted is Sales
-  // CRM's date for when the opportunity was raised THERE, which can be weeks before
-  // PNS ever saw it; first_synced_on is when it arrived here. Newest-first on that
-  // column is "what has just landed on us", which is the question the board is opened
-  // to answer.
-  const [sort, setSort] = useState({ key: "first_synced_on", dir: "desc" });
+  // Opens on FIRST SUBMITTED (Michael, 2026-09-08), OVERRULING the first-synced default
+  // of 2026-09-01. That one ordered the board by when the deal arrived HERE, on the
+  // reasoning that "what has just landed on us" is what the board is opened to answer.
+  // Michael's call is that the board is read against the deal's own age instead: the
+  // date that matters is when Sales first raised it, because that is the clock the
+  // shipper is counting and the one every conversation about a deal starts from. When
+  // this app happened to notice is our own plumbing, not a fact about the deal.
+  const [sort, setSort] = useState({ key: "submitted_on", dir: "desc" });
   // The board is long and is normally left by clicking a ticket in the table below the
   // tiles. `stats` is what the tiles render from, so it is the honest "the page has its
   // real height now" signal -- restoring against the rows alone would land short,
@@ -174,8 +175,7 @@ export default function Dashboard({ me, onOpen }) {
   const COLS = [
     ["ref", "Ticket"],
     ["opportunity_id", "CRM ID"],
-    ["submitted_on", "Submitted"],
-    ["first_synced_on", "First synced"],
+    ["submitted_on", "First submitted"],
     ["shipper", "Shipper"],
     ["service", "Service"],
     ["revenue", "Revenue", "right"],
@@ -202,8 +202,7 @@ export default function Dashboard({ me, onOpen }) {
   const clickSort = (key) =>
     setSort((s) => s.key === key
       ? { key, dir: s.dir === "asc" ? "desc" : "asc" }
-      : { key, dir: ["submitted_on", "first_synced_on", "revenue"].includes(key)
-            ? "desc" : "asc" });
+      : { key, dir: ["submitted_on", "revenue"].includes(key) ? "desc" : "asc" });
 
   const active =
     f.search || f.status.length || f.service.length || f.acct.length || f.owner
@@ -258,7 +257,7 @@ export default function Dashboard({ me, onOpen }) {
   // Export exactly what is on screen, and only the columns this role may see — margin
   // stays out of the file for anyone without seeMargin, same rule as the table.
   const exportCsv = () => {
-    const head = ["Ticket", "CRM ID", "Submitted", "First synced", "Opportunity", "Shipper", "Account type", "Region",
+    const head = ["Ticket", "CRM ID", "First submitted", "Opportunity", "Shipper", "Account type", "Region",
                   "Service", "Revenue", "Status", "Sales CRM stage", "Priced by",
                   "PNS review", "Days in status", "SLA target",
                   ...(canSeeMargin ? ["Margin %"] : []), "PNS PIC", "Sales PIC"];
@@ -267,7 +266,7 @@ export default function Dashboard({ me, onOpen }) {
       return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
     };
     const lines = [head.join(",")].concat(sorted.map((t) => [
-      t.ref, t.opportunity_id || "", t.submitted_on, t.first_synced_on || "", dealName(t), t.shipper, t.acct_type, t.region,
+      t.ref, t.opportunity_id || "", t.submitted_on, dealName(t), t.shipper, t.acct_type, t.region,
       t.service, t.revenue, t.status, t.stage || "", t.priced_by,
       t.needs_review ? "yes" : "no", t.sla_elapsed, t.sla_target,
       ...(canSeeMargin ? [t.margin ?? ""] : []), t.owner || "", t.sales || "",
@@ -357,7 +356,10 @@ export default function Dashboard({ me, onOpen }) {
           <input type="search" value={f.search} onChange={(e) => setF({ ...f, search: e.target.value })}
             placeholder="Search shipper, ticket or CRM ID…"
             className="min-w-[230px] max-w-[320px] flex-1 rounded-lg border border-slate-300 px-3 py-2 text-[13.5px]" />
-          <span className="text-xs text-slate-500">Submitted</span>
+          {/* Names the column it filters. It always filtered submitted_on server-side;
+              saying "Submitted" while the board was ordered by first-synced was the
+              one place the two dates were visibly disagreeing. */}
+          <span className="text-xs text-slate-500">First submitted</span>
           <input type="date" value={f.from} onChange={(e) => setF({ ...f, from: e.target.value })} className={sel} />
           <span className="text-slate-400">→</span>
           <input type="date" value={f.to} onChange={(e) => setF({ ...f, to: e.target.value })} className={sel} />
@@ -449,9 +451,6 @@ export default function Dashboard({ me, onOpen }) {
                     {t.opportunity_id || <span className="text-slate-300">raised here</span>}
                   </td>
                   <td className="whitespace-nowrap px-4 py-3.5 font-mono tabular-nums text-slate-600">{t.submitted_on}</td>
-                  <td className="whitespace-nowrap px-4 py-3.5 font-mono tabular-nums text-slate-500">
-                    {t.first_synced_on || <span className="text-slate-300">never</span>}
-                  </td>
                   {/* Shipper names run long — "PT. Mostrans Global Digilog - Project PT
                       Agroveta Husada Dharma - LTL (B2BR)" — and truncating them hid the
                       part that tells two tickets apart. The name wraps in full instead. */}

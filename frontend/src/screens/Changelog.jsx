@@ -3,6 +3,21 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-09-08",
+    title: "The dashboard is dated and ordered by First submitted",
+    by: "Michael + Claude",
+    changes: [
+      "The First synced column is gone, and Submitted is now called First submitted — one date on the board, and it is the day Sales first raised the deal.",
+      "The board opens sorted by it, newest first. That is the clock the shipper is counting and the one every conversation about a deal starts from; when this app happened to notice the deal is our own plumbing, not a fact about the deal.",
+      "The date-range filter is renamed to match. It always filtered on the submitted date server-side — saying \"Submitted\" while the board was ordered by first-synced was the one place the two dates were visibly disagreeing with each other.",
+      "The CSV export follows the screen: First synced is out of the file too, so a downloaded report has the same columns as the board it came from.",
+      "Days active is unchanged. It measures time in the CURRENT status against that status’s target, which is what makes the SLA colours mean anything — it is a status clock, not the deal’s age, and re-basing it on the submitted date would silently turn every SLA on the board into a different number.",
+    ],
+    overruled: [
+      "Michael, 2026-09-01: the board opens on First synced, because “what has just landed on us” is the question it is opened to answer. What stands instead: it opens on First submitted, and the deal’s own age is what the board is read against.",
+    ],
+  },
+  {
+    date: "2026-09-08",
     title: "Pending and Proposal submitted are two menu entries again, sharing one filter",
     by: "Michael + Claude",
     changes: [
