@@ -1330,7 +1330,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-08.98"
+BUILD = "2026-09-08.99"
 
 
 class Me(BaseModel):
@@ -3231,6 +3231,11 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
             crm = SalesCrm(client)
             caught_up = False
             batches: list[tuple[str, list[dict]]] = []
+            # Where this run picked the refresh rotation up, so the cursor can be moved
+            # by the number of tickets actually refreshed once the processing loop has
+            # run. None means this run did no rotating and must not move the cursor.
+            refresh_start: int | None = None
+            refresh_pool = 0
 
             # 0a. The queued ids, fetched DIRECTLY by id, on EVERY run.
             #
@@ -3385,15 +3390,30 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
                 # Not a slow refresh — no refresh at all, for every ticket past position
                 # 400 in a string sort of the ids. A rule change like the service-line
                 # rewrite would reach some tickets in five minutes and others never, with
-                # nothing anywhere saying which. The cursor walks the whole set, so a
-                # full pass takes ceil(held / 400) runs and every ticket gets its turn.
+                # nothing anywhere saying which. The cursor walks the whole set, so every
+                # ticket gets its turn.
+                #
+                # The rotation is UNCONDITIONAL, and the cursor advances by what was
+                # actually REFRESHED rather than by how many ids were fetched (Michael,
+                # 2026-09-08). Both halves of that were wrong, and both put the same
+                # tickets back in the never-refreshed hole the cursor was written to fill:
+                #
+                #   * skipping the rotation when the pool fits under SYNC_REFRESH_MAX
+                #     assumed a pool that fits is a pool that finishes. It is not: the
+                #     app holds 37 held tickets and a run got through 23 of them before
+                #     the budget ran out. `pool` is sorted, so the tail was the same 14
+                #     tickets every single run.
+                #   * advancing by SYNC_REFRESH_MAX skipped everything fetched and not
+                #     processed. Same outcome, reached by arithmetic.
+                #
+                # Advancing by work done means a run that processes three tickets moves
+                # three, and the fourth is first in line next time. The pass is slower
+                # than it was at SYNC_CONCURRENCY 24; it is a pass, which it was not.
                 pool = sorted(in_scope if wanted_groups else known)
-                if len(pool) > SYNC_REFRESH_MAX:
-                    start = _refresh_cursor["at"] % len(pool)
-                    ids = (pool + pool)[start:start + SYNC_REFRESH_MAX]
-                    _refresh_cursor["at"] = (start + SYNC_REFRESH_MAX) % len(pool)
-                else:
-                    ids = pool
+                refresh_pool = len(pool)
+                refresh_start = _refresh_cursor["at"] % refresh_pool
+                ids = (pool + pool)[refresh_start:refresh_start + min(SYNC_REFRESH_MAX,
+                                                                     refresh_pool)]
                 sem = asyncio.Semaphore(SYNC_CONCURRENCY)
 
                 # Ids the fetch budget ran out before reaching, counted for the log line
@@ -3423,7 +3443,7 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
                 if refresh_cut:
                     # Not `truncated`: the run is not short of what it was ASKED for, it
                     # simply did not get all the way round the refresh rotation. The
-                    # cursor already moved, so those ids come up first next run.
+                    # cursor moves by what was refreshed, so these come up next run.
                     log.info("sync: refresh cut short, %d of %d ids left for the next "
                              "run", refresh_cut, len(ids))
                 batches.append(("existing tickets", [g for g in got if g]))
@@ -3787,6 +3807,13 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
 
             # Nothing new across every day asked for means we are current. Said out loud
             # because "0 created" otherwise reads as a failure rather than as caught up.
+            # Move the rotation on by what was REFRESHED, not by what was fetched. A run
+            # that got through 23 of 37 leaves the cursor on the 24th, so the tail is
+            # first in line next time instead of being skipped for ever. `refreshed`
+            # only ever holds tickets we already had, which is exactly this rotation.
+            if refresh_start is not None and refresh_pool:
+                _refresh_cursor["at"] = (refresh_start + len(refreshed)) % refresh_pool
+
             caught_up = not truncated and not created
 
     if not body.dry_run:

@@ -195,6 +195,26 @@ check("the truncation branch continues rather than breaks",
           and seg.count("break") <= seg.count("continue") + 4),
       "breaking skips every batch behind it, explicit ones included")
 
+# ------------------------------------------------------------------ the rotation
+# The other way the same tickets end up never refreshed. The budget fix made a run
+# process only part of what it fetched, and the rotation was not built for that: it
+# skipped rotating whenever the pool fit under SYNC_REFRESH_MAX (37 held tickets do),
+# and advanced the cursor by ids FETCHED rather than tickets REFRESHED. Either one puts
+# a stable tail of the sorted pool permanently out of reach — which is precisely the
+# bug the cursor was introduced to fix in the first place, arrived at from a new angle.
+print()
+print("the refresh rotation reaches every ticket, not just the ones that fit")
+check("the rotation is unconditional",
+      "if len(pool) > SYNC_REFRESH_MAX:" not in seg,
+      "a pool that fits is not a pool that finishes - 23 of 37 got processed and the "
+      "same 14 were skipped every run")
+check("the cursor advances by tickets refreshed, not ids fetched",
+      "len(refreshed)) % refresh_pool" in seg,
+      "advancing by SYNC_REFRESH_MAX skips everything fetched and not processed")
+check("a run that rotated nothing leaves the cursor alone",
+      "if refresh_start is not None and refresh_pool:" in seg,
+      "an ids-only run must not move a rotation it never took part in")
+
 # ------------------------------------------------------------------ visibility
 print()
 print("a run that was cut off does not look like a run with nothing to do")
