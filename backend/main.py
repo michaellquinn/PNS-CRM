@@ -1330,7 +1330,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-08.97"
+BUILD = "2026-09-08.98"
 
 
 class Me(BaseModel):
@@ -2249,6 +2249,21 @@ SYNC_CONCURRENCY = int(os.getenv("SYNC_CONCURRENCY", "8") or 8)
 # Ceiling on how many existing tickets get re-read in one run. Fine while PNS holds
 # hundreds; revisit if it ever holds thousands.
 SYNC_REFRESH_MAX = int(os.getenv("SYNC_REFRESH_MAX", "400") or 400)
+# Seconds of the budget RESERVED for processing, i.e. fetching stops this early.
+#
+# Why this exists (Michael, 2026-09-08): the deadline was only ever tested BETWEEN
+# fetches, and the held-ticket refresh is one `asyncio.gather` over up to
+# SYNC_REFRESH_MAX ids. A gather cannot be interrupted from outside, so that single
+# await ran to completion however long it took. Lowering SYNC_CONCURRENCY 24 -> 8 the
+# day before turned its ~17 sequential rounds into ~50 and pushed it past the budget —
+# and the processing loop, which checks the deadline on its FIRST iteration, then broke
+# immediately and processed nothing at all. Every run reported created 0, refreshed 0,
+# errors 0 and last_ok true while three queued opportunities sat pending for a day.
+#
+# A budget that only bounds fetching is not a budget: the run has to have time left to
+# USE what it fetched. Fetching now stops at deadline - this, which is what makes the
+# reserve meaningful rather than nominal.
+SYNC_FETCH_RESERVE_S = int(os.getenv("SYNC_FETCH_RESERVE_S", "8") or 8)
 
 # Sales CRM -> our service line (Michael, 2026-08-26).
 #
@@ -2509,7 +2524,7 @@ class SalesCrm:
         or was never attempted."""
         return self._account_errs.get(str(aid or ""), "")
 
-    async def warm_accounts(self, ids) -> None:
+    async def warm_accounts(self, ids, deadline: float | None = None) -> None:
         """Fetch many accounts at once into the cache.
 
         Sales CRM has no bulk-by-id endpoint, so this is still one request per account,
@@ -2518,7 +2533,14 @@ class SalesCrm:
         which put the whole sync past the ingress timeout and returned a bare 502.
 
         Bounded by SYNC_CONCURRENCY: enough to collapse the wall-clock, low enough not to
-        look like an attack to whatever sits in front of Sales CRM."""
+        look like an attack to whatever sits in front of Sales CRM.
+
+        `deadline` (a time.monotonic() value) bounds the whole fan-out: once it passes,
+        the tasks still waiting for the semaphore return immediately rather than the
+        gather running as long as it takes. Pass it for accounts the run merely WANTS —
+        an unwarmed account reads as a missing one, which the refresh path already
+        handles. Do not pass it for accounts an import NEEDS: a new ticket without its
+        account fails with "opportunity has no account name"."""
         todo = [str(i) for i in ids if str(i or "") and str(i) not in self._accounts]
         if not todo:
             return
@@ -2526,6 +2548,8 @@ class SalesCrm:
 
         async def one(aid: str):
             async with sem:
+                if deadline is not None and time.monotonic() > deadline:
+                    return
                 try:
                     await self.account(aid)
                 except Exception as e:
@@ -3140,6 +3164,10 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
     # closes a long request with a bare 502 and no body, which tells whoever pressed the
     # button nothing at all. Partial results with a stated reason are far more useful.
     deadline = time.monotonic() + SYNC_BUDGET_S
+    # Fetching stops here, leaving the rest of the budget to process what was fetched.
+    # Checked INSIDE each concurrent fetch helper, because the helpers run under
+    # asyncio.gather and a gather is not interruptible from the outside.
+    fetch_deadline = deadline - SYNC_FETCH_RESERVE_S
     truncated = False
     # The import floor is a setting now, so a run reads it rather than trusting the
     # module global it was started with (Baskoro, 2026-08-28). The env var remains the
@@ -3324,6 +3352,12 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
             async def fetch_day(day_d):
                 async with sem_days:
                     day = str(day_d)
+                    # Same bound as the refresh: a 60-day window is 60 round trips and
+                    # must not be able to consume the time the run needs to process what
+                    # it already has. A day not reached is reported as truncated, so the
+                    # caller knows to move the window rather than assuming it is current.
+                    if time.monotonic() > fetch_deadline:
+                        return day, False     # False marks a day the budget never reached
                     try:
                         d = await crm.records("Opportunity", new_date=day, page_size=100)
                         return day, d.get("items") or []
@@ -3332,6 +3366,9 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
 
             got_days = await asyncio.gather(*(fetch_day(d) for d in wanted))
             for day, items in got_days:
+                if items is False:
+                    truncated = True
+                    continue
                 if items is None:
                     errors.append({"id": None, "name": "day " + day,
                                    "error": "could not be read, run this window again"})
@@ -3359,8 +3396,21 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
                     ids = pool
                 sem = asyncio.Semaphore(SYNC_CONCURRENCY)
 
+                # Ids the fetch budget ran out before reaching, counted for the log line
+                # below. A list because a closure can append to one without `nonlocal`.
+                nonlocal_cut: list[str] = []
+
                 async def one(oid: str):
                     async with sem:
+                        # Inside the semaphore, so this is tested when the task actually
+                        # gets its turn rather than when it was queued. Once the fetch
+                        # budget is gone the remaining hundreds of tasks drain instantly
+                        # instead of running the sweep past its deadline — the refresh is
+                        # the half that can always resume next run, and starving the
+                        # processing loop costs the run everything it already fetched.
+                        if time.monotonic() > fetch_deadline:
+                            nonlocal_cut.append(oid)
+                            return None
                         try:
                             d = await crm.records("Opportunity", id=oid)
                             items = d.get("items") or []
@@ -3369,6 +3419,13 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
                             return None
 
                 got = await asyncio.gather(*(one(i) for i in ids))
+                refresh_cut = len(nonlocal_cut)
+                if refresh_cut:
+                    # Not `truncated`: the run is not short of what it was ASKED for, it
+                    # simply did not get all the way round the refresh rotation. The
+                    # cursor already moved, so those ids come up first next run.
+                    log.info("sync: refresh cut short, %d of %d ids left for the next "
+                             "run", refresh_cut, len(ids))
                 batches.append(("existing tickets", [g for g in got if g]))
 
             # 3. Backfill, only when explicitly asked for. This is the expensive path.
@@ -3421,22 +3478,49 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
             # once the run is out of budget, same as everything else in the sweep.
             held = [o for _, items in batches for o in items
                     if str(o.get("id")) in known] if body.refresh else []
-            if time.monotonic() > deadline:
+            if held and time.monotonic() > fetch_deadline:
+                # Dropping the refresh half ENTIRELY is worth saying out loud, unlike the
+                # rotation merely not getting all the way round (logged, not flagged):
+                # "New + refresh" asked for it and did not get it.
                 truncated = True
                 held = []
-            await crm.warm_accounts(o.get("account_id") for o in all_fresh + held)
+            # Fresh first and UNBOUNDED: these are the opportunities about to become
+            # tickets, the account is where the tier and the shipper come from, and one
+            # without it fails the import outright. There are at most a handful — the
+            # ones the day window found plus whatever was queued.
+            await crm.warm_accounts(o.get("account_id") for o in all_fresh)
             await crm.warm_accounts(
                 (crm._accounts.get(str(o.get("account_id"))) or {}).get("parent_account_id")
                 for o in all_fresh)
+            # Held tickets second and BOUNDED. This is up to SYNC_REFRESH_MAX accounts,
+            # one round trip each — on its own enough to spend the entire budget and
+            # leave nothing to process, which is precisely what it was doing. A ticket
+            # whose account is not warmed refreshes from the opportunity's own fields
+            # and gets its account next run.
+            await crm.warm_accounts((o.get("account_id") for o in held),
+                                    deadline=fetch_deadline)
+
+            # Explicit requests first, and never truncated. A "queued 907174" or
+            # "id 907174" batch is one opportunity somebody typed on purpose; a "day" or
+            # "page" batch is discovery the next run repeats anyway. When the budget is
+            # tight those must not compete on equal terms — the run that dropped three
+            # queued ids on the floor dropped them because they sat in the same list as
+            # 400 refreshed tickets and the loop broke before reaching anything at all.
+            # Bounded by construction: ids and queue_ids are both capped at 200.
+            batches.sort(key=lambda b: 0 if b[0].startswith(("queued ", "id ")) else 1)
 
             for label, items in batches:
-                if time.monotonic() > deadline:
+                explicit = label.startswith(("queued ", "id "))
+                if not explicit and time.monotonic() > deadline:
                     truncated = True
-                    break
+                    # `continue`, not `break`: the sort puts explicit batches first, so
+                    # breaking here is safe today and silently wrong the day anything
+                    # appends one later.
+                    continue
                 new_on_this_page = 0
 
                 for o in items:
-                    if time.monotonic() > deadline:
+                    if not explicit and time.monotonic() > deadline:
                         truncated = True
                         break
                     scanned += 1
@@ -3745,7 +3829,13 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
                        "unknown_sales": len(unknown_sales),
                        "revenue_filled": sum(1 for r in refreshed
                                              if r.get("revenue_filled")),
-                       "unmapped": len(unmapped)}}
+                       "unmapped": len(unmapped),
+                       # Carried in the counts, not only at the top level, because the
+                       # auto-sync status records `counts` and nothing else. A run that
+                       # was cut off looked identical to a run with nothing to do — ten
+                       # consecutive all-zero sweeps reported last_ok true while the
+                       # processing loop was breaking on its first iteration every time.
+                       "truncated": truncated}}
 
 
 async def _refresh_from_salescrm(o: dict, account: dict | None = None,

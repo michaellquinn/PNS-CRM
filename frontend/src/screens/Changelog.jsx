@@ -3,6 +3,20 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-09-08",
+    title: "FIXED: the sweep spent its whole budget fetching and then threw it all away",
+    by: "Michael + Claude",
+    changes: [
+      "FIXED: 907174, 904840 and 907124 stayed “pending” for a day. Auto-sync ran every five minutes, reported success every time, and recorded created 0, refreshed 0, skipped 0, errors 0 on every run. Pressing Dry run returned a bare 502 after 30 seconds and drew no panel, so “Run for real” never unlocked. The data was fine the whole time — fetching any of those ids directly returned a complete record in a tenth of a second.",
+      "The cause was the third fault in a row behind the same tickets, and the only one where no part of the code was wrong on its own. The held-ticket refresh re-reads up to 400 opportunities in ONE asyncio.gather, and a gather cannot be interrupted from outside — so the sweep’s deadline, which is checked carefully everywhere else, could not touch it. Lowering the Sales CRM concurrency from 24 to 8 the day before (the right fix for a 429) turned that step from ~17 rounds into ~50 and pushed it past the budget. The loop that processes what was fetched checks the deadline on its FIRST iteration, so from 2026-09-07 14:30 onwards it broke immediately and processed nothing — not the held tickets, and not the three queued deals that had been fetched successfully seconds earlier and were sitting at the front of the queue.",
+      "Fetching now stops early, at deadline minus SYNC_FETCH_RESERVE_S, so the run always has time left to USE what it fetched. Every fan-out — the day window, the held-ticket refresh, and the account warm — tests the clock INSIDE the coroutine, which is the only place a bound can live when the await itself cannot be cancelled.",
+      "Explicitly requested opportunities now sort first and are never truncated. A queued id is somebody typing a number on purpose; a day sweep is the app guessing, and the next run repeats it anyway. Those two were competing on equal terms, which is why the thing Sales actually asked for was the thing that got dropped.",
+      "A truncated run now says so in its counts. Auto-sync records counts and nothing else, so a run cut off after doing nothing was indistinguishable from a run with nothing to do — that is how ten consecutive empty sweeps reported themselves as healthy.",
+      "New verify_sync_budget suite pins the shape rather than the symptom: every gather in the sweep must fan out over a coroutine that reads the clock. Confirmed by reintroducing the exact bug — the suite fails. Nothing here was catchable by reading one function; the fault lived between a tunable and an unbounded await, in two changes that were each correct.",
+    ],
+    overruled: [],
+  },
+  {
+    date: "2026-09-08",
     title: "FIXED: the import queue loaded your ids and then never read them",
     by: "Michael + Claude",
     changes: [

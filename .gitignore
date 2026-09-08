@@ -4,3 +4,6 @@
 # Python bytecode
 __pycache__/
 *.pyc
+
+# Throwaway venv for tools/gen_openapi.py — see that file's docstring
+.venv-spec/

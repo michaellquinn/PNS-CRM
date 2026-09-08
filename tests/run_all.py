@@ -80,6 +80,17 @@ Each suite exists because something was actually wrong:
                      still a branch of the window chain. The first fix looked right and
                      changed nothing, which is the failure this pins.
 
+  verify_sync_budget The third fault behind the same pending tickets, and the one no
+                     unit of the code was wrong for. The held-ticket refresh is a single
+                     asyncio.gather over up to 400 ids, and a gather cannot be
+                     interrupted from outside — so lowering SYNC_CONCURRENCY 24 -> 8 in
+                     an unrelated fix took it past the budget, and the processing loop
+                     below it then broke on its FIRST iteration and did nothing at all.
+                     Every sweep reported last_ok true with all-zero counts. Pins that
+                     every fan-out is bounded from inside the coroutine, that the budget
+                     reserves time to USE what it fetched, and that a queued id is never
+                     the thing dropped.
+
   verify_transitions POST /status took whatever string it was handed, so a status the
                      running code cannot act on could be written straight onto a ticket.
                      Also pins that a "*" row does not let a Lost deal be walked
@@ -95,7 +106,8 @@ SUITES = ["verify_rules.py", "verify_assign.py", "verify_workload.py", "verify_a
           "verify_psp_gate.py", "verify_permissions.py", "verify_review_level.py",
           "verify_transitions.py", "verify_sync_guards.py", "verify_names.py",
           "verify_service_line.py", "verify_stages.py", "verify_threads.py",
-          "verify_onboarding.py", "verify_crm_retry.py", "verify_import_queue.py"]
+          "verify_onboarding.py", "verify_crm_retry.py", "verify_import_queue.py",
+          "verify_sync_budget.py"]
 
 # Suites that EXECUTE backend/main.py rather than reading it need the backend's own
 # dependencies installed. Most suites here deliberately parse the AST instead, precisely
