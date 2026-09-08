@@ -157,6 +157,22 @@ if warm:
     check("and honours it inside the fan-out", tests_the_clock(warm),
           "a deadline the coroutine never reads bounds nothing")
 
+# Every warm_accounts call in the sweep is either bounded or provably tiny. The one that
+# was neither measured at 25.4s with `scanned 0` — a full budget spent looking up
+# accounts for a 7-day window and no time left to import a single one of them.
+warm_calls = [n for n in ast.walk(sync)
+              if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+              and n.func.attr == "warm_accounts"]
+check("the sweep warms accounts in more than one call", len(warm_calls) >= 3,
+      f"found {len(warm_calls)} - explicit and discovered must be warmed separately")
+unbounded = [c for c in warm_calls
+             if not any(k.arg == "deadline" for k in c.keywords)]
+for c in unbounded:
+    seg_c = ast.get_source_segment(src, c) or ""
+    check(f"main.py:{c.lineno} unbounded warm is for explicit requests only",
+          "explicit_fresh" in seg_c,
+          "a discovery warm with no deadline can spend the whole budget")
+
 # ------------------------------------------------------------------ the reserve
 print()
 print("the budget reserves time to USE what was fetched")

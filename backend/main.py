@@ -1330,7 +1330,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-08.100"
+BUILD = "2026-09-08.101"
 
 
 class Me(BaseModel):
@@ -3490,7 +3490,21 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
                             _first(o.get("nv_product_line")) or _first(o.get("core_product")),
                             _first(o.get("service_level")), o.get("account_name"))[0])
 
-            all_fresh = [o for _, items in batches for o in items if needs_account(o)]
+            # Split by who asked. Warming an account is a round trip each and there is no
+            # bulk endpoint, so this is the third fan-out big enough to spend the budget
+            # on its own — a 7-day window is ~35 fresh opportunities plus their parents,
+            # which measured at 25.4s with `scanned 0`: the whole run spent looking up
+            # accounts and then no time left to use one of them. Explicit requests stay
+            # unbounded because an import without its account fails outright; discovery
+            # is bounded because next run repeats it anyway.
+            def _explicit(label):
+                return label.startswith(("queued ", "id "))
+
+            explicit_fresh = [o for label, items in batches if _explicit(label)
+                              for o in items if needs_account(o)]
+            found_fresh = [o for label, items in batches if not _explicit(label)
+                           for o in items if needs_account(o)]
+            all_fresh = explicit_fresh + found_fresh
             # Held tickets need their account too, now that a refresh copies the account
             # fields (commodity, the shipper ID Ops onboards against) and not only the
             # opportunity's. Accounts are cached and heavily shared between opportunities,
@@ -3504,14 +3518,24 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
                 # "New + refresh" asked for it and did not get it.
                 truncated = True
                 held = []
-            # Fresh first and UNBOUNDED: these are the opportunities about to become
-            # tickets, the account is where the tier and the shipper come from, and one
-            # without it fails the import outright. There are at most a handful — the
-            # ones the day window found plus whatever was queued.
-            await crm.warm_accounts(o.get("account_id") for o in all_fresh)
-            await crm.warm_accounts(
-                (crm._accounts.get(str(o.get("account_id"))) or {}).get("parent_account_id")
-                for o in all_fresh)
+            def _parent(o):
+                return (crm._accounts.get(str(o.get("account_id")))
+                        or {}).get("parent_account_id")
+
+            # Explicitly requested, and UNBOUNDED: the account is where the tier and the
+            # shipper come from, and an opportunity without one fails its import with
+            # "opportunity has no account name". Somebody typed these ids; bounding them
+            # would mean the deal a person asked for is the one that fails. Capped at 200
+            # by the caller, in practice a handful.
+            await crm.warm_accounts(o.get("account_id") for o in explicit_fresh)
+            await crm.warm_accounts(_parent(o) for o in explicit_fresh)
+            # Discovered by the sweep, and BOUNDED. A window nobody asked for must not be
+            # able to spend the budget the queued ids and the refresh need. Anything not
+            # warmed in time is simply found again by the next run.
+            await crm.warm_accounts((o.get("account_id") for o in found_fresh),
+                                    deadline=fetch_deadline)
+            await crm.warm_accounts((_parent(o) for o in found_fresh),
+                                    deadline=fetch_deadline)
             # Held tickets second and BOUNDED. This is up to SYNC_REFRESH_MAX accounts,
             # one round trip each — on its own enough to spend the entire budget and
             # leave nothing to process, which is precisely what it was doing. A ticket
