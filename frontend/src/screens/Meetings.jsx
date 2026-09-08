@@ -119,11 +119,52 @@ function Line({ n, t, onOpen, right, children }) {
  * and was never brought back down. Raising something that genuinely needs answering is
  * still a question, asked from the ticket's own Discussion tab where it can be tagged
  * to a person and resolved.
+ *
+ * IT SHOWS THE THREAD SO FAR, above the box, before you write (Michael, 2026-09-08).
+ * The point of a standing thread is that it is a running record, and a walk is where
+ * that record is worth the most: the question being answered on the call is "what has
+ * moved since last week", which cannot be answered by somebody who cannot see what was
+ * said last week. Writing blind meant the same update was recorded again and again, and
+ * a thread of eight posts saying the same thing is no better than the eight one-post
+ * threads this replaced.
+ *
+ * Fetched when the box OPENS, not with the list. The walk loads forty rows and reads
+ * almost none of their threads, so loading every one up front would be forty requests
+ * to render nothing — and it would be stale by the time anybody reached row thirty of
+ * a call. One request, when a person actually asks to write.
  */
 function QuickComment({ t, notify, onDone }) {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(false);
+  // null while loading, [] once loaded and empty — the two read differently on screen
+  // and collapsing them would show "nothing was said" during the fetch, which is a lie
+  // that matters here: it is the exact thing somebody is about to act on.
+  const [prior, setPrior] = useState(null);
+  const [priorErr, setPriorErr] = useState(null);
+  const [showAll, setShowAll] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    let live = true;
+    setPrior(null);
+    setPriorErr(null);
+    setShowAll(false);
+    api.comments(t.ref)
+      .then((d) => {
+        if (!live) return;
+        // The standing thread only — thread_key NULL, which is what the general thread
+        // has always been. A named thread is a specific question somebody raised and
+        // belongs on the ticket, not in a weekly walk's field of view.
+        //
+        // NEWEST FIRST, which is the opposite of how the Discussion tab reads it. There
+        // it is a log you read forwards; here it answers "what was said last time",
+        // and burying that under two months of history is the same as not showing it.
+        setPrior((d.comments || []).filter((c) => !c.thread_key).reverse());
+      })
+      .catch((e) => { if (live) setPriorErr(e.message); });
+    return () => { live = false; };
+  }, [open, t.ref]);
 
   const send = async () => {
     const body = text.trim();
@@ -151,17 +192,92 @@ function QuickComment({ t, notify, onDone }) {
       </button>
     );
   }
+  // Three, then the rest on request. Enough to see where the conversation got to
+  // without turning one row of a forty-row walk into a wall of text.
+  const SHOWN = 3;
+  const visible = showAll ? (prior || []) : (prior || []).slice(0, SHOWN);
+
   return (
-    <div className="flex w-full flex-wrap items-center gap-2">
-      <input className={`${inputCls} min-w-[220px] flex-1`} autoFocus value={text}
-        placeholder={`Weekly update on ${t.ref} — posts to ${GENERAL_TITLE}.`}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
-          if (e.key === "Escape") { setOpen(false); setText(""); }
-        }} />
-      <Btn kind="primary" disabled={busy || !text.trim()} onClick={send}>Post</Btn>
-      <Btn onClick={() => { setOpen(false); setText(""); }}>Cancel</Btn>
+    <div className="w-full">
+      <div className="mb-2 rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2.5">
+        <div className="mb-1.5 flex flex-wrap items-center gap-2">
+          <span className="text-[10.5px] font-bold uppercase tracking-wider text-slate-400">
+            {GENERAL_TITLE} so far
+          </span>
+          {prior && prior.length > 0 && (
+            <span className="text-[11.5px] text-slate-400">
+              {prior.length} post{prior.length === 1 ? "" : "s"}
+            </span>
+          )}
+        </div>
+
+        {priorErr && (
+          <p className="text-[12px] text-rose-700">
+            Could not read the thread: {priorErr}. Post anyway, or open {t.ref} to check.
+          </p>
+        )}
+        {!priorErr && prior === null && (
+          <p className="text-[12px] text-slate-400">Reading the thread…</p>
+        )}
+        {!priorErr && prior && prior.length === 0 && (
+          <p className="text-[12px] text-slate-400">
+            Nothing said here yet — this is the first note on {t.ref}.
+          </p>
+        )}
+
+        {!priorErr && prior && prior.length > 0 && (
+          <div className="flex flex-col gap-2">
+            {visible.map((c, i) => (
+              <div key={c.id}
+                className={`rounded-lg border px-2.5 py-2 ${
+                  i === 0 && !showAll
+                    ? "border-slate-300 bg-white"
+                    : "border-slate-200 bg-white/60"}`}>
+                <div className="mb-0.5 flex flex-wrap items-center gap-2">
+                  <b className="text-[12px]">{c.author}</b>
+                  <span className="font-mono text-[10.5px] text-slate-400">{c.at}</span>
+                  {/* Only on the newest, and only when it is actually at the top: once
+                      the full thread is expanded the ordering says this by itself, and
+                      a badge on every render is noise. */}
+                  {i === 0 && !showAll && (
+                    <Pill tone="bg-slate-100 text-slate-600">most recent</Pill>
+                  )}
+                  {c.is_question && (
+                    <Pill tone={c.resolved_at
+                      ? "bg-emerald-50 text-emerald-700"
+                      : "bg-amber-50 text-amber-700"}>
+                      {c.resolved_at ? "Answered" : "Question"}
+                    </Pill>
+                  )}
+                </div>
+                <p className="whitespace-pre-wrap text-[12.5px] leading-snug text-slate-700">
+                  {c.body}
+                </p>
+              </div>
+            ))}
+            {prior.length > SHOWN && (
+              <button type="button" onClick={() => setShowAll((v) => !v)}
+                className="self-start text-[11.5px] font-semibold text-[#EE1B2C] hover:underline">
+                {showAll
+                  ? `Show only the last ${SHOWN}`
+                  : `Show all ${prior.length} posts`}
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="flex w-full flex-wrap items-center gap-2">
+        <input className={`${inputCls} min-w-[220px] flex-1`} autoFocus value={text}
+          placeholder={`What has changed since the last note? Posts to ${GENERAL_TITLE} on ${t.ref}.`}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+            if (e.key === "Escape") { setOpen(false); setText(""); }
+          }} />
+        <Btn kind="primary" disabled={busy || !text.trim()} onClick={send}>Post</Btn>
+        <Btn onClick={() => { setOpen(false); setText(""); }}>Cancel</Btn>
+      </div>
     </div>
   );
 }

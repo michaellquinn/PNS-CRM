@@ -137,6 +137,22 @@ check("...and does not file a weekly note as a question",
       "is_question: true" not in meet,
       "every weekly update would add one to the unanswered count, permanently")
 
+# Reading the thread before writing into it (Michael, 2026-09-08). A standing thread is
+# only worth having if the person writing the next entry can see the last one — the walk
+# asks "what has moved since last week", and somebody who cannot see last week's note
+# writes it again. Eight posts repeating themselves is no better than the eight one-post
+# threads this replaced, so the read is part of the same feature as the write.
+check("Pending & proposals READS the thread before writing to it",
+      "api.comments(t.ref)" in meet,
+      "the note box would be written blind, which is how a thread fills up with the "
+      "same update eight times")
+check("...and shows the general thread only",
+      "filter((c) => !c.thread_key)" in meet,
+      "a named thread is a specific question raised on the ticket, not walk history")
+check("...newest first, because the last note is the one being answered",
+      ".reverse()" in meet,
+      "oldest-first buries the only post the walk actually needs behind the rest")
+
 disc = _read("frontend", "src", "screens", "Discussion.jsx")
 check("Discussion seeds the general thread, so every ticket shows one",
       'const groups = [{ key: "", title: GENERAL_TITLE, items: [] }];' in disc,

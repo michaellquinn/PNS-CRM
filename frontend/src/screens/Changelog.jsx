@@ -3,6 +3,19 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-09-08",
+    title: "Pending & proposals shows the discussion so far before you add to it",
+    by: "Michael + Claude",
+    changes: [
+      "NEW - the + Note box on Pending & proposals now shows the General Discussion above it, newest first, before you write. The walk asks what has moved since last week, and that is not a question somebody can answer without seeing what was said last week.",
+      "Why it matters: the standing thread was introduced so a deal walked weekly reads as one running log instead of eight one-post threads. Writing into it blind gets you the same problem back in a different shape - eight posts that all say the same thing. Refer to the last note, then record what is new.",
+      "The last three posts show by default, with the newest marked, and a link opens the full thread. Questions still show whether they were answered, so a walk can see at a glance that something is still owed.",
+      "Loaded when you open the box, not with the list. A walk loads forty rows and reads almost none of their threads - fetching every one up front would be forty requests to render nothing, and stale by the time anyone reached row thirty of a call.",
+      "Nothing changed about what gets posted: still a plain note into the standing thread, still not a question, so the unanswered count still means what it says.",
+    ],
+    overruled: [],
+  },
+  {
+    date: "2026-09-08",
     title: "FIXED: the sweep spent its whole budget fetching and then threw it all away",
     by: "Michael + Claude",
     changes: [
