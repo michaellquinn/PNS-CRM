@@ -1330,7 +1330,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-08.99"
+BUILD = "2026-09-08.100"
 
 
 class Me(BaseModel):
@@ -3811,7 +3811,11 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
             # that got through 23 of 37 leaves the cursor on the 24th, so the tail is
             # first in line next time instead of being skipped for ever. `refreshed`
             # only ever holds tickets we already had, which is exactly this rotation.
-            if refresh_start is not None and refresh_pool:
+            #
+            # Not on a dry run. The cursor is the one piece of state a dry run could
+            # still move, and moving it would push real tickets a whole cycle down the
+            # queue because somebody pressed a button that promises to change nothing.
+            if refresh_start is not None and refresh_pool and not body.dry_run:
                 _refresh_cursor["at"] = (refresh_start + len(refreshed)) % refresh_pool
 
             caught_up = not truncated and not created

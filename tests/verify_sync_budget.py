@@ -212,8 +212,12 @@ check("the cursor advances by tickets refreshed, not ids fetched",
       "len(refreshed)) % refresh_pool" in seg,
       "advancing by SYNC_REFRESH_MAX skips everything fetched and not processed")
 check("a run that rotated nothing leaves the cursor alone",
-      "if refresh_start is not None and refresh_pool:" in seg,
+      "if refresh_start is not None and refresh_pool" in seg,
       "an ids-only run must not move a rotation it never took part in")
+check("a dry run does not move the cursor either",
+      "and not body.dry_run:" in seg,
+      "the cursor is the one piece of state a dry run could still move, and moving it "
+      "delays real tickets by a whole cycle for a button that changes nothing")
 
 # ------------------------------------------------------------------ visibility
 print()
