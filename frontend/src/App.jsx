@@ -1,5 +1,5 @@
 import { Component, useCallback, useEffect, useRef, useState } from "react";
-import { api, LIVE_STATUSES, NEW_TICKET_DAYS, isNewIncoming, isPnsWork } from "./api";
+import { api, LIVE_STATUSES, NEW_TICKET_DAYS, PENDING, isNewIncoming, isPnsWork } from "./api";
 import Dashboard from "./screens/Dashboard";
 import Matrix from "./screens/Matrix";
 import Capa from "./screens/Capa";
@@ -17,13 +17,13 @@ import Accounts from "./screens/Accounts";
 import Ignored from "./screens/Ignored";
 import Rdo from "./screens/Rdo";
 import Fields from "./screens/Fields";
-import { ReviewMeeting } from "./screens/Meetings";
+import { PendingReview, ProposalReview } from "./screens/Meetings";
 import StatusFlow from "./screens/StatusFlow";
 import DataChecks from "./screens/DataChecks";
 import Cancelled from "./screens/Cancelled";
 import {
   AwaitingPrice, NewIncoming, Open, PendingCrmId, ToReview, PspPending, ExecSignoff,
-  Proposals, ReadyToShip, RecycleBin, Watched,
+  ReadyToShip, RecycleBin, Watched,
 } from "./screens/Queues";
 
 // One nav entry per screen. `when` reads the permission map the backend sends, so the
@@ -113,14 +113,20 @@ const NAV = [
       keywords: "executive exec sign-off alex dhinesh cso coo" },
   ]],
   ["Planning", [
-    // One entry for the whole review (Michael, 2026-08-21): proposals out with shippers
-    // and everything still open are walked in the same sitting, so two entries meant
-    // leaving the list to see the other half and losing your place. The separate
-    // Proposal submitted screen still exists at ?screen=proposals for anyone with the
-    // link, it is just not a second thing to click past in the menu.
-    { id: "meeting", label: "Pending & proposals", icon: "☷", when: works,
+    // Two entries again (Michael, 2026-09-08), OVERRULING the single combined screen of
+    // 2026-08-21. That merge put both halves on one page so a review could walk them in
+    // one sitting; what it produced is a long page where the two run into each other and
+    // neither is easy to see. Pending first, then Proposal submitted — the order they
+    // are read in.
+    //
+    // The filters did NOT get split with them: both screens share one region, one
+    // salesperson and one PNS PIC selection, so picking the people in the room once
+    // holds across both. That is the half of the merge worth keeping.
+    { id: "pending", label: "Pending", icon: "☷", when: works, count: "pending:all",
+      keywords: "agenda review meeting sales region salesperson walk the list pending open" },
+    { id: "proposals", label: "Proposal submitted", icon: "☷", when: works,
       count: "Proposal Submitted",
-      keywords: "agenda review meeting sales region salesperson walk the list pending proposal submitted" },
+      keywords: "agenda review meeting proposal submitted outcome accepted lost shipper" },
     // NOT in Michael's list, both kept: Ready to ship is the won-deal list Legal and Ops
     // read, and Workload is the only screen that answers "who has capacity".
     { id: "ship", label: "Ready to ship", icon: "➔",
@@ -193,6 +199,16 @@ const NAV = [
 // without a ticket, and ?ticket= already covers that link.
 const NAV_IDS = new Set(NAV.flatMap(([, items]) => items.map((i) => i.id)));
 
+// Screens a link may still name that the menu no longer lists. Routing is gated on
+// NAV_IDS, so an id that leaves the menu stops being addressable the same day — and a
+// link people already have then lands on the Dashboard with no hint that it used to go
+// somewhere. Two comments in this file claimed old ids were "still routable" when they
+// had not been since the entries were removed; this is that claim made true.
+const SCREEN_ALIASES = {
+  meeting: "pending",        // the combined screen, split 2026-09-08
+  awaiting: "awaiting-pns",  // one screen, split into the PNS and Sales halves
+};
+
 // Where the URL says we are. One reader for all three callers -- the first render, the
 // Back button, and the effect that decides whether a move is worth a history entry -- so
 // the address bar and the screen cannot disagree about what the app is showing.
@@ -203,6 +219,9 @@ function readEntry() {
   const wanted = params.get("screen");
   if (ticket) return { screen: "detail", ticketRef: ticket };
   if (NAV_IDS.has(wanted)) return { screen: wanted, ticketRef: null };
+  // Resolved to the CURRENT id rather than rendered under the old one, so the address
+  // bar rewrites itself to where the app actually is and the next share is a live link.
+  if (SCREEN_ALIASES[wanted]) return { screen: SCREEN_ALIASES[wanted], ticketRef: null };
   return { screen: "dashboard", ticketRef: null };
 }
 
@@ -587,6 +606,10 @@ export default function App() {
         // status half went with the Start-work button (Michael, 2026-09-07).
         c["open"] = all.tickets.filter(
           (t) => isPnsWork(t) && !t.owner && LIVE_STATUSES.includes(t.status)).length;
+        // The Pending screen lists every Pending-* status, so its badge is their sum.
+        // From PENDING in api.js, the same list the screen fetches, so the number on the
+        // menu and the number of rows behind it come from one definition.
+        c["pending:all"] = PENDING.reduce((n, s) => n + (c[s] || 0), 0);
         setCounts(c);
       })
       .catch(() => {});
@@ -639,17 +662,19 @@ export default function App() {
     incoming: <NewIncoming me={me} onOpen={open} />,
     open: <Open me={me} notify={notify} onOpen={open} />,
     crmid: <PendingCrmId me={me} notify={notify} onOpen={open} />,
-    // Two entries, one component. `awaiting` stays routable so an emailed or pasted
-    // ?screen=awaiting link from before the split still lands somewhere real.
-    awaiting: <AwaitingPrice me={me} notify={notify} onOpen={open} />,
+    // Two entries, one component. An emailed or pasted ?screen=awaiting link from before
+    // the split is resolved to the PNS half by SCREEN_ALIASES.
     "awaiting-pns": <AwaitingPrice me={me} notify={notify} onOpen={open} side="PNS" />,
     "awaiting-sales": <AwaitingPrice me={me} notify={notify} onOpen={open} side="Sales" />,
     review: <ToReview me={me} notify={notify} onOpen={open} />,
     signoff: <ExecSignoff me={me} notify={notify} onOpen={open} />,
     "psp-pending": <PspPending me={me} notify={notify} onOpen={open} />,
-    proposals: <Proposals me={me} notify={notify} onOpen={open} />,
+    // Two entries, one component, one set of filters (Michael, 2026-09-08). An old
+    // ?screen=meeting link still works — SCREEN_ALIASES resolves it to `pending` before
+    // it gets here, so there is no second entry to keep in step with this one.
+    pending: <PendingReview me={me} notify={notify} onOpen={open} />,
+    proposals: <ProposalReview me={me} notify={notify} onOpen={open} />,
     ship: <ReadyToShip me={me} onOpen={open} />,
-    meeting: <ReviewMeeting me={me} notify={notify} onOpen={open} />,
     rdo: <Rdo onOpen={open} />,
     fields: <Fields />,
     ignored: <Ignored notify={notify} />,

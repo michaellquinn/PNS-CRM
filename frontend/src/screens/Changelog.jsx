@@ -3,6 +3,22 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-09-08",
+    title: "Pending and Proposal submitted are two menu entries again, sharing one filter",
+    by: "Michael + Claude",
+    changes: [
+      "Pending & proposals is now two entries: Pending first, then Proposal submitted. They are read separately, and on one page the two halves ran into each other.",
+      "The filters did NOT get split with them. Region, salesperson and PNS PIC are the same controls backed by the same stored selection, so picking the people in the room once holds across both screens and switching between them changes nothing but which list you are looking at.",
+      "Both screens still load both halves behind the scenes, and that is deliberate rather than wasteful: the name lists are built from the tickets on screen, and a stored name that is not in them gets dropped. Loading only your own half would mean picking a salesperson on Pending, opening Proposal submitted where they have nothing, and having the shared filter silently cleared under you.",
+      "Each list is numbered from 1 again, and each remembers its own scroll position. A proposal list starting at 24 because of how many pending tickets there are is a number about the other screen.",
+      "Old ?screen=meeting links still work — they resolve to Pending. Two comments in App.jsx claimed removed screens were still reachable by link when they had not been since the entries went; that is now actually true, for this split and for the older Pricing one.",
+    ],
+    overruled: [
+      "Michael, 2026-08-21: one screen for the whole review, on the reasoning that proposals and pending are walked in the same sitting so two entries meant losing your place. What stands instead: two entries, one shared set of filters. The shared filter is the part of that reasoning worth keeping; the single page is not.",
+      "The standalone Proposals queue in Queues.jsx is removed. Its route now serves the new Proposal submitted screen, which carries the shared filters, so the old one had no way in — and two screens for one job, one of them unreachable, is how they drift apart.",
+    ],
+  },
+  {
+    date: "2026-09-08",
     title: "Pending & proposals shows the discussion so far before you add to it",
     by: "Michael + Claude",
     changes: [

@@ -247,7 +247,7 @@ export default function Discussion({ ticketRef, me, notify, onCountChange,
           <div className="flex flex-col gap-3">
         {g.items.length === 0 && (
           <p className="rounded-xl border border-dashed border-slate-200 px-3.5 py-3 text-[12.5px] text-slate-400">
-            Nothing here yet. Weekly updates from Pending &amp; proposals land in this
+            Nothing here yet. Weekly updates from Pending and Proposal submitted land in this
             thread, and anyone can post here from the box below.
           </p>
         )}

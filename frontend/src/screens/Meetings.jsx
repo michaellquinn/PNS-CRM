@@ -5,10 +5,10 @@ import {
 } from "../ui";
 import { ProposalActions } from "./Queues";
 
-// Pending & proposals, run by region. Pick the regions in the room, and both people
-// lists — the salesperson who sold it and the PNS PIC holding it — narrow to whoever
-// actually has deals there. Picking from all of Commercial when three of them cover your
-// region is how a list ends up with somebody else's deals in it.
+// Pending, and Proposal submitted — two screens run by region. Pick the regions in the
+// room, and both people lists — the salesperson who sold it and the PNS PIC holding
+// it — narrow to whoever actually has deals there. Picking from all of Commercial when
+// three of them cover your region is how a list ends up with somebody else's deals in it.
 
 const REGIONS = ["GJ", "WJ", "CJ", "EJ"];
 
@@ -309,15 +309,32 @@ function Block({ label, sub, rows, tone, offset, onOpen, actions, notify, onDone
   );
 }
 
-/* ------------------------------------------------------ pending & proposals */
-/* One screen for the whole review (Michael, 2026-08-21). A review walks the proposals
-   sitting with shippers AND everything still open, so keeping them behind two menu
-   entries meant leaving the list to look at the other half and losing your place.
+/* ------------------------------------------------------ pending, and proposals */
+/* TWO screens, one implementation, one set of filters (Michael, 2026-09-08).
 
-   The two halves are not the same job, and the screen says so: a submitted proposal has
+   This OVERRULES the single combined screen of 2026-08-21. That merge was made so a
+   review could walk proposals and everything still open in one sitting without leaving
+   the list; what it produced in practice is one long page where the two halves run into
+   each other and neither is easy to see. Michael's call is that they are read
+   separately, so they are separate menu entries again — Pending first, then Proposal
+   submitted.
+
+   What does NOT come back is two different filter bars. Region, salesperson and PNS PIC
+   are the same controls backed by the same stored values, so picking the people in the
+   room once holds across both screens. That is the half of the merge worth keeping.
+
+   Both screens still LOAD both halves even though each renders one, and that is load
+   bearing rather than lazy: the salesperson and PNS lists are derived from the tickets
+   on screen, and the effects below drop a stored name that is no longer in those lists.
+   Fetch only your own half and switching screens would quietly wipe a filter — pick a
+   salesperson on Pending, open Proposal submitted where they have nothing, and the
+   shared value is cleared under you. Two small reads are the price of the filters
+   genuinely being the same filters.
+
+   The two halves are not the same job, and each screen says so: a submitted proposal has
    an outcome to record, so it carries the status controls inline; a pending ticket is
    discussed and updated inside the ticket itself, so it is a link and nothing more. */
-export function ReviewMeeting({ me, onOpen, notify }) {
+function Review({ half, me, onOpen, notify }) {
   const [props_, setProps] = useState(null);
   const [pend, setPend] = useState(null);
   // Sticky, like every queue filter: this screen is walked ticket by ticket on a call,
@@ -331,8 +348,10 @@ export function ReviewMeeting({ me, onOpen, notify }) {
   const [owners_, setOwners] = useSticky("filter:pending:owners", []);
   const [err, setErr] = useState(null);
   // Walked ticket by ticket on a call, which is exactly the case where losing your place
-  // costs the most: you come back for the next row, not to start the list again.
-  useScrollMemory("meeting", props_ !== null && pend !== null);
+  // costs the most: you come back for the next row, not to start the list again. Keyed
+  // PER HALF: they are two lists of different lengths, and one shared offset would drop
+  // you somewhere arbitrary in whichever you opened second.
+  useScrollMemory(`meeting:${half}`, props_ !== null && pend !== null);
 
   const load = () => {
     const region = regions.length ? regions : undefined;
@@ -387,10 +406,14 @@ export function ReviewMeeting({ me, onOpen, notify }) {
   const propRows = keep(props_);
   const pendRows = keep(pend);
 
+  const isProps = half === "proposals";
+
   return (
     <>
-      <Head title="Pending and proposals"
-        sub="The whole review on one screen. Proposals first — record the outcome right here. Then everything still open: open the ticket and take it up in its discussion."
+      <Head title={isProps ? "Proposal submitted" : "Pending"}
+        sub={isProps
+          ? "Proposals out with the shipper. Record the outcome right here — accepted or lost, it moves off this list."
+          : "Everything still open. Open the ticket and take it up in its discussion, or add a note to the row."}
         right={<Btn onClick={() => window.print()}>Print list</Btn>} />
 
       {err && <Card className="mb-4 border-rose-200 bg-rose-50 p-3 text-[13px] text-rose-700">{err}</Card>}
@@ -449,21 +472,31 @@ export function ReviewMeeting({ me, onOpen, notify }) {
         </div>
         {regions.length > 0 && (
           <p className="text-[11.5px] text-slate-400">
-            Both lists are narrowed to whoever has a live deal in {regions.join(", ")} —
-            not the whole of Commercial or PNS.
+            The name lists are narrowed to whoever has a live deal in {regions.join(", ")} —
+            not the whole of Commercial or PNS. The same filters apply on
+            {isProps ? " Pending" : " Proposal submitted"}.
           </p>
         )}
       </Card>
 
-      <div className="flex flex-col gap-4">
+      {/* One list per screen. `offset` is 0 on both, so each is numbered from 1 — a
+          proposal list that starts at 24 because of how many pending tickets there are
+          is a number about the other screen. */}
+      {isProps ? (
         <Block label="Proposals submitted" sub="Out with the shipper. Record the outcome here."
           rows={propRows} tone="bg-teal-50 text-teal-700" offset={0} onOpen={onOpen}
           actions={(t) => <ProposalActions t={t} me={me} notify={notify} onDone={load} />}
           notify={notify} onDone={load} />
+      ) : (
         <Block label="All pending" sub="Still open. Raise a point here, or open the ticket for the full discussion."
-          rows={pendRows} tone="bg-amber-50 text-amber-700" offset={propRows.length}
+          rows={pendRows} tone="bg-amber-50 text-amber-700" offset={0}
           onOpen={onOpen} notify={notify} onDone={load} />
-      </div>
+      )}
     </>
   );
 }
+
+/* The two menu entries. Wrappers rather than two copies: everything above is shared,
+   including the stored filter values, which is what makes them behave as one filter. */
+export function PendingReview(p) { return <Review half="pending" {...p} />; }
+export function ProposalReview(p) { return <Review half="proposals" {...p} />; }

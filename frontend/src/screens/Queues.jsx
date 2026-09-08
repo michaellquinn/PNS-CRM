@@ -965,8 +965,8 @@ export function ExecSignoff({ me, onOpen, notify }) {
 }
 
 /* ---------------------------------------------------------------- proposals */
-/* The status controls for a submitted proposal. Extracted so the Proposals queue and the
-   combined Pending & proposals screen run the same code — a second copy of "what may a
+/* The status controls for a submitted proposal. Extracted so the Proposal submitted
+   screen and anything else that records an outcome run the same code — a second copy of "what may a
    submitted proposal become" is exactly the kind of thing that drifts and leaves one
    screen offering a move the other has already retired. Per-row state, so each card
    keeps its own draft without a map keyed by ref. */
@@ -1017,26 +1017,11 @@ export function ProposalActions({ t, me, notify, onDone }) {
   );
 }
 
-export function Proposals({ me, onOpen, notify }) {
-  const [rows, err, reload] = useTickets({ status: "Proposal Submitted" });
-  const [list, f, set, clear, patch] = useFilter(rows, {}, "proposals");
-
-  return (
-    <Shell title="Proposal submitted"
-      sub="Proposals sitting with the shipper. Accepted and lost deals move out of this list."
-      rows={rows} err={err} empty="No proposals submitted yet."
-      bar={<FilterBar f={f} set={set} clear={clear} patch={patch} me={me}
-        shown={list.length} total={(rows || []).length} rows={rows} />}
-      filtered={list}>
-      {(list) => list.map((t) => (
-        <TicketCard key={t.ref} t={t} onOpen={onOpen}>
-          {(t.price_file || t.price_url) && <p className="mb-3 text-[13px]"><PriceChip file={t.price_file} url={t.price_url} /></p>}
-          <ProposalActions t={t} me={me} notify={notify} onDone={reload} />
-        </TicketCard>
-      ))}
-    </Shell>
-  );
-}
+/* The old standalone Proposals queue lived here until 2026-09-08. Its route now serves
+   the Proposal submitted half of Meetings.jsx, which carries the region / salesperson /
+   PNS PIC filters shared with Pending, so this one had no way in. Removed rather than
+   left unreachable: two screens for one job, one of them unreachable, is how the drift
+   the note above warns about actually starts. */
 
 /* ---------------------------------------------------------------- ready to ship */
 export function ReadyToShip({ me, onOpen }) {
