@@ -84,12 +84,12 @@ const NAV = [
     // screen share isNewIncoming(), so the count cannot disagree with the list.
     { id: "incoming", label: "New incoming", icon: "✦", count: "incoming",
       keywords: "new incoming just arrived latest recent today batch upload imported raised reopened restored back" },
-    // Combined with the old Sales-CRM-section "Open" (Michael, 2026-09-01): with
-    // Sales only submitting a link or a manual request, a Sales-side and a PNS-side
-    // unclaimed-work screen were reading the same underlying queue through two
-    // doors. See Queues.jsx for the merged filter — status Open, OR PNS's and
-    // unowned in any live status. Unrestricted, like Open always was, not narrowed
-    // to Open - PNS's PNS/Admin-only readership.
+    // PNS work nobody has taken, in any live status (Michael, 2026-09-07). It was
+    // ALSO showing anything at the status "Open" until the Start-work button went;
+    // that let in Sales-priced deals under 30 Mio which PNS never touches, so they
+    // could never be assigned and could never leave. A queue you cannot empty stops
+    // being read. Assignment is now the only thing that removes a row.
+    // Unrestricted readership, as it has always been.
     { id: "open", label: "Open", icon: "○", count: "open",
       keywords: "open ready available not started yet both sides status unassigned unclaimed pns take claim assign nobody mine inbox" },
     { id: "mine", label: "My requests", icon: "◐", when: works,
@@ -583,8 +583,10 @@ export default function App() {
         // and the list are one answer. NEW_TICKET_DAYS is imported only to name the
         // window in the title below.
         c["incoming"] = all.tickets.filter(isNewIncoming).length;
-        c["open"] = all.tickets.filter((t) => t.status === "Open"
-          || (isPnsWork(t) && !t.owner && LIVE_STATUSES.includes(t.status))).length;
+        // Same rule the Open screen filters on: PNS work nobody has taken. The
+        // status half went with the Start-work button (Michael, 2026-09-07).
+        c["open"] = all.tickets.filter(
+          (t) => isPnsWork(t) && !t.owner && LIVE_STATUSES.includes(t.status)).length;
         setCounts(c);
       })
       .catch(() => {});

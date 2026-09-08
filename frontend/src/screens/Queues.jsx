@@ -599,21 +599,26 @@ export function PendingCrmId({ me, onOpen, notify }) {
 export function Open({ me, onOpen, notify }) {
   const [rows, err, reload] = useTickets({ status: LIVE_STATUSES });
   const [why, setWhy] = useState({});
-  const list0 = (rows || []).filter(
-    (t) => t.status === "Open" || (isPnsWork(t) && !t.owner));
+  // PNS work with nobody on it. That is the whole rule (Michael, 2026-09-07): a ticket
+  // is here because it has arrived and no PNS PIC has taken it, and it leaves the moment
+  // one does. Assignment is the only thing that removes a row.
+  //
+  // The status half of the old filter is gone with the Start-work button. It let in
+  // Sales-priced deals under 30 Mio that PNS never touches - nobody was ever going to
+  // give those a PNS PIC, so they could not leave, and a queue you cannot empty stops
+  // being read.
+  const list0 = (rows || []).filter((t) => isPnsWork(t) && !t.owner);
   const [list, f, set, clear, patch] = useFilter(list0, { resp: [], review: [] }, "open");
   const act = async (fn) => { try { await fn(); notify("Done"); await reload(); } catch (e) { notify(e.message); } };
 
-  const mayTake = ["PNS", "Commercial", "Admin"].includes(me.group);
-
   return (
     <Shell title="Open"
-      sub="Not started yet, or PNS's and nobody's on it. Covers a ticket sitting at the Open status either side owes, AND any PNS work with no PNS PIC whatever status it has reached — a Sales-priced deal at or above 30 Mio can be waiting on Sales with no PNS PIC and still needs to show up here. Starting one moves it to whoever owes the price. If something is actually missing, ask Sales and it goes back to them."
-      right={<span className="text-[12px] text-slate-500">{list0.length} here</span>}
+      sub="PNS work that has arrived and nobody has taken. Take one, or hand it to someone — either way it leaves this list, because the list is only ever asking who owns it. Whatever status it is in, it stays workable: pricing happens on Pricing - PNS. If something is actually missing, ask Sales and it goes back to them."
+      right={<span className="text-[12px] text-slate-500">{list0.length} unassigned</span>}
       rows={rows} err={err}
-      empty="Nothing waiting to start and nothing PNS still needs to claim."
+      empty="Every PNS ticket has somebody on it."
       bar={
-        <FilterBar f={f} set={set} clear={clear} patch={patch} me={me}
+        <FilterBar f={f} set={set} clear={clear} patch={patch} me={me} people={false}
           shown={list.length} total={list0.length} rows={list0}>
           <MultiSelect label="Priced by" picked={f.resp}
             onClear={() => patch("resp", [])}
@@ -638,66 +643,30 @@ export function Open({ me, onOpen, notify }) {
               <Pill key="r" tone="bg-violet-50 text-violet-700">PNS review after</Pill>
             ),
           ]}>
-          {t.status === "Open" ? (
-            !t.revenue ? (
-              <p className="text-[12.5px] text-rose-700">
-                <b>No potential revenue.</b> It decides who prices this and which ceiling
-                applies, so the ticket cannot start until it is filled in. Open the ticket
-                and set it on the Input tab.
-              </p>
-            ) : mayTake ? (
-              <>
-              <div className="flex flex-wrap items-center gap-2">
-                <input className={`${inputCls} max-w-[320px]`}
-                  placeholder="What is missing? (sends it back to Sales)"
-                  value={why[t.ref] || ""}
-                  onChange={(e) => setWhy({ ...why, [t.ref]: e.target.value })} />
-                <Btn disabled={!((why[t.ref] || "").trim())}
-                  onClick={() => act(() => api.status(t.ref, {
-                    status: "Pending Sales", reason: why[t.ref] }))}>
-                  Need info from Sales
-                </Btn>
-                <Btn kind="primary" className="ml-auto"
-                  onClick={() => act(() => api.status(t.ref, {
-                    status: t.priced_by === "PNS" ? "Pending PNS" : "Pending Sales",
-                    reason: `picked up by ${me.name}` }))}>
-                  Start work on this
-                </Btn>
-              </div>
-              {/* Picking a ticket up and owning it are two different acts, and Open is
-                  where both happen. Starting work moves the status; taking it puts your
-                  name on it — this queue used to offer only the first, so an unclaimed
-                  ticket stayed unclaimed even after somebody started it. */}
-              <div className="mt-3 border-t border-slate-100 pt-3">
-                <OwnerBar t={t} me={me} notify={notify} onDone={reload} />
-              </div>
-              </>
-            ) : (
-              <p className="text-[12.5px] text-slate-500">
-                Waiting for {t.priced_by} to pick it up.
-              </p>
-            )
-          ) : (
-            // Already past Open, and PNS's, and nobody has claimed it — the case the old
-            // Open - PNS screen carried alone. Claiming and handing back are the two acts
-            // that apply here; the status itself moves through Awaiting price / Review,
-            // not from this screen.
-            <>
-              <OwnerBar t={t} me={me} notify={notify} onDone={reload} />
-              {me.permissions.sendBackProposal && t.status !== "Pending Sales" && (
-                <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
-                  <input className={`${inputCls} max-w-[320px]`}
-                    placeholder="What is missing? (sends it back to Sales)"
-                    value={why[t.ref] || ""}
-                    onChange={(e) => setWhy({ ...why, [t.ref]: e.target.value })} />
-                  <Btn disabled={!((why[t.ref] || "").trim())}
-                    onClick={() => act(() => api.status(t.ref, {
-                      status: "Pending Sales", reason: why[t.ref].trim() }))}>
-                    Need info from Sales
-                  </Btn>
-                </div>
-              )}
-            </>
+          {/* Kept from the old status-Open branch and no longer gated on it: a ticket
+              with no revenue cannot be priced whoever owns it, because the 5A ceiling is
+              chosen by revenue band. Better said here than discovered on the Pricing
+              screen after somebody has claimed it. */}
+          {!t.revenue && (
+            <p className="mb-3 text-[12.5px] text-rose-700">
+              <b>No potential revenue.</b> It decides who prices this and which ceiling
+              applies, so it cannot be priced until it is filled in. Open the ticket and
+              set it on the Input tab.
+            </p>
+          )}
+          <OwnerBar t={t} me={me} notify={notify} onDone={reload} />
+          {me.permissions.sendBackProposal && t.status !== "Pending Sales" && (
+            <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
+              <input className={`${inputCls} max-w-[320px]`}
+                placeholder="What is missing? (sends it back to Sales)"
+                value={why[t.ref] || ""}
+                onChange={(e) => setWhy({ ...why, [t.ref]: e.target.value })} />
+              <Btn disabled={!((why[t.ref] || "").trim())}
+                onClick={() => act(() => api.status(t.ref, {
+                  status: "Pending Sales", reason: why[t.ref].trim() }))}>
+                Need info from Sales
+              </Btn>
+            </div>
           )}
         </TicketCard>
       ))}

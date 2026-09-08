@@ -1330,7 +1330,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-08.95"
+BUILD = "2026-09-08.96"
 
 
 class Me(BaseModel):
@@ -2891,6 +2891,11 @@ class SyncIn(BaseModel):
     # not about forgetting what is here. Empty list with queue mode on means nothing new
     # is imported, which is the correct reading of an empty queue.
     queue_ids: list[str] | None = None
+    # Whether the sweep may ALSO discover opportunities of its own, or is limited to
+    # what is queued. Separate from queue_ids on purpose: "fetch these by id" and
+    # "fetch ONLY these" are different instructions and were the same one until
+    # 2026-09-07 (see sync_salescrm).
+    queue_only: bool = False
 
 
 # ------------------------------------------------------------------ automatic sync
@@ -3078,8 +3083,11 @@ async def _auto_sync_loop() -> None:
                 # `ids` means "this run is ONLY about these", which would stop held
                 # tickets being refreshed, and refreshing them is the half of the sweep
                 # that must never stop.
-                if await setting_bool("sync.queue_only"):
-                    body.queue_ids = await pending_queue_ids()
+                # The queue is honoured on EVERY run, not only in queue-only mode.
+                # Somebody pasted an id because they want that deal fetched; whether the
+                # sweep also discovers others is a different setting entirely.
+                body.queue_ids = await pending_queue_ids()
+                body.queue_only = await setting_bool("sync.queue_only")
                 r = await sync_salescrm(body, owner)
                 _auto_sync.update(enabled=True, every_minutes=every,
                                   last_at=str(datetime.now())[:19], last_ok=True,
@@ -3139,9 +3147,21 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
     min_date = (await setting("sync.min_date")).strip()
     # Queue mode. `queue_ids` present means "only import what is in this list"; None
     # means the caller is not using the queue at all, which is every manual run unless
-    # somebody asks otherwise. An EMPTY list is a real instruction — an empty queue
-    # imports nothing — so this tests for None, not for falsiness.
-    queue_only = body.queue_ids is not None
+    # TWO questions, and they were one until 2026-09-07 (Michael: opportunity 907113
+    # sat "pending" in the queue for three days and nothing ever fetched it).
+    #
+    # queued      - ids somebody explicitly asked for. Always fetched BY ID, so they are
+    #               not subject to the sweep's date window. This is the whole point of
+    #               the Import queue.
+    # queue_only  - whether the sweep may also discover opportunities on its own.
+    #
+    # Inferring the second from the presence of the first meant the queue could only be
+    # honoured by ALSO switching discovery off. sync.queue_only defaults to off, so with
+    # the app in its normal state a queued id was never fetched at all: it fell out of
+    # the two-day discovery window and then sat pending forever, which is exactly what
+    # 907113 did. Queueing a deal did nothing, silently, which is the worst way for a
+    # feature to not work.
+    queue_only = bool(body.queue_only)
     queued = {str(i).strip() for i in (body.queue_ids or [])}
 
     async with _sync_lock:
@@ -4042,10 +4062,19 @@ async def _import_opportunity(o: dict, account: dict | None, plan: dict,
     # also walks — so a field imported today is still current next week — plus the raw
     # record under `_crm`, so a field nobody has mapped yet is at least *here* rather
     # than needing a fresh sync run once somebody notices it exists.
+    # NO "brief" here (Michael, 2026-09-07). FIELD_RULES has always said the brief is
+    # Sales' to write - "It is the first thing PNS reads" - and the import was filling it
+    # with "Imported from Sales CRM opportunity 907113, PT Hermed - ...", which is not a
+    # brief, it is a restatement of the ticket's own header. Worse, it read as DONE: a
+    # field with something in it does not look like a field somebody still owes.
+    #
+    # It is left empty so it reads as outstanding, which is what it is. The charter
+    # renders "(add the brief here)" in its place.
+    #
+    # The three NOTEs that used to ride along on it are real and are kept - they move to
+    # the ticket's history below, which is where "what happened when this was imported"
+    # belongs and where a refresh cannot overwrite them.
     payload = merge_crm_payload({
-        "brief": (f"Imported from Sales CRM opportunity {plan['opportunity_id']}"
-                  f", {plan['opportunity_name'] or ''}").strip()
-                 + rev_note + ftl_note + floor_note,
         # Also a field, not just prose in the brief, so the whole set can be found and
         # cleared rather than each one being noticed only if somebody reads the note.
         "ftlVariantNeeded": "Yes" if plan.get("provisional") else "",
@@ -4053,9 +4082,22 @@ async def _import_opportunity(o: dict, account: dict | None, plan: dict,
     }, o, account)
     await execute("INSERT INTO ticket_input (ticket_id, payload, updated_by) VALUES (%s,%s,%s)",
                   (tid, json.dumps({k: v for k, v in payload.items() if v}), u.email))
-    await execute("INSERT INTO ticket_history (ticket_id, status, actor, note) "
-                  "VALUES (%s,%s,%s,%s)",
-                  (tid, status, u.name, f"imported from Sales CRM ({plan['stage']})"))
+    # The import notes ride here now rather than on the brief. Same words, same three
+    # conditions; a place that is ours to write and nobody has to edit around.
+    #
+    # ONE ROW PER NOTE, not one row carrying all of them. ticket_history.note is
+    # VARCHAR(500) and the three together run past that, so concatenating would silently
+    # truncate exactly the warning somebody needed - and a row each reads better anyway,
+    # because they are separate facts about the import, not one sentence.
+    for _note in [f"imported from Sales CRM ({plan['stage']})",
+                  rev_note, ftl_note, floor_note]:
+        # The NOTEs are written with blank lines in them, for when they sat in a
+        # textarea. One history row is one line, so flatten them.
+        _note = " ".join(_note.split()).strip()
+        if not _note:
+            continue
+        await execute("INSERT INTO ticket_history (ticket_id, status, actor, note) "
+                      "VALUES (%s,%s,%s,%s)", (tid, status, u.name, _note[:500]))
     await audit(u.email, "import", "ticket", ref, "opportunity_id", None,
                 plan["opportunity_id"])
     return ref

@@ -2,6 +2,22 @@ import { Card, Head, Pill } from "../ui";
 
 const ENTRIES = [
   {
+    date: "2026-09-07",
+    title: "Open is an assignment inbox; the brief is Sales' to write; the import queue actually runs",
+    by: "Michael + Claude",
+    changes: [
+      "FIXED: a queued opportunity was never fetched. The sweep only read the import queue when “Only import what is queued” was switched ON, and that setting is off by default — so queueing a deal did nothing, silently. 907113 sat pending for three days: it had fallen out of the two-day discovery window and the one mechanism meant to fetch it by id was being skipped. Two questions had been collapsed into one flag; the queue is now honoured on every run, and the setting only decides whether the sweep ALSO discovers deals of its own.",
+      "Open drops the “Start work on this” button and means one thing now: PNS work that has arrived and nobody has taken. Assignment is the only thing that removes a row. Nothing is stranded — Open is in the awaiting-price set, so a claimed ticket shows on Pricing - PNS, and attaching a price does not require a particular status.",
+      "It also stops listing anything merely AT the status Open. That let in Sales-priced deals under 30 Mio which PNS never touches: nobody was going to give those a PNS PIC, so they could never leave, and a queue you cannot empty stops being read.",
+      "Project Charter: the Brief summary is no longer written by the import. FIELD_RULES has always said that field is Sales' — “It is the first thing PNS reads” — but the import filled it with “Imported from Sales CRM opportunity 907113, PT Hermed…”, which restates the ticket’s own header. Worse, a field with something in it does not look like a field somebody still owes, so the real brief never got written. It is empty now and the charter shows “(add the brief here)”.",
+      "The three NOTEs that used to ride on the brief are kept, moved to the ticket’s history: routed at Rp 0, provisional service line, imported over the floor. One row each, not one row concatenating them — ticket_history.note is VARCHAR(500) and the three together run past it, so joining them would have silently truncated exactly the warning somebody needed.",
+      "Pinned: the import must not write a brief, the three notes must still be recorded, and they must go to ticket_history. Confirmed it fails when the brief is put back.",
+    ],
+    overruled: [
+      "Michael, 2026-09-01: Open covers a ticket at the status Open OR unowned PNS work. The status half is gone with the Start-work button that justified it.",
+    ],
+  },
+  {
     date: "2026-09-08",
     title: "Accounts now means the real shipper, not the CRM account record",
     by: "Michael + Codex",

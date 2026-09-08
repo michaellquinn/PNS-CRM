@@ -111,6 +111,53 @@ for line in text.splitlines()[:18]:
     print("   " + line)
 
 print()
+# ------------------------------------------------- the brief belongs to Sales
+# FIELD_RULES has always said so: brief is ("Sales", "asked", "It is the first thing PNS
+# reads"). The import contradicted it, writing "Imported from Sales CRM opportunity
+# 907113, PT Hermed - ..." into the field - which is not a brief, it is a restatement of
+# the ticket's own header, and worse it read as DONE. A field with something in it does
+# not look like a field somebody still owes, so nobody ever wrote the real one.
+#
+# Michael, 2026-09-07: leave it empty so it reads as outstanding.
+#
+# Checked over the AST at the CALL SITE, because the value being absent is the whole
+# point - there is no function to call and assert on. The three import NOTEs that used
+# to ride along on the brief moved to ticket_history, and that move is checked too: they
+# are real warnings (routed at Rp 0, provisional service line, imported over the floor)
+# and dropping them silently would be worse than the bug this fixed.
+print()
+print("the import leaves the brief for Sales to write")
+
+_imp = next((n for n in ast.walk(tree)
+             if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+             and n.name == "_import_opportunity"), None)
+if _imp is None:
+    fails.append("_import_opportunity not found - this guard is checking nothing")
+    print("  FAIL _import_opportunity not found")
+else:
+    _keys = [k.value for n in ast.walk(_imp) if isinstance(n, ast.Dict)
+             for k in n.keys if isinstance(k, ast.Constant) and isinstance(k.value, str)]
+    _writes_brief = "brief" in _keys
+    print(("  FAIL " if _writes_brief else "  ok   ")
+          + "the import does not write a brief")
+    if _writes_brief:
+        fails.append("_import_opportunity writes 'brief' - FIELD_RULES says that field "
+                     "is Sales' to fill, and pre-filling it makes it look already done")
+
+    # The notes must still land somewhere. ticket_history is where they went.
+    _src_imp = ast.get_source_segment(open(SRC, encoding="utf-8").read(), _imp) or ""
+    for _n in ("rev_note", "ftl_note", "floor_note"):
+        _kept = _n in _src_imp
+        print(("  ok   " if _kept else "  FAIL ") + f"{_n} is still recorded somewhere")
+        if not _kept:
+            fails.append(f"{_n} is no longer written anywhere - it warns about a real "
+                         f"condition and cannot just be dropped")
+    _in_history = "ticket_history" in _src_imp
+    print(("  ok   " if _in_history else "  FAIL ")
+          + "the import notes are written to ticket_history")
+    if not _in_history:
+        fails.append("the import notes are not going to ticket_history")
+
 if fails:
     print("FAILURES:")
     for f in fails:
