@@ -270,12 +270,28 @@ export default function Sync({ me, notify }) {
               <>On, but it has not run yet since this deployment. The first run is 30 seconds after start-up.</>
             )}
           </p>
-          {auto.last_ok === false && (
+          {/* Only blame the key when the error IS about the key. This used to render on
+              EVERY failure, so a bug in our own code was reported to the reader as an
+              expired API key — which is what happened on 9 September: the sync died on a
+              TypeError and the screen calmly advised reissuing a key that was perfectly
+              valid. A message that names the wrong cause is worse than no message,
+              because somebody acts on it. */}
+          {auto.last_ok === false && /api key|401|unauthor|SALESCRM_API_KEY/i
+            .test(auto.last_error || "") && (
             <p className="mt-1.5 text-[12.5px] text-rose-800">
-              The commonest cause is the Sales CRM API key expiring — they last about 30
-              days and are issued per person. Reissue it and update{" "}
+              This one is about the key. They last about 30 days and are issued per
+              person — reissue it and update{" "}
               <code className="font-mono">SALESCRM_API_KEY</code> in the portal. Until
               then nothing is arriving automatically and the book is going stale.
+            </p>
+          )}
+          {auto.last_ok === false && !/api key|401|unauthor|SALESCRM_API_KEY/i
+            .test(auto.last_error || "") && (
+            <p className="mt-1.5 text-[12.5px] text-rose-800">
+              Nothing is arriving automatically while this stands. The message above is
+              what the run actually reported — a <code className="font-mono">TypeError</code>
+              {" "}or similar is a fault in this app, not a problem with your Sales CRM
+              key, and needs whoever is on the build rather than a new key.
             </p>
           )}
         </Card>

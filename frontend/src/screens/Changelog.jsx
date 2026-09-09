@@ -3,6 +3,18 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-09-09",
+    title: "FIXED: the sync was dead, and the screen blamed your API key for it",
+    by: "Baskoro + Claude",
+    changes: [
+      "FIXED — every sync run since this morning's deploy died immediately on “TypeError: 'async_generator' object is not iterable”. The new scope-toggle reader was written as frozenset(k for k in SCOPES if await setting_bool(k)). An await inside a generator expression makes it an ASYNC generator, and frozenset() cannot iterate one. It reads correctly, compiles cleanly, and fails the moment the line is reached. Rewritten as a plain loop.",
+      "It passed py_compile, all eighteen suites and a full local preview, because nothing in the tests executes the sweep and the preview drives a mock. verify_names now BANS the shape outright — an await inside any comprehension handed to frozenset, set, list, dict, sorted, any, all, sum, min or max. Confirmed the new rule fails on the exact line that shipped.",
+      "FIXED — the automatic-sync panel told you the Sales CRM API key had expired whenever a run failed, whatever the actual reason. So a fault in our own code was reported as an expired key, and the advice on screen was to reissue a key that was perfectly valid. It now says that only when the error is genuinely about the key, and otherwise says plainly that the message above is a fault in this app and needs the build, not a new key.",
+      "No 401 has been seen from Sales CRM at any point. The key was never the problem.",
+    ],
+    overruled: [],
+  },
+  {
+    date: "2026-09-09",
     title: "The queue governs imports, dates no longer block, and scope is a switch",
     by: "Baskoro + Claude",
     changes: [

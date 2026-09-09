@@ -1371,7 +1371,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-09.106"
+BUILD = "2026-09-09.107"
 
 
 class Me(BaseModel):
@@ -3086,9 +3086,23 @@ SETTING_RULES = {
 
 
 async def allowed_scopes() -> frozenset:
-    """Which out-of-scope product lines an admin has switched back on."""
-    return frozenset(k for k in PRODUCT_SCOPES
-                     if await setting_bool("sync.scope." + k))
+    """Which out-of-scope product lines an admin has switched back on.
+
+    Written as a plain loop, and it has to be. `frozenset(k for k in X if await f(k))`
+    looks right, compiles cleanly, and is WRONG: an `await` inside a generator expression
+    makes it an ASYNC generator, and frozenset() cannot iterate one -- it raises
+    "TypeError: 'async_generator' object is not iterable" at runtime, and only when the
+    line is actually reached.
+
+    That shipped on 2026-09-09 and killed every sync run for as long as it was live. It
+    passed py_compile, all 18 suites and a full local preview, because nothing in the
+    tests executes sync_salescrm and the preview drives a mock. verify_names now bans the
+    shape outright."""
+    on = []
+    for key in PRODUCT_SCOPES:
+        if await setting_bool("sync.scope." + key):
+            on.append(key)
+    return frozenset(on)
 
 
 async def setting(name: str) -> str:

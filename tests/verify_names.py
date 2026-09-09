@@ -251,3 +251,45 @@ if _too_wide:
               f"put the detail in new_value")
     sys.exit(1)
 print("verify_names.py         audit() arguments fit their columns")
+
+
+# ------------------------------------------- await inside a comprehension, consumed sync
+# `frozenset(k for k in X if await f(k))` compiles, reads correctly, and is wrong: the
+# `await` turns the generator expression into an ASYNC generator, and frozenset()/set()/
+# list()/tuple()/dict()/sorted()/any()/all() cannot iterate one. It raises
+#
+#     TypeError: 'async_generator' object is not iterable
+#
+# at runtime, only when the line is actually reached.
+#
+# This shipped on 2026-09-09 in allowed_scopes() and killed EVERY sync run for as long as
+# it was live. It passed py_compile, all eighteen suites and a full local preview against
+# the mock -- nothing in the tests executes sync_salescrm, so nothing reached the line.
+# The only thing that can catch it before production is a rule about the shape.
+#
+# The fix is always the same: build the collection with an ordinary `async for`/`for`
+# loop and append.
+_async_comp = []
+for _n in ast.walk(tree):
+    if not (isinstance(_n, ast.Call) and isinstance(_n.func, ast.Name)
+            and _n.func.id in ("frozenset", "set", "list", "tuple", "dict", "sorted",
+                               "any", "all", "sum", "min", "max")):
+        continue
+    for _a in _n.args:
+        if not isinstance(_a, (ast.GeneratorExp, ast.ListComp, ast.SetComp, ast.DictComp)):
+            continue
+        # An `await` anywhere inside the comprehension makes it async. `async for` in the
+        # generators does too.
+        _bad = any(isinstance(_x, ast.Await) for _x in ast.walk(_a)) or any(
+            getattr(_g, "is_async", 0) for _g in _a.generators)
+        if _bad:
+            _async_comp.append((_n.lineno, _n.func.id))
+
+if _async_comp:
+    print("verify_names.py FAILED — await inside a comprehension passed to a "
+          "synchronous consumer:")
+    for _ln, _fn in _async_comp:
+        print(f"  - main.py:{_ln}  {_fn}(... await ...) builds an ASYNC generator; "
+              f"{_fn}() cannot iterate one. Use a plain loop and append.")
+    sys.exit(1)
+print("verify_names.py         no await inside a synchronously-consumed comprehension")
