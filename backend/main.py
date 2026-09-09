@@ -1371,7 +1371,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-08.105"
+BUILD = "2026-09-09.106"
 
 
 class Me(BaseModel):
@@ -2367,15 +2367,30 @@ FTL_IN_NAME = re.compile(r"\bftl\b", re.I)
 FTL_UNSPECIFIED = "FTL"
 FTL_VARIANT_UNKNOWN = "Trucking"
 
-# Deliberately not mapped. Cold chain and cross-border are out of scope for now. These
-# are reported as skipped with a reason rather than silently dropped.
-PRODUCT_SKIP = {
-    "Cold Chain": "cold chain is not in scope yet",
-    "Cold-chain": "cold chain is not in scope yet",
-    "Cross-border": "cross-border is not in scope yet",
-    "International": "cross-border is not in scope yet",
-    "Air-freight": "air freight is not a PNS service line",
+# Product lines PNS does not price. Each is a SCOPE DECISION rather than a fact about
+# the data, so each is an admin toggle now (Baskoro, 2026-09-09): the day PNS starts
+# covering cold chain, somebody switches it on rather than waiting for a deploy.
+#
+# Keyed by scope, not by spelling. "Cold Chain" and "Cold-chain" are one decision, and
+# a toggle per spelling would let an admin half-enable a line.
+#
+# All three are OFF by default and stay off on this deploy, so nothing about what
+# imports changes until somebody means it.
+PRODUCT_SCOPES = {
+    "cold_chain":   ("Cold chain", ("Cold Chain", "Cold-chain"),
+                     "cold chain is not in scope yet"),
+    "cross_border": ("Cross-border", ("Cross-border", "International"),
+                     "cross-border is not in scope yet"),
+    "air_freight":  ("Air freight", ("Air-freight",),
+                     "air freight is not a PNS service line"),
 }
+
+# Derived, and kept under their old names because verify_service_line reads both out of
+# the module by name and because a flat line -> reason map is still what the skip report
+# wants. One definition above, two views of it here.
+PRODUCT_SKIP = {line: why
+                for _, (_, lines, why) in PRODUCT_SCOPES.items()
+                for line in lines}
 
 
 def _norm_line(v) -> str:
@@ -2400,9 +2415,13 @@ def _norm_level(v) -> str:
 _LINE_LEVEL = {(_norm_line(a), _norm_level(b)): v for (a, b), v in SERVICE_LINE_MAP.items()}
 _LINE_ONLY = {_norm_line(k): v for k, v in PRODUCT_LINE_DEFAULT.items()}
 _SKIP_N = {_norm_line(k): v for k, v in PRODUCT_SKIP.items()}
+# Normalised product line -> which scope toggle governs it.
+_SCOPE_N = {_norm_line(line): key
+            for key, (_, lines, _) in PRODUCT_SCOPES.items()
+            for line in lines}
 
 
-def service_line_for(product, level, shipper_name=""):
+def service_line_for(product, level, shipper_name="", allow=frozenset()):
     """Our service line for one opportunity, and why.
 
     Returns (service, provisional_reason). `service` is None when nothing maps, and the
@@ -2410,6 +2429,9 @@ def service_line_for(product, level, shipper_name=""):
     `provisional_reason` means the line is a working answer somebody has to confirm.
     """
     line, lvl = _norm_line(product), _norm_level(level)
+    # `allow` is the set of scope keys an admin has switched on. It defaults to EMPTY,
+    # which is the behaviour this function has always had -- every caller that does not
+    # pass it, and every test that calls it with three arguments, sees no change.
     # Out of scope beats everything, the shipper name included (Michael, 2026-08-27).
     # This used to sit BELOW the FTL check, which made it unreachable for any deal whose
     # name contained "FTL": the name rule returned a service, so the caller never saw the
@@ -2417,7 +2439,7 @@ def service_line_for(product, level, shipper_name=""):
     # (Ninja Cold)" imported as an ordinary truck deal. Cross-border and air freight had
     # the same hole. Whether we work a line is a scope decision and the product line is
     # what states it; a name cannot overrule it.
-    if line in _SKIP_N:
+    if line in _SKIP_N and _SCOPE_N.get(line) not in allow:
         return None, ""
     if FTL_IN_NAME.search(str(shipper_name or "")):
         return FTL_UNSPECIFIED, ("the shipper name says FTL and Sales CRM has no FTL "
@@ -2961,6 +2983,13 @@ class SyncIn(BaseModel):
     # "fetch ONLY these" are different instructions and were the same one until
     # 2026-09-07 (see sync_salescrm).
     queue_only: bool = False
+    # Import EVERYTHING Sales CRM holds, oldest deals included, ignoring the date floor
+    # and the day window entirely. Admin only, one press at a time, and resumable: the
+    # run walks pages from where the last one stopped, saves how far it got, and picks up
+    # there next press. A single unbounded pass cannot finish a book of thousands inside
+    # the sweep's time budget, and a run that silently stops half way through is worse
+    # than one that says where it is (Baskoro, 2026-09-09).
+    full: bool = False
 
 
 # ------------------------------------------------------------------ automatic sync
@@ -3015,10 +3044,24 @@ SETTING_DEFAULTS = {
     "sync.auto_enabled":  lambda: "1" if AUTO_SYNC_MINUTES else "0",
     "sync.every_minutes": lambda: str(AUTO_SYNC_MINUTES or 5),
     "sync.days":          lambda: str(AUTO_SYNC_DAYS),
-    "sync.min_date":      lambda: SYNC_MIN_DATE,
-    # Import only what Sales has queued. Off by default so this deploy changes nothing
-    # until it is turned on deliberately.
-    "sync.queue_only":    lambda: "0",
+    # No import floor by default (Baskoro, 2026-09-09). The floor existed to stop a
+    # date-window sweep dragging in years of history nobody asked for. The queue governs
+    # imports now, so the sweep is not guessing what to bring in -- and a floor on top of
+    # an explicit request is just a second place a deal can vanish. V30 clears the row
+    # that V26 seeded; this default is for a database nobody has written one into.
+    "sync.min_date":      lambda: "",
+    # Import only what Sales has queued. ON by default now (Baskoro, 2026-09-09) -- the
+    # queue is how deals reach PNS, and discovery is the admin's deliberate full import.
+    "sync.queue_only":    lambda: "1",
+    # Product lines PNS does not price. Off = excluded, which is today's behaviour; on
+    # the day PNS starts covering one, an admin switches it on. See PRODUCT_SCOPES.
+    "sync.scope.cold_chain":   lambda: "0",
+    "sync.scope.cross_border": lambda: "0",
+    "sync.scope.air_freight":  lambda: "0",
+    # How far through the book the last full import reached. Written by the sweep, never
+    # by a person -- deliberately absent from SETTING_RULES below, so it cannot be set
+    # through the API. 0 means "start from the newest".
+    "sync.full_cursor":   lambda: "0",
     # Narrow the sweep to the watched groups. Already a per-run option; this makes it
     # the standing setting for the automatic run too.
     "sync.watched_only":  lambda: "0",
@@ -3034,7 +3077,18 @@ SETTING_RULES = {
     "sync.min_date":      "date_or_blank",
     "sync.queue_only":    "bool",
     "sync.watched_only":  "bool",
+    "sync.scope.cold_chain":   "bool",
+    "sync.scope.cross_border": "bool",
+    "sync.scope.air_freight":  "bool",
+    # sync.full_cursor is NOT here on purpose: it is the sweep's own bookmark, not a
+    # preference, and hand-editing it would silently skip part of the book.
 }
+
+
+async def allowed_scopes() -> frozenset:
+    """Which out-of-scope product lines an admin has switched back on."""
+    return frozenset(k for k in PRODUCT_SCOPES
+                     if await setting_bool("sync.scope." + k))
 
 
 async def setting(name: str) -> str:
@@ -3214,6 +3268,19 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
     # module global it was started with (Baskoro, 2026-08-28). The env var remains the
     # default for a database nobody has written a setting into.
     min_date = (await setting("sync.min_date")).strip()
+    # Which out-of-scope product lines an admin has switched back on. Read once per run
+    # and passed down, rather than awaited inside service_line_for -- that function is
+    # pure and synchronous, and verify_service_line execs it out of the source with no
+    # event loop at all.
+    allow = await allowed_scopes()
+    # A full import ignores the floor and the day window entirely and walks the book from
+    # where the last one stopped. Admin only: it is the one run that can pull thousands
+    # of opportunities, under a personal API key.
+    full = bool(body.full)
+    if full:
+        require(u, "editSyncSettings")
+        min_date = ""
+    full_from = await setting_int("sync.full_cursor", 0, 100000, 0) if full else 0
     # Queue mode. `queue_ids` present means "only import what is in this list"; None
     # means the caller is not using the queue at all, which is every manual run unless
     # TWO questions, and they were one until 2026-09-07 (Michael: opportunity 907113
@@ -3490,7 +3557,16 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
                 batches.append(("existing tickets", [g for g in got if g]))
 
             # 3. Backfill, only when explicitly asked for. This is the expensive path.
-            for page in range(1, (0 if body.ids else max(0, min(body.pages, 40))) + 1):
+            # A full import continues the book from where the last one stopped; an
+            # ordinary backfill still starts at page 1. `pages` bounds one PRESS either
+            # way -- the budget below is what actually ends a run, and the cursor is what
+            # makes the next press carry on rather than re-read what it already has.
+            page_from = (full_from + 1) if full else 1
+            page_span = (max(1, min(body.pages, 40)) if full
+                         else (0 if body.ids else max(0, min(body.pages, 40))))
+            last_page_done = full_from
+            reached_end = False
+            for page in range(page_from, page_from + page_span):
                 if time.monotonic() > deadline:
                     truncated = True
                     break
@@ -3501,10 +3577,22 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
                 data = await crm.records("Opportunity", page=page, page_size=100)
                 items = data.get("items") or []
                 if not items:
+                    reached_end = True
                     break
                 batches.append(("page %d" % page, items))
+                last_page_done = page
                 if not data.get("has_next"):
+                    reached_end = True
                     break
+
+            # Save the bookmark only on a real run. A dry run must not move it, or
+            # previewing a full import would skip that stretch of the book for real.
+            if full and not body.dry_run:
+                await execute(
+                    "INSERT INTO app_settings (name, value, updated_by) VALUES "
+                    "('sync.full_cursor',%s,%s) ON DUPLICATE KEY UPDATE "
+                    "value=VALUES(value), updated_by=VALUES(updated_by)",
+                    ("0" if reached_end else str(last_page_done), u.email))
 
             # Warm every account the whole run needs in one round, not one round per
             # batch. A day holds five or six opportunities, so warming per batch spends
@@ -3529,7 +3617,8 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
                         # a deal is importable on rules the import no longer applies.
                         and service_line_for(
                             _first(o.get("nv_product_line")) or _first(o.get("core_product")),
-                            _first(o.get("service_level")), o.get("account_name"))[0])
+                            _first(o.get("service_level")), o.get("account_name"),
+                            allow)[0])
 
             # Split by who asked. Warming an account is a round trip each and there is no
             # bulk endpoint, so this is the third fan-out big enough to spend the budget
@@ -3610,7 +3699,18 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
                         break
                     scanned += 1
                     oid = str(o.get("id"))
+                    # Reported, not dropped (Baskoro, 2026-09-09). This was a bare
+                    # `continue` with nothing appended to `skipped`, so an opportunity of
+                    # any other record type vanished with no row and no reason -- and
+                    # because queued ids come through this same loop, somebody could
+                    # queue a deal and watch it disappear with nothing to read. That is
+                    # the same shape as the queued-id bug that cost two days on 907113.
                     if SALESCRM_RECORD_TYPE and o.get("record_type_name") != SALESCRM_RECORD_TYPE:
+                        skipped.append({
+                            "id": oid, "name": o.get("name"),
+                            "why": f"record type is "
+                                   f"{o.get('record_type_name') or 'not set'}; this app "
+                                   f"imports {SALESCRM_RECORD_TYPE}"})
                         continue
                     for name in crm_unmapped(o):
                         unmapped[name] = unmapped.get(name, 0) + 1
@@ -3647,7 +3747,8 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
                                     n = await _refresh_from_salescrm(
                                         o, acct_for_refresh,
                                         await crm.tier_for(acct_for_refresh)
-                                        if acct_for_refresh else None)
+                                        if acct_for_refresh else None,
+                                        allow)
                                 except Exception as e:              # noqa: BLE001
                                     log.exception("refresh failed for %s", oid)
                                     errors.append({"id": oid, "name": o.get("name"),
@@ -3743,13 +3844,26 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
                                 or _first(o.get("core_product")))
                     raw_level = _first(o.get("service_level"))
                     service, provisional = service_line_for(
-                        raw_line, raw_level, o.get("account_name"))
+                        raw_line, raw_level, o.get("account_name"), allow)
                     if not service:
-                        skipped.append({
-                            "id": oid, "name": o.get("name"),
-                            "why": _SKIP_N.get(_norm_line(raw_line),
-                                               f"no service line for '{raw_line}'"
-                                               + (f" / '{raw_level}'" if raw_level else ""))})
+                        norm = _norm_line(raw_line)
+                        scope = _SCOPE_N.get(norm)
+                        if scope and scope in allow:
+                            # The toggle is ON, so scope is no longer the reason. What is
+                            # missing is a mapping: SERVICE_LINE_MAP has no entry for
+                            # this line, so there is no PNS service to import it onto.
+                            # Say that, rather than falling through to the generic "no
+                            # service line" message and leaving an admin wondering why
+                            # the switch they just flipped did nothing.
+                            why = (f"{PRODUCT_SCOPES[scope][0]} is switched on, but no "
+                                   f"PNS service line is mapped for '{raw_line}'"
+                                   + (f" / '{raw_level}'" if raw_level else "")
+                                   + ". Add it to SERVICE_LINE_MAP before these import.")
+                        else:
+                            why = _SKIP_N.get(norm,
+                                              f"no service line for '{raw_line}'"
+                                              + (f" / '{raw_level}'" if raw_level else ""))
+                        skipped.append({"id": oid, "name": o.get("name"), "why": why})
                         continue
 
                     try:
@@ -3779,7 +3893,7 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
                         # already passed the skip check.
                         if shipper_name and shipper_name != o.get("account_name"):
                             re_service, re_prov = service_line_for(
-                                raw_line, raw_level, shipper_name)
+                                raw_line, raw_level, shipper_name, allow)
                             if re_service and re_service != service:
                                 service, provisional = re_service, re_prov
 
@@ -3935,7 +4049,8 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
 
 
 async def _refresh_from_salescrm(o: dict, account: dict | None = None,
-                                 tier: str | None = None) -> dict | None:
+                                 tier: str | None = None,
+                                 allow=frozenset()) -> dict | None:
     """Re-copy onto a ticket we already hold everything Sales CRM has to say about it.
 
     **Sales CRM always takes priority** (Baskoro, 2026-08-14). Every field it carries is
@@ -4028,8 +4143,11 @@ async def _refresh_from_salescrm(o: dict, account: dict | None = None,
                        f"to Rp {crm_rev:,}")
 
     raw_line = _first(o.get("nv_product_line")) or _first(o.get("core_product"))
+    # The same scope toggles the import obeys. Without this, switching cold chain on
+    # would let NEW cold chain deals in while every held ticket kept resolving to None
+    # and quietly stayed on whatever line it was first given.
     crm_service, _prov = service_line_for(raw_line, _first(o.get("service_level")),
-                                          o.get("account_name"))
+                                          o.get("account_name"), allow)
     new_service = crm_service or t["service_type"]
     if crm_service and crm_service != t["service_type"]:
         changed.append(f"service {t['service_type']} to {crm_service}")

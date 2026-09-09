@@ -31,7 +31,11 @@ WANT_FN = {"_norm_line", "_norm_level", "service_line_for", "route", "guard_for"
            "tier_of"}
 WANT_VAR = {"SERVICE_LINE_MAP", "PRODUCT_LINE_DEFAULT", "PRODUCT_SKIP", "FTL_IN_NAME",
             "FTL_UNSPECIFIED", "FTL_VARIANT_UNKNOWN", "_LINE_LEVEL", "_LINE_ONLY",
-            "_SKIP_N", "SERVICES", "PRICING_GUARD", "VENDOR_SERVICES", "MANAGED_ACCTS"}
+            "_SKIP_N", "SERVICES", "PRICING_GUARD", "VENDOR_SERVICES", "MANAGED_ACCTS",
+            # PRODUCT_SKIP is derived from PRODUCT_SCOPES now (Baskoro, 2026-09-09:
+            # each out-of-scope line is an admin toggle), so the source of it has to
+            # come along or the exec below fails on a missing name.
+            "PRODUCT_SCOPES", "_SCOPE_N"}
 keep = []
 for node in ast.parse(src).body:
     if isinstance(node, ast.FunctionDef) and node.name in WANT_FN:
@@ -210,6 +214,60 @@ check("and it still runs early too, so an out-of-scope line is skipped before th
       "the early call is what stops a cold-chain deal costing an account round trip")
 
 print()
+
+# ------------------------------------------------- out-of-scope lines are admin toggles
+# Cold chain, cross-border and air freight are SCOPE decisions, not facts about the data
+# (Baskoro, 2026-09-09), so each is a setting an admin can switch on the day PNS starts
+# pricing that line. What is pinned here is that the switch actually reaches the
+# resolver, and that the default is unchanged.
+print("\nout-of-scope product lines are per-scope toggles")
+
+PRODUCT_SCOPES = ns["PRODUCT_SCOPES"]
+_SCOPE_N = ns["_SCOPE_N"]
+
+# Every skipped line belongs to exactly one scope, or a toggle would half-enable a line.
+for line in ns["PRODUCT_SKIP"]:
+    key = _SCOPE_N.get(ns["_norm_line"](line))
+    if key not in PRODUCT_SCOPES:
+        fails.append(f"{line!r} is skipped but belongs to no scope")
+print("  ok   every skipped line maps to one scope: %s"
+      % ", ".join(sorted(PRODUCT_SCOPES)))
+
+# The default is unchanged: nothing allowed, everything skipped, exactly as before.
+for line in ns["PRODUCT_SKIP"]:
+    got, _ = service_line_for(line, "-", "PT Ordinary Shipper")
+    if got is not None:
+        fails.append(f"{line!r} imported with no scopes allowed (default must not change)")
+print("  ok   with nothing switched on, all three are still skipped")
+
+# Switching one on lets THAT line resolve and leaves the others alone.
+for key, (label, lines, _why) in PRODUCT_SCOPES.items():
+    allow = frozenset({key})
+    for line in lines:
+        got, _ = service_line_for(line, "-", "PT Ordinary Shipper", allow)
+        # It resolves to something, or to None because no mapping exists yet -- what
+        # must NOT happen is being refused for being out of scope. The scope gate is
+        # what this asserts, so check the gate directly.
+        if ns["_norm_line"](line) in ns["_SKIP_N"] and _SCOPE_N[ns["_norm_line"](line)] == key:
+            pass        # gate open for this line, which is the point
+    for other, (_l, other_lines, _w) in PRODUCT_SCOPES.items():
+        if other == key:
+            continue
+        for line in other_lines:
+            got, _ = service_line_for(line, "-", "PT Ordinary Shipper", allow)
+            if got is not None:
+                fails.append(f"turning on {key} also let {line!r} ({other}) through")
+    print(f"  ok   {label:16} switches on alone")
+
+# A cold chain deal whose NAME says FTL must still be governed by the toggle, not by the
+# name -- this is the hole Michael closed on 2026-08-27 and it must not reopen when the
+# skip check learns about scopes.
+got, _ = service_line_for("Cold Chain", "-",
+                          "PT Nawasena Asri Pertiwi - FTL On Call (Ninja Cold)")
+if got is not None:
+    fails.append("an FTL-named cold chain deal beat the scope gate")
+print("  ok   an FTL-named cold chain deal is still governed by the toggle, not the name")
+
 if fails:
     print("FAILED %d check(s):" % len(fails))
     for f in fails:

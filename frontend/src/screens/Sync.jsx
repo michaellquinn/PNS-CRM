@@ -22,7 +22,7 @@ function Table({ head, rows, render, empty }) {
   );
 }
 
-export default function Sync({ notify }) {
+export default function Sync({ me, notify }) {
   const [days, setDays] = useState(7);
   const [pages, setPages] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -31,6 +31,7 @@ export default function Sync({ notify }) {
   const [ids, setIds] = useState("");
   const [auto, setAuto] = useState(null);
   const [groups, setGroups] = useState([]);   // [] = every group
+  const [fullPages, setFullPages] = useState(10);
 
   // The timer is the thing most likely to be quietly broken — the Sales CRM key expires
   // about every 30 days and an automatic run has nobody watching it. So its last result
@@ -41,9 +42,10 @@ export default function Sync({ notify }) {
   const idList = ids.split(/[\s,;]+/).map((s) => s.trim()).filter(Boolean);
 
   const run = async (dry, override = {}) => {
+    const full = !!override.full;
     const body = {
-      days: mode === "refresh" || mode === "ids" ? 0 : Number(days) || 7,
-      pages: mode === "refresh" || mode === "ids" ? 0 : Number(pages) || 0,
+      days: full || mode === "refresh" || mode === "ids" ? 0 : Number(days) || 7,
+      pages: full ? 0 : (mode === "refresh" || mode === "ids" ? 0 : Number(pages) || 0),
       // ids mode refreshes too: naming an id you already hold is a request to re-read
       // that deal, and it used to send refresh:false so those ids were skipped.
       refresh: mode !== "new",
@@ -52,9 +54,13 @@ export default function Sync({ notify }) {
       dry_run: dry,
       ...override,
     };
-    if (!dry && !window.confirm(
-      `Run this for real? New opportunities become tickets, and tickets whose Sales CRM ` +
-      `opportunity has closed move to Lost or Ready to Ship. Sales CRM is never written to.`))
+    if (!dry && !window.confirm(full
+      ? `Import from the whole Sales CRM book for real? This ignores the import floor ` +
+        `and the day window, and creates tickets for every opportunity it reaches on ` +
+        `lines PNS covers. It stops at the run's time budget and remembers where it ` +
+        `got to, so you may need to press it several times.`
+      : `Run this for real? New opportunities become tickets, and tickets whose Sales CRM ` +
+        `opportunity has closed move to Lost or Ready to Ship. Sales CRM is never written to.`))
       return;
     setBusy(true);
     try {
@@ -159,11 +165,12 @@ export default function Sync({ notify }) {
             </label>
           )}
           <p className="w-full text-[11.5px] text-slate-400">
-            <b>Nothing raised before 1 August 2026 is imported</b>, whatever window you
-            ask for — that floor holds even on a wide manual run or a backfill, so one
-            careless &ldquo;last 60 days&rdquo; cannot pull in the whole history of the
-            book. Tickets you already hold are still refreshed whatever their date, which
-            is how they learn their opportunity closed.
+            <b>The queue is what governs imports, not a date.</b> Since 9 September the
+            automatic sync creates tickets only for opportunities Sales have queued, and
+            there is no import floor by default — a queued deal comes in whatever its
+            age. What a wide window here can still do is decide how much this MANUAL run
+            reads. Tickets you already hold are refreshed whatever their date, which is
+            how they learn their opportunity closed.
             <br />
             <b>The day window is the opportunity&rsquo;s creation date, not its last edit.</b>{" "}
             Sales CRM has no filter on when a record was edited, so a deal created two
@@ -173,6 +180,39 @@ export default function Sync({ notify }) {
             by id. Run a dry run first; the real run stays disabled until you have.
           </p>
         </div>
+
+        {/* The whole book, admin only. Kept apart from the controls above because it is
+            a different job: those shape the routine run, this ignores the import floor
+            and the day window entirely and walks Sales CRM from where it last stopped.
+            Sales queue what PNS should work — this is for the first load, or for going
+            back for history the queue was never going to name. */}
+        {me?.permissions?.editSyncSettings && (
+          <div className="border-t border-slate-200 p-4">
+            <h3 className="text-[13px] font-semibold">Import everything from Sales CRM</h3>
+            <p className="mt-1 text-[11.5px] text-slate-500">
+              Ignores the import floor and the day window entirely. It stops when the
+              run&rsquo;s time budget is spent and remembers the page it reached, so
+              pressing it again carries on rather than re-reading what it already has —
+              press it until it says it reached the end of the book. Lines PNS does not
+              cover are still skipped and still reported; those are the toggles on the
+              Import queue screen.
+            </p>
+            <div className="mt-2.5 flex flex-wrap items-center gap-2 text-[12.5px]">
+              <span className="text-slate-500">Up to</span>
+              <input className={`${inputCls} w-20`} type="number" min="1" max="40"
+                value={fullPages} onChange={(e) => setFullPages(e.target.value)} />
+              <span className="text-slate-500">pages of 100 this press</span>
+              <Btn disabled={busy}
+                onClick={() => run(true, { full: true, pages: Number(fullPages) || 10 })}>
+                Dry run
+              </Btn>
+              <Btn kind="primary" disabled={busy}
+                onClick={() => run(false, { full: true, pages: Number(fullPages) || 10 })}>
+                Import everything
+              </Btn>
+            </div>
+          </div>
+        )}
 
         <details className="border-t border-slate-100 px-4 py-3">
           <summary className="cursor-pointer text-[12px] font-medium text-slate-600">

@@ -2,6 +2,23 @@ import { Card, Head, Pill } from "../ui";
 
 const ENTRIES = [
   {
+    date: "2026-09-09",
+    title: "The queue governs imports, dates no longer block, and scope is a switch",
+    by: "Baskoro + Claude",
+    changes: [
+      "THE QUEUE GOVERNS IMPORTS. “Only import what is queued” is ON by default now. The automatic sync creates a ticket for an opportunity Sales have queued and nothing else; discovering deals on its own is the administrator's deliberate full import, not something the five-minute timer does. This was built on 28 August and left switched off so that deploy changed nothing — it is on.",
+      "NO IMPORT FLOOR. The 1 August floor is gone. It existed to stop a date-window sweep dragging in years of history nobody asked for, and with the queue governing imports the sweep is not guessing any more: every ticket it creates was explicitly asked for, and a date test on top of an explicit request is only a second place a deal can quietly fail to arrive. Queued and named ids already bypassed the floor, so nothing about the queue path changes — what changes is that the full import can now reach old deals.",
+      "IMPORT EVERYTHING FROM SALES CRM — a new admin-only control on the Sync screen. It ignores the floor and the day window entirely, and it is RESUMABLE: a run stops when its 25-second budget is spent, records the page it reached, and the next press carries on from there rather than re-reading what it already has. Press it until it says it reached the end of the book. A dry run never moves that bookmark, so previewing a full import cannot make the real one skip the stretch you previewed.",
+      "PRODUCT SCOPE IS NOW A SWITCH. Cold chain, cross-border and air freight are lines PNS does not price — a scope decision, not a fact about the data, and it was hard-coded, so covering one meant editing Python and redeploying. Each is an administrator toggle on the Import queue screen now. All three stay OFF, which is exactly today's behaviour: this deploy changes nothing about what imports.",
+      "The toggles are keyed by scope, not by spelling — “Cold Chain” and “Cold-chain” are one switch, and “Cross-border” and “International” are one switch, so a line cannot end up half-enabled. Switching one on also applies to tickets already held, not just new ones, so a held deal on that line stops being stuck on whatever service it was first given.",
+      "Honest about the second half: switching a scope on opens the gate, but there is no PNS service line mapped for any of these three yet. Until one is added the deal is still skipped — and the report now SAYS so, naming the toggle and the missing mapping, rather than falling through to a generic “no service line” and leaving an administrator wondering why the switch they just flipped did nothing.",
+      "FIXED: the record-type filter dropped opportunities SILENTLY. It was a bare skip with nothing written to the run's report, so an opportunity belonging to any record type other than Indonesia vanished with no row and no reason — and because queued ids run through the same loop, somebody could queue a deal and watch it disappear with nothing to read. It is reported now, naming the record type it actually had. The filter itself is unchanged and still fixed to Indonesia.",
+      "Migration V30 updates the two settings V26 had already seeded — a default in the code is only consulted when a row is ABSENT, so without the migration this would have been live on a fresh database and silently missing on the real one.",
+      "Pinned in verify_service_line: every skipped line belongs to exactly one scope; with nothing switched on all three are still skipped; switching one on does not let the other two through; and a cold chain deal whose name says FTL is still governed by the toggle rather than by its name — the hole closed on 27 August, which the scope rewrite ran straight through.",
+    ],
+    overruled: [],
+  },
+  {
     date: "2026-09-08",
     title: "Pending requirement: PNS can send a deal back to Sales for missing data",
     by: "Michael + Claude",

@@ -26,11 +26,22 @@ const STATE_TONE = {
 
 const SETTING_LABELS = [
   ["sync.queue_only", "Only import what is queued",
-   "On: the automatic sync creates a ticket only for an opportunity queued here. Off: it imports everything it finds in its window, and this queue is just a shortcut."],
+   "On (the default since 9 September): the automatic sync creates a ticket only for an opportunity queued here. Off: it also discovers deals on its own, and this queue is just a shortcut."],
   ["sync.auto_enabled", "Run the sync automatically",
    "Off stops the timer entirely. Manual runs from the Sync screen still work."],
   ["sync.watched_only", "Watched groups only",
    "Narrow the automatic run to Hypercare, Strategic and Must Win."],
+];
+
+// Product lines PNS does not price. Off = excluded, which is how the app has always
+// behaved; these exist so that covering one is a switch rather than a deploy.
+const SCOPE_LABELS = [
+  ["sync.scope.cold_chain", "Cold chain",
+   "Ninja Cold deals. Excluded since the sync was built."],
+  ["sync.scope.cross_border", "Cross-border and International",
+   "Both product-line spellings are governed by this one switch."],
+  ["sync.scope.air_freight", "Air freight",
+   "Not a PNS service line today."],
 ];
 
 const NUMBER_SETTINGS = [
@@ -95,9 +106,10 @@ export default function ImportQueue({ me, notify, onOpen }) {
       {data && !data.queue_only && (
         <Card className="mb-4 border-amber-200 bg-amber-50 p-4">
           <p className="text-[13px] text-amber-900">
-            <b>The queue is not governing imports yet.</b> The sync is still importing
-            every opportunity it finds in its window, so queueing a deal here only
-            guarantees it is fetched — it does not stop anything else arriving.
+            <b>The queue is not governing imports.</b> It normally does. Somebody has
+            switched that off, so the sync is discovering opportunities on its own as
+            well — queueing a deal here still guarantees it is fetched, but it does not
+            stop anything else arriving.
             {editable
               ? " Turn on “Only import what is queued” below to change that."
               : " An administrator can turn that on."}
@@ -257,11 +269,37 @@ export default function ImportQueue({ me, notify, onOpen }) {
                       saveSetting("sync.min_date", e.target.value);
                   }} />
                 <span className="block text-[11.5px] text-slate-500">
-                  Nothing raised in Sales CRM before this date is imported by a sweep.
-                  Naming an id — queueing it, or typing it on the Sync screen — brings the
-                  deal in whatever its age. Blank removes the floor entirely.
+                  Blank by default since 9 September, and blank means no floor at all.
+                  It only ever applied to deals a sweep found by itself — queueing an id,
+                  or naming one on the Sync screen, has always brought the deal in
+                  whatever its age.
                 </span>
               </label>
+            </div>
+          </div>
+
+          {/* Scope, kept visually apart from the rest: everything above answers "how
+              often and how much", and this answers "which lines are ours at all". */}
+          <div className="mt-4 border-t border-slate-200 pt-3.5">
+            <h4 className="text-[12.5px] font-semibold">Product lines PNS covers</h4>
+            <p className="mb-2.5 text-[11.5px] text-slate-500">
+              Off means the sync skips the line and says so on the run's report — the
+              deal is never silently dropped. Turn one on the day PNS starts pricing it;
+              held tickets on that line start resolving too, not just new ones.
+            </p>
+            <div className="flex flex-col gap-2.5">
+              {SCOPE_LABELS.map(([name, label, hint]) => (
+                <label key={name} className="flex items-start gap-2.5 text-[13px]">
+                  <input type="checkbox" className="mt-1"
+                    disabled={!editable || savingSettings}
+                    checked={s[name] === "1"}
+                    onChange={(e) => saveSetting(name, e.target.checked ? "1" : "0")} />
+                  <span>
+                    <b>{label}</b>
+                    <span className="block text-[11.5px] text-slate-500">{hint}</span>
+                  </span>
+                </label>
+              ))}
             </div>
           </div>
         </Card>

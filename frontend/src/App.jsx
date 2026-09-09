@@ -666,7 +666,7 @@ export default function App() {
     dashboard: <Dashboard me={me} onOpen={open} />,
     mine: <Mine me={me} onOpen={open} />,
     workload: <Workload />,
-    sync: <Sync notify={notify} />,
+    sync: <Sync me={me} notify={notify} />,
     "import-queue": <ImportQueue me={me} notify={notify} onOpen={open} />,
     new: <NewRequest me={me} notify={notify} onCreated={open} />,
     incoming: <NewIncoming me={me} onOpen={open} />,
