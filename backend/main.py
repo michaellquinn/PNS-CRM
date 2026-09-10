@@ -1371,7 +1371,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-09.107"
+BUILD = "2026-09-10.108"
 
 
 class Me(BaseModel):
@@ -2479,6 +2479,17 @@ def _first(v):
     if isinstance(v, list):
         return v[0] if v else None
     return v
+
+
+def _crm_shipper_name(o: dict, account: dict | None = None) -> str:
+    """Use the Opportunity name when stated, otherwise the linked Account's name.
+
+    Sales CRM commonly leaves Opportunity.account_name blank. Both imports and later
+    refreshes must therefore use the Account record too: the FTL service rule reads the
+    shipper name, and letting these two paths resolve it differently makes a correctly
+    imported FTL ticket turn back into B2BR on the next five-minute sync.
+    """
+    return str(o.get("account_name") or (account or {}).get("name") or "").strip()
 
 
 def tier_from_csm(raw) -> str | None:
@@ -3884,8 +3895,7 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
                         account = await crm.account(o.get("account_id"))
                         acct_type = await crm.tier_for(account)
                         revenue = int(float(o.get("total_potential_revenue_mth") or 0))
-                        shipper_name = (o.get("account_name")
-                                        or (account or {}).get("name") or "").strip()
+                        shipper_name = _crm_shipper_name(o, account)
                         # Re-derive the service line now that the shipper's real name
                         # is known (Michael, 2026-09-07, comparing 907113 against
                         # 906119).
@@ -4160,8 +4170,13 @@ async def _refresh_from_salescrm(o: dict, account: dict | None = None,
     # The same scope toggles the import obeys. Without this, switching cold chain on
     # would let NEW cold chain deals in while every held ticket kept resolving to None
     # and quietly stayed on whatever line it was first given.
+    # Opportunity.account_name is frequently blank, including on 907113. The linked
+    # Account says "PT Hermed - FTL (B2BR)", so using only the Opportunity here made
+    # the recurring refresh overwrite the correct provisional FTL import with B2BR.
+    # Resolve the name exactly as the import path does so a refresh is idempotent.
+    shipper_name = _crm_shipper_name(o, account)
     crm_service, _prov = service_line_for(raw_line, _first(o.get("service_level")),
-                                          o.get("account_name"), allow)
+                                          shipper_name, allow)
     new_service = crm_service or t["service_type"]
     if crm_service and crm_service != t["service_type"]:
         changed.append(f"service {t['service_type']} to {crm_service}")

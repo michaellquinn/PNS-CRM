@@ -2,6 +2,17 @@ import { Card, Head, Pill } from "../ui";
 
 const ENTRIES = [
   {
+    date: "2026-09-10",
+    title: "FIXED: an FTL ticket no longer turns back into B2BR on refresh",
+    by: "Michael + Codex",
+    changes: [
+      "FIXED — opportunity 907113, PT Hermed - FTL (B2BR), now stays on the provisional FTL service line. Sales CRM leaves account_name blank on this Opportunity, while the linked Account carries the FTL name. The initial import already fetched that Account and classified it correctly, but every later refresh ignored it and recalculated from the blank Opportunity field, allowing Restock / Standard to overwrite FTL with B2BR.",
+      "Imports and recurring refreshes now use one shared name rule: the Opportunity name when Sales CRM supplies it, otherwise the linked Account name. The next successful sync repairs the existing Hermed ticket from B2BR to FTL and records that service change in its history.",
+      "Pinned in verify_service_line with the real failure shape: an empty Opportunity account_name plus Account name PT Hermed - FTL (B2BR) must resolve to FTL, and the recurring refresh must pass that resolved name into the service-line rule.",
+    ],
+    overruled: [],
+  },
+  {
     date: "2026-09-09",
     title: "FIXED: the sync was dead, and the screen blamed your API key for it",
     by: "Baskoro + Claude",

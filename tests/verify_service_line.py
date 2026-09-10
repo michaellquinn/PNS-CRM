@@ -27,8 +27,8 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 _REPO = os.path.dirname(_HERE)
 src = open(os.path.join(_REPO, "backend", "main.py"), encoding="utf-8").read()
 
-WANT_FN = {"_norm_line", "_norm_level", "service_line_for", "route", "guard_for",
-           "tier_of"}
+WANT_FN = {"_norm_line", "_norm_level", "service_line_for", "_crm_shipper_name",
+           "route", "guard_for", "tier_of"}
 WANT_VAR = {"SERVICE_LINE_MAP", "PRODUCT_LINE_DEFAULT", "PRODUCT_SKIP", "FTL_IN_NAME",
             "FTL_UNSPECIFIED", "FTL_VARIANT_UNKNOWN", "_LINE_LEVEL", "_LINE_ONLY",
             "_SKIP_N", "SERVICES", "PRICING_GUARD", "VENDOR_SERVICES", "MANAGED_ACCTS",
@@ -196,7 +196,16 @@ for line, lvl in [("Restock", "Standard"), ("LTL", "Standard"),
 # (service_line_for is correct - it was being handed the wrong argument), so only the
 # CALL SITE shows the bug.
 print()
-print("the import re-derives the service line from the resolved shipper name")
+print("imports and refreshes use the same resolved shipper name")
+resolve_shipper_name = ns["_crm_shipper_name"]
+hermed_opp = {"account_name": ""}
+hermed_account = {"name": "PT Hermed - FTL (B2BR)"}
+resolved = resolve_shipper_name(hermed_opp, hermed_account)
+check("907113 falls back from its blank Opportunity name to the Account name",
+      resolved == hermed_account["name"], f"got {resolved!r}")
+got, _ = service_line_for("Restock", "FTL", resolved)
+check("907113 resolves to FTL, not B2BR", got == FTL, f"got {got!r}")
+
 _src = io.open(_SRC_PATH, encoding="utf-8").read() if "_SRC_PATH" in dir() else open(
     __import__("os").path.join(_REPO, "backend", "main.py"), encoding="utf-8").read()
 _tree = ast.parse(_src)
@@ -209,6 +218,23 @@ check("service_line_for is called somewhere with shipper_name",
       bool(_with_shipper),
       "the FTL-in-the-name rule can only fire on the name the ACCOUNT carries; "
       "o['account_name'] is blank on real opportunities")
+_refresh = next(n for n in _tree.body
+                if isinstance(n, ast.AsyncFunctionDef)
+                and n.name == "_refresh_from_salescrm")
+_refresh_calls = [n for n in ast.walk(_refresh)
+                  if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)]
+check("the recurring refresh resolves the name from Opportunity plus Account",
+      any(c.func.id == "_crm_shipper_name"
+          and len(c.args) >= 2
+          and isinstance(c.args[0], ast.Name) and c.args[0].id == "o"
+          and isinstance(c.args[1], ast.Name) and c.args[1].id == "account"
+          for c in _refresh_calls),
+      "otherwise the next sync changes a correctly imported FTL ticket back to B2BR")
+check("the recurring refresh gives that resolved name to service_line_for",
+      any(c.func.id == "service_line_for"
+          and any(isinstance(a, ast.Name) and a.id == "shipper_name" for a in c.args)
+          for c in _refresh_calls),
+      "the resolved Account name must reach the FTL-name rule")
 check("and it still runs early too, so an out-of-scope line is skipped before the fetch",
       len(_calls) >= 2,
       "the early call is what stops a cold-chain deal costing an account round trip")
