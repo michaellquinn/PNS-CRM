@@ -3,41 +3,28 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-09-10",
+    title: "Submitted is the day the deal reached PNS, and Sales CRM’s new FTL line lands provisional",
+    by: "Michael + Claude",
+    changes: [
+      "FIXED — a ticket synced today was showing “Submitted 2026-09-04”. That was Sales CRM’s date for when the opportunity was created there, routinely weeks before PNS is asked for anything, so a brand new ticket arrived already reading as days old. Submitted now records the day the deal reached PNS — synced in, or raised here by hand — which is what a manually raised ticket has always stamped. The two intake paths finally agree.",
+      "Two places had to change, and the second is the one that would have bitten. The sweep was writing Submitted back from Sales CRM on every pass, so fixing only the import would have looked correct and been quietly undone within five minutes. Both are pinned by verify_sync_guards, confirmed by reintroducing the overwrite.",
+      "Sales CRM’s raise date is still what the import floor is checked against. That guard is about not dragging in ancient history, which genuinely is a question about when Sales CRM raised the deal.",
+      "NEW — Sales CRM now publishes an FTL product line, and it imports as the provisional FTL service. It says “truck deal” and stops there: on-call versus monthly is our split, decided by whether the shipper books ad hoc or holds a dedicated truck, and Sales CRM carries no field for it. So it behaves exactly like a deal identified by its shipper name — it comes to PNS to be resolved.",
+      "A price can no longer be attached while a ticket still says FTL. The choice was already flagged as a note, and notes stop nobody: five deals reached pricing on the provisional line, one of them all the way to Proposal Submitted. Pricing it unresolved settles who owes it by accident — FTL monthly is PNS’s at every revenue band, an on-call deal under 30 Mio is Sales’. Set the line on the Input tab and the routing re-derives.",
+      "The provisional note now quotes the value Sales CRM actually sent instead of always saying “Trucking”, which became wrong the day an FTL line existed.",
+    ],
+    overruled: [
+      "Claude, 2026-09-08: First submitted means “when Sales first raised the deal — Sales CRM’s own date”. What stands instead: it means the day the deal reached PNS. Michael’s point is that the board is read against the age of the REQUEST — the clock starts when this team was asked for something, which is the only span PNS can be held to. The column name and the single-date board from that day are unchanged.",
+    ],
+  },
+  {
+    date: "2026-09-10",
     title: "FIXED: an FTL ticket no longer turns back into B2BR on refresh",
     by: "Michael + Codex",
     changes: [
       "FIXED — opportunity 907113, PT Hermed - FTL (B2BR), now stays on the provisional FTL service line. Sales CRM leaves account_name blank on this Opportunity, while the linked Account carries the FTL name. The initial import already fetched that Account and classified it correctly, but every later refresh ignored it and recalculated from the blank Opportunity field, allowing Restock / Standard to overwrite FTL with B2BR.",
       "Imports and recurring refreshes now use one shared name rule: the Opportunity name when Sales CRM supplies it, otherwise the linked Account name. The next successful sync repairs the existing Hermed ticket from B2BR to FTL and records that service change in its history.",
       "Pinned in verify_service_line with the real failure shape: an empty Opportunity account_name plus Account name PT Hermed - FTL (B2BR) must resolve to FTL, and the recurring refresh must pass that resolved name into the service-line rule.",
-    ],
-    overruled: [],
-  },
-  {
-    date: "2026-09-09",
-    title: "FIXED: the sync was dead, and the screen blamed your API key for it",
-    by: "Baskoro + Claude",
-    changes: [
-      "FIXED — every sync run since this morning's deploy died immediately on “TypeError: 'async_generator' object is not iterable”. The new scope-toggle reader was written as frozenset(k for k in SCOPES if await setting_bool(k)). An await inside a generator expression makes it an ASYNC generator, and frozenset() cannot iterate one. It reads correctly, compiles cleanly, and fails the moment the line is reached. Rewritten as a plain loop.",
-      "It passed py_compile, all eighteen suites and a full local preview, because nothing in the tests executes the sweep and the preview drives a mock. verify_names now BANS the shape outright — an await inside any comprehension handed to frozenset, set, list, dict, sorted, any, all, sum, min or max. Confirmed the new rule fails on the exact line that shipped.",
-      "FIXED — the automatic-sync panel told you the Sales CRM API key had expired whenever a run failed, whatever the actual reason. So a fault in our own code was reported as an expired key, and the advice on screen was to reissue a key that was perfectly valid. It now says that only when the error is genuinely about the key, and otherwise says plainly that the message above is a fault in this app and needs the build, not a new key.",
-      "No 401 has been seen from Sales CRM at any point. The key was never the problem.",
-    ],
-    overruled: [],
-  },
-  {
-    date: "2026-09-09",
-    title: "The queue governs imports, dates no longer block, and scope is a switch",
-    by: "Baskoro + Claude",
-    changes: [
-      "THE QUEUE GOVERNS IMPORTS. “Only import what is queued” is ON by default now. The automatic sync creates a ticket for an opportunity Sales have queued and nothing else; discovering deals on its own is the administrator's deliberate full import, not something the five-minute timer does. This was built on 28 August and left switched off so that deploy changed nothing — it is on.",
-      "NO IMPORT FLOOR. The 1 August floor is gone. It existed to stop a date-window sweep dragging in years of history nobody asked for, and with the queue governing imports the sweep is not guessing any more: every ticket it creates was explicitly asked for, and a date test on top of an explicit request is only a second place a deal can quietly fail to arrive. Queued and named ids already bypassed the floor, so nothing about the queue path changes — what changes is that the full import can now reach old deals.",
-      "IMPORT EVERYTHING FROM SALES CRM — a new admin-only control on the Sync screen. It ignores the floor and the day window entirely, and it is RESUMABLE: a run stops when its 25-second budget is spent, records the page it reached, and the next press carries on from there rather than re-reading what it already has. Press it until it says it reached the end of the book. A dry run never moves that bookmark, so previewing a full import cannot make the real one skip the stretch you previewed.",
-      "PRODUCT SCOPE IS NOW A SWITCH. Cold chain, cross-border and air freight are lines PNS does not price — a scope decision, not a fact about the data, and it was hard-coded, so covering one meant editing Python and redeploying. Each is an administrator toggle on the Import queue screen now. All three stay OFF, which is exactly today's behaviour: this deploy changes nothing about what imports.",
-      "The toggles are keyed by scope, not by spelling — “Cold Chain” and “Cold-chain” are one switch, and “Cross-border” and “International” are one switch, so a line cannot end up half-enabled. Switching one on also applies to tickets already held, not just new ones, so a held deal on that line stops being stuck on whatever service it was first given.",
-      "Honest about the second half: switching a scope on opens the gate, but there is no PNS service line mapped for any of these three yet. Until one is added the deal is still skipped — and the report now SAYS so, naming the toggle and the missing mapping, rather than falling through to a generic “no service line” and leaving an administrator wondering why the switch they just flipped did nothing.",
-      "FIXED: the record-type filter dropped opportunities SILENTLY. It was a bare skip with nothing written to the run's report, so an opportunity belonging to any record type other than Indonesia vanished with no row and no reason — and because queued ids run through the same loop, somebody could queue a deal and watch it disappear with nothing to read. It is reported now, naming the record type it actually had. The filter itself is unchanged and still fixed to Indonesia.",
-      "Migration V30 updates the two settings V26 had already seeded — a default in the code is only consulted when a row is ABSENT, so without the migration this would have been live on a fresh database and silently missing on the real one.",
-      "Pinned in verify_service_line: every skipped line belongs to exactly one scope; with nothing switched on all three are still skipped; switching one on does not let the other two through; and a cold chain deal whose name says FTL is still governed by the toggle rather than by its name — the hole closed on 27 August, which the scope rewrite ran straight through.",
     ],
     overruled: [],
   },

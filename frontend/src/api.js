@@ -225,9 +225,12 @@ export const api = {
     call(`/users/${encodeURIComponent(email)}`, { method: "DELETE" }),
 };
 
-// Mirrors SERVICES in the backend. "FTL" is the provisional truck line — Sales CRM
-// has no FTL product line yet, so a deal identified by its shipper name lands there
-// for PNS to resolve into on-call or monthly.
+// Mirrors SERVICES in the backend. "FTL" is the provisional truck line. Sales CRM has
+// an FTL product line now (2026-09-10), but it stops at "this is a truck deal" — on-call
+// versus monthly is our split, decided by whether the shipper books ad hoc or holds a
+// dedicated truck, and Sales CRM carries no field for it. So an FTL deal lands here,
+// however it was identified, and PNS resolves it. A price cannot be attached until they
+// do: the server refuses it, because the two lines are owed by different sides.
 export const SERVICES = ["LTL", "B2BR", "B2C", "FTL", "FTL on-call", "FTL monthly",
   "Sameday", "Next Day",
   "Fulfillment", "Complex Logistics"];

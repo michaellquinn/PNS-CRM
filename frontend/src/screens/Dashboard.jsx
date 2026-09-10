@@ -65,7 +65,7 @@ const TILE_TONE = {
 const COL_HINTS = {
   "Days active": "Days the ticket has spent in its current status, against the target for that status",
   "CRM ID": "The Sales CRM opportunity id. Blank means the ticket was raised by hand here.",
-  "First submitted": "When Sales first raised the deal — Sales CRM's own date for the opportunity. A ticket raised here by hand uses today's date until the sync links it, then Sales CRM's date replaces it. Everything on this board is dated and ordered from here.",
+  "First submitted": "The day the deal reached PNS — the day it was synced in, or raised here by hand. Not Sales CRM's own date for the opportunity, which is routinely weeks earlier and is not when this team was asked for anything. Everything on this board is dated and ordered from here.",
   "Sales CRM": "The stage in Sales CRM. Reference only — it is not this app's status.",
 };
 
@@ -84,10 +84,11 @@ export default function Dashboard({ me, onOpen }) {
   // Opens on FIRST SUBMITTED (Michael, 2026-09-08), OVERRULING the first-synced default
   // of 2026-09-01. That one ordered the board by when the deal arrived HERE, on the
   // reasoning that "what has just landed on us" is what the board is opened to answer.
-  // Michael's call is that the board is read against the deal's own age instead: the
-  // date that matters is when Sales first raised it, because that is the clock the
-  // shipper is counting and the one every conversation about a deal starts from. When
-  // this app happened to notice is our own plumbing, not a fact about the deal.
+  // Michael's call is that the board is read against the age of the REQUEST: the clock
+  // starts when the deal reached PNS, because that is when this team was asked for
+  // something and the only span it can be held to. Sales CRM's raise date is routinely
+  // weeks earlier — an opportunity synced on the 10th showing "submitted 09-04" read as
+  // six days old before PNS had ever seen it (Michael, 2026-09-10).
   const [sort, setSort] = useState({ key: "submitted_on", dir: "desc" });
   // The board is long and is normally left by clicking a ticket in the table below the
   // tiles. `stats` is what the tiles render from, so it is the honest "the page has its

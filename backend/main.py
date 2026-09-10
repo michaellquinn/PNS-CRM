@@ -1371,7 +1371,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-10.108"
+BUILD = "2026-09-10.109"
 
 
 class Me(BaseModel):
@@ -1431,7 +1431,8 @@ class Ticket(BaseModel):
     first_synced_on: str | None = None
     # How long ago the ticket appeared HERE, in minutes, whichever way it arrived:
     # typed into New request, pasted into the Import queue, or found by the sweep.
-    # Distinct from submitted_on (Sales CRM's own date, routinely weeks earlier) and
+    # Distinct from submitted_on only for tickets imported before 2026-09-10, when the
+    # import stopped copying Sales CRM's raise date and started stamping arrival; and
     # from first_synced_on (null on a ticket raised by hand).
     #
     # Counts from the ticket RE-ENTERING the working set where that happened —
@@ -2351,6 +2352,13 @@ PRODUCT_LINE_DEFAULT = {
     "Complex Logs":         "Complex Logistics",
     # Sales CRM's single truck value. Provisional, like the shipper-name rule below.
     "Trucking":             "FTL",
+    # Sales CRM added an FTL product line (Michael, 2026-09-10). It says the deal is a
+    # truck deal and stops there -- on-call and monthly are OUR split, decided by whether
+    # the shipper books ad hoc or holds a dedicated truck, and Sales CRM carries no field
+    # for it. So it lands on the same provisional line the shipper-name rule produces and
+    # PNS resolves it, which is the whole reason FTL_UNSPECIFIED exists rather than a
+    # guess at one of the two.
+    "FTL":                  "FTL",
 }
 
 # Michael, 2026-08-26: Sales CRM has NO FTL category yet, so until IT adds one the only
@@ -2442,10 +2450,9 @@ def service_line_for(product, level, shipper_name="", allow=frozenset()):
     if line in _SKIP_N and _SCOPE_N.get(line) not in allow:
         return None, ""
     if FTL_IN_NAME.search(str(shipper_name or "")):
-        return FTL_UNSPECIFIED, ("the shipper name says FTL and Sales CRM has no FTL "
-                                 "product line yet, so the deal is on a provisional "
-                                 "FTL line. Set FTL on-call or FTL monthly on the Input "
-                                 "tab — it decides who prices it")
+        return FTL_UNSPECIFIED, ("the shipper name says FTL, so the deal is on a "
+                                 "provisional FTL line. Set FTL on-call or FTL monthly "
+                                 "on the Input tab — it decides who prices it")
     if not line:
         return None, ""
     hit = _LINE_LEVEL.get((line, lvl))
@@ -2455,9 +2462,14 @@ def service_line_for(product, level, shipper_name="", allow=frozenset()):
     if not fallback:
         return None, ""
     if fallback == FTL_UNSPECIFIED:
-        return fallback, ("Sales CRM records this as Trucking and cannot say whether it "
-                          "is FTL on-call or FTL monthly. Set the line on the Input tab "
-                          "— it decides who prices it")
+        # Names the value Sales CRM actually sent. It used to say "Trucking" flatly,
+        # which became a lie the day an FTL product line existed -- and a provisional
+        # reason that misquotes its own source is worse than none, because the reader
+        # goes looking in Sales CRM for a word that is not there.
+        return fallback, (f"Sales CRM records this as {product} and cannot say whether "
+                          f"it is FTL on-call or FTL monthly — that split is ours, not "
+                          f"theirs. Set the line on the Input tab; it decides who "
+                          f"prices it")
     return fallback, (f"Sales CRM gave no service level for {product}, so it was read as "
                       f"the standard {fallback}. Confirm the level before pricing."
                       if lvl == "" else
@@ -4121,14 +4133,16 @@ async def _refresh_from_salescrm(o: dict, account: dict | None = None,
     # populated fields, so an absent one means "no answer", not "no". Treating absence
     # as false would wipe a flag set by hand here on every refresh.
     mw, mw_field = read_must_win(o)
+    # submitted_on is NOT refreshed from Sales CRM (Michael, 2026-09-10). It is the day
+    # the deal arrived HERE, and Sales CRM has nothing to say about that — see the note on
+    # the import. Left in place rather than deleted from the update: overwriting it was
+    # the behaviour, and a reader needs to see that it stopped on purpose. Restoring it
+    # would silently undo the import's stamp on the very next sweep, which is the way this
+    # would come back.
     sets = ["stage=%s", "parent_stage=%s",
             "opportunity_name=COALESCE(%s, opportunity_name)",
-            "sales_name=COALESCE(%s, sales_name)",
-            # Sales CRM owns when the deal was raised. new_date is populated on every
-            # opportunity and equals its creation date, so it is the honest "submitted".
-            "submitted_on=COALESCE(%s, submitted_on)"]
-    args = [o.get("stage"), o.get("parent_stage"), o.get("name"), o.get("owner_name"),
-            _crm_date(o)]
+            "sales_name=COALESCE(%s, sales_name)"]
+    args = [o.get("stage"), o.get("parent_stage"), o.get("name"), o.get("owner_name")]
     # Must Win rides the same rule as the tier now: Sales CRM decides, both ways. It
     # used to be written only when the field was PRESENT, so clearing the Lead Source
     # Detail value in Sales CRM left the flag standing here forever — a deal stayed in a
@@ -4370,6 +4384,14 @@ async def _import_opportunity(o: dict, account: dict | None, plan: dict,
     last = await q("SELECT MAX(id) AS n FROM tickets", one=True)
     ref = f"SOF-{1300 + int((last or {}).get('n') or 0)}"
 
+    # submitted_on is the day the deal reached PNS, NOT Sales CRM's raise date
+    # (Michael, 2026-09-10). It used to carry crm_date, which is when the opportunity was
+    # created in Sales CRM and is routinely weeks earlier -- an opportunity synced today
+    # showed "Submitted 2026-09-04" and then read as six days old on the board before PNS
+    # had ever seen it. The date the whole app measures against is the day the work landed
+    # here, which is what a ticket raised by hand has always stamped, so the two paths now
+    # agree. The Sales CRM date is still what the import floor is checked against, because
+    # that guard is about not dragging in ancient history.
     tid = await execute(
         "INSERT INTO tickets (ticket_ref, opportunity_id, opportunity_name, stage, "
         "parent_stage, shipper_id, service_type, potential_rev, status, resp, "
@@ -4378,7 +4400,7 @@ async def _import_opportunity(o: dict, account: dict | None, plan: dict,
         (ref, plan["opportunity_id"], plan["opportunity_name"], plan["stage"],
          plan["parent_stage"], shipper_id, plan["service"], plan["revenue"], status,
          r["resp"], int(r["review"]), int(plan.get("must_win") or 0), None,
-         plan["sales_name"], "GJ", plan.get("crm_date") or date.today()))
+         plan["sales_name"], "GJ", date.today()))
     await execute("UPDATE tickets SET first_synced_at=NOW() WHERE id=%s", (tid,))
 
     owner = await auto_assignee(plan["service"], tid, shipper_id) if r["resp"] == "PNS" else None
@@ -4662,6 +4684,20 @@ async def submit_price(ref: str, body: PriceIn, u: User = Depends(current_user))
     blocked = stage_blocks_work(t)
     if blocked:
         raise HTTPException(409, blocked)
+    # The provisional truck line has to be resolved before a price goes on it (Michael,
+    # 2026-09-10). "FTL" means we know it is a truck deal and not which kind, and the two
+    # kinds are not interchangeable: FTL monthly is PNS's at every revenue band, while an
+    # on-call deal under 30 Mio is Sales' to price. Pricing it while it still says "FTL"
+    # settles that question by accident, in whichever direction the pricer happened to be.
+    #
+    # A gate rather than a warning, because the flag already existed as a note on the
+    # ticket and notes do not stop anybody -- five deals reached this point on the
+    # provisional line, one of them all the way to Proposal Submitted.
+    if t["service_type"] == FTL_UNSPECIFIED:
+        raise HTTPException(
+            409, f"{ref} is on the provisional {FTL_UNSPECIFIED} line. Set FTL on-call or "
+                 f"FTL monthly on the Input tab before pricing it — Sales CRM cannot tell "
+                 f"the two apart, and the choice decides who owes the price.")
     if not attach_price(u, t):
         raise HTTPException(403, f"{t['resp']} owes the price on {ref}")
     url = clean_url(body.price_url)

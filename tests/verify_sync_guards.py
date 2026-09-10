@@ -262,6 +262,46 @@ check("the refresh branch also fires for an explicit id list",
       "(body.refresh or body.ids)" in SRC,
       "ids mode skips every id it already holds")
 
+# --------------------------------------------- submitted_on is OUR date, not Sales CRM's
+# Michael, 2026-09-10: an opportunity synced on the 10th showed "Submitted 2026-09-04" and
+# read as six days old on the board before PNS had ever seen it. submitted_on is the day
+# the deal reached PNS -- which is what a ticket raised by hand has always stamped, so the
+# two intake paths now agree.
+#
+# TWO places had to change and BOTH are pinned, because fixing only the import would have
+# looked right and lasted until the next sweep: _refresh_from_salescrm was writing
+# submitted_on back from the CRM date on every pass, so the corrected value would have
+# been quietly overwritten within five minutes. That is the same shape as the import-queue
+# bug -- a fix that changes nothing because something downstream undoes it.
+print()
+print("submitted_on records when the deal reached PNS")
+import ast as _ast
+_t = _ast.parse(SRC)
+_ref = [n for n in _ast.walk(_t)
+        if isinstance(n, (_ast.FunctionDef, _ast.AsyncFunctionDef))
+        and n.name == "_refresh_from_salescrm"]
+check("_refresh_from_salescrm exists", bool(_ref))
+if _ref:
+    body = _ast.get_source_segment(SRC, _ref[0]) or ""
+    check("the refresh does not write submitted_on",
+          "submitted_on=" not in body,
+          "the sweep would put Sales CRM's raise date back on the next pass and the "
+          "import's stamp would never survive five minutes")
+
+_imp = [n for n in _ast.walk(_t)
+        if isinstance(n, (_ast.FunctionDef, _ast.AsyncFunctionDef))
+        and n.name == "_import_opportunity"]
+check("_import_opportunity exists", bool(_imp))
+if _imp:
+    body = _ast.get_source_segment(SRC, _imp[0]) or ""
+    check("the import does not stamp submitted_on from the CRM date",
+          'plan.get("crm_date") or date.today()' not in body,
+          "that is Sales CRM's opportunity creation date, routinely weeks earlier")
+    check("...and the CRM date is still what the import floor is checked against",
+          "min_date" in SRC and "_crm_date(o)" in SRC,
+          "the floor is about not dragging in ancient history, which IS a question "
+          "about when Sales CRM raised the deal")
+
 print()
 if fails:
     print("FAILED %d check(s):" % len(fails))

@@ -239,6 +239,47 @@ check("and it still runs early too, so an out-of-scope line is skipped before th
       len(_calls) >= 2,
       "the early call is what stops a cold-chain deal costing an account round trip")
 
+# ---------------------------------------------------- the FTL product line
+# Sales CRM published an FTL product line on 2026-09-10. It says "truck deal" and stops:
+# on-call versus monthly is OUR split -- ad hoc booking versus a dedicated truck -- and
+# Sales CRM carries no field that could answer it. So it must land on the provisional
+# line and be resolved here, exactly like a deal identified only by its shipper name.
+#
+# The failure this guards against is a future edit "helpfully" pointing the new product
+# line at one of the two real lines. That would look tidier and would silently decide
+# who owes the price: FTL monthly is PNS's at every band, an on-call deal under 30 Mio
+# is Sales'. Half of them would land on the wrong team with nothing saying so.
+print()
+print("Sales CRM's FTL product line lands on the provisional line, not a guess")
+for level in ("", "-", "FTL", "Monthly", "On Call", "anything at all"):
+    svc, why = service_line_for("FTL", level)
+    check(f"FTL / {level!r} -> the provisional line", svc == "FTL",
+          f"got {svc!r}; on-call and monthly are not Sales CRM's to choose")
+    check(f"FTL / {level!r} says it must be resolved", bool(why))
+
+check("the provisional reason names the two lines a person must choose between",
+      all(w and "on-call" in w and "monthly" in w
+          for w in (service_line_for("FTL", "")[1], service_line_for("Trucking", "")[1])),
+      "the note is the only instruction the pricer gets")
+check("...and quotes the value Sales CRM actually sent",
+      "FTL" in service_line_for("FTL", "")[1]
+      and "Trucking" in service_line_for("Trucking", "")[1],
+      "it said 'Trucking' flatly, which became a lie the day an FTL line existed")
+
+# A price cannot go on the unresolved line. The flag was already a note on the ticket
+# before this, and notes stop nobody: five deals reached pricing on the provisional line,
+# one of them all the way to Proposal Submitted.
+print()
+print("and a price cannot be attached until somebody resolves it")
+_price = [n for n in ast.walk(_tree)
+          if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+          and n.name == "submit_price"]
+check("submit_price exists", bool(_price))
+if _price:
+    body = ast.get_source_segment(_src, _price[0]) or ""
+    check("it refuses the provisional line", "FTL_UNSPECIFIED" in body,
+          "pricing a deal that still says 'FTL' settles who owes it by accident")
+
 print()
 
 # ------------------------------------------------- out-of-scope lines are admin toggles
