@@ -164,6 +164,87 @@ for _g, _want in (("PNS", True), ("Commercial", False), ("Admin", True), ("PSP",
     if not _ok:
         fails.append("%s has sendToPsp=%s, expected %s" % (_g, _got, _want))
 
+# ---------------------------------------------------------------- AM tracks Commercial
+# Michael, 2026-09-10: AMs hold the shipper relationship and do the same job as Sales
+# inside this app, so the two groups carry the same rights.
+#
+# This is the check that matters, and it is deliberately a COMPARISON rather than a list
+# of expected answers. The failure mode is not that AM is wrong today -- it is that six
+# weeks from now somebody grants a new right to "Commercial" at one call site and the two
+# groups quietly diverge, with nothing anywhere saying which screens an AM lost. Comparing
+# every action means a new permission is covered the day it is written, without anyone
+# remembering to come back here.
+#
+# The LEVEL gates are the stated exception: editAcctOrRev and closing somebody else's
+# question are com_head, and reassigning another person's Sales PIC is com_mgr. Those are
+# about who leads Sales, which an AM head is not, so they are expected to differ and are
+# listed here rather than silently skipped.
+print()
+print("AM carries the same rights as Commercial, action for action")
+# editAcctOrRev is the one action gated purely on being the Sales HEAD, so it is the one
+# AM is expected to differ on. setSales is NOT in here: with no ticket in hand it answers
+# "render the control" for every selling group at every level, staff included, and the
+# real restriction only appears once a ticket is passed -- checked separately below.
+LEVEL_ONLY = {"editAcctOrRev"}
+# The action names this compares. Listed rather than harvested because can() builds its
+# map inline and there is no handle on the keys without executing it for every action --
+# which is what this loop does anyway. A new action missing from this list is covered the
+# moment somebody adds it here, and the cost of forgetting is one uncompared permission,
+# not a false pass on the ones that are listed.
+_actions = ["createTicket", "editInput", "reopen", "acceptProposal",
+            "sendBackProposal", "capaRaise", "capaSubmit", "queueSync",
+            "manageImportQueue", "startOnboarding", "editOnboardingIds",
+            "confirmGolive", "seePrice", "seeMargin", "assign", "markReviewed",
+            "sendToPsp", "pspDecide", "vendorToggle", "manageUsers",
+            "editAcctOrRev", "setSales", "raiseRequirement", "bulkDelete"]
+
+for _lvl in ("staff", "head"):
+    for _a in sorted(set(_actions)):
+        _c = _can(_U("Commercial", _lvl), _a)
+        _m = _can(_U("AM", _lvl), _a)
+        if _a in LEVEL_ONLY:
+            continue
+        _ok = _c == _m
+        print(("  ok   " if _ok else "  FAIL ")
+              + "%-20s %-6s Commercial=%-5s AM=%s" % (_a, _lvl, _c, _m))
+        if not _ok:
+            fails.append("%s at level %s: Commercial=%s but AM=%s - a right reached one "
+                         "selling group and not the other" % (_a, _lvl, _c, _m))
+
+print()
+print("and the level gates stay Sales' alone, which is the stated exception")
+for _a in sorted(LEVEL_ONLY):
+    _m = _can(_U("AM", "head"), _a)
+    print(("  ok   " if not _m else "  FAIL ") + "%-20s AM head=%s" % (_a, _m))
+    if _m:
+        fails.append("AM head has %s - that is com_head, about who leads Sales" % _a)
+
+# setSales WITH a ticket in hand, which is where the tiers actually separate. Somebody
+# else's deal: only a Sales Manager or Head may move it. Their own: anyone selling may
+# hand it away, which is the leave-and-handover case and not a route to taking a
+# colleague's deal.
+_theirs = {"sales_email": "someone.else@ninjavan.co"}
+_mine = {"sales_email": "x@y"}
+print()
+print("reassigning the Sales PIC: somebody else's deal is the Sales tiers' alone")
+for _g, _lvl, _t, _want, _why in [
+        ("Commercial", "head", _theirs, True, "the Sales Head may move any deal"),
+        ("Commercial", "manager", _theirs, True, "so may a Sales Manager"),
+        ("Commercial", "staff", _theirs, False, "a salesperson may not take a colleague's"),
+        ("AM", "head", _theirs, False, "an AM head is not the Sales Head"),
+        ("AM", "staff", _theirs, False, "nor is an AM"),
+        ("Commercial", "staff", _mine, True, "but anyone may hand away their own"),
+        ("AM", "staff", _mine, True, "AMs included"),
+]:
+    _got = _can(_U(_g, _lvl), "setSales", _t)
+    _ok = _got == _want
+    print(("  ok   " if _ok else "  FAIL ")
+          + "%-11s %-8s %-18s setSales=%-5s  %s"
+          % (_g, _lvl, "their own" if _t is _mine else "somebody else's", _got, _why))
+    if not _ok:
+        fails.append("setSales %s/%s on %s = %s, expected %s"
+                     % (_g, _lvl, "own" if _t is _mine else "other", _got, _want))
+
 print()
 if fails:
     print("FAILURES:")

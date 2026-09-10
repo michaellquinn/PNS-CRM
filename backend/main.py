@@ -866,8 +866,23 @@ class User(BaseModel):
 # Legal folded into Visitor on 2026-08-11 (V17): the two were one role under two names,
 # and choosing between them was a question with no consequence. Ops arrived at the same
 # time — they receive the Kick-off, and without a group there was no list to send it to.
-ROLE_GROUPS = ["Commercial", "PNS", "PSP", "Ops", "Finance", "Sales Planning",
+ROLE_GROUPS = ["Commercial", "AM", "PNS", "PSP", "Ops", "Finance", "Sales Planning",
                "CSO", "QC", "Visitor", "Admin"]
+# Account Management (Michael, 2026-09-10). AMs hold the shipper relationship and do the
+# same job as Sales inside this app -- raise the request, correct the intake, follow it
+# through pricing, record the outcome, hand it to Ops -- so they carry the same rights.
+#
+# A separate GROUP rather than a level of Commercial, because the split is about which
+# team somebody is on and not about seniority, and the two are reported on separately.
+# Named once and used by every gate below: "Commercial or AM" written out at eleven call
+# sites is eleven chances for the next right to be granted to one and not the other.
+#
+# What AM deliberately does NOT get is the LEVEL gates -- editAcctOrRev and closing
+# somebody else's question are com_head, and reassigning another person's Sales PIC is
+# com_mgr. Those are about who leads Sales, which an AM head is not. Ask if that changes.
+SELLING_GROUPS = ("Commercial", "AM")
+# AMs carry no team. `team` is a Commercial-only concept (see clean_user_fields) and the
+# AMs registered on 2026-09-10 have no region, so nothing here is scoped by territory.
 # Visitor, Finance and Ops look and never touch. Sales Planning is different: they
 # correct what Sales submitted, so they get the intake edit and nothing else.
 READ_ONLY_GROUPS = ("Visitor", "Finance", "Ops")
@@ -908,7 +923,7 @@ def can(u: User, action: str, t: dict | None = None) -> bool:
     # TWO permissions read it and they must not drift apart: being able to queue a
     # deal and being able to see what became of it are the same audience
     # (Michael, 2026-09-02).
-    may_queue = u.group in ("Commercial", "PNS", "Sales Planning") or admin
+    may_queue = u.group in (*SELLING_GROUPS, "PNS", "Sales Planning") or admin
     # Anyone who works the pipeline rather than only reading it. Sales Planning is in:
     # they already correct intake, so raising one is no wider a right.
     works_group = u.group not in READ_ONLY_GROUPS
@@ -1009,7 +1024,7 @@ def can(u: User, action: str, t: dict | None = None) -> bool:
         # Sales Planning corrects submissions on Sales' behalf. PNS is here too because
         # during the Sales CRM rollout most intake arrives imported and incomplete, and
         # waiting for Sales to fill it in would stall the solutioning it exists to feed.
-        "editInput":        u.group in ("Commercial", "Sales Planning", "PNS") or admin,
+        "editInput":        u.group in (*SELLING_GROUPS, "Sales Planning", "PNS") or admin,
         # Potential revenue and account type are the two intake fields that RE-ROUTE the
         # ticket, so they were the Sales Head's alone. During the PNS-first pilot that is
         # backwards (Baskoro, 2026-08-14): Sales is not on the platform yet, a quarter of
@@ -1031,12 +1046,12 @@ def can(u: User, action: str, t: dict | None = None) -> bool:
         #
         # With no ticket in hand (the /api/me permission map) this answers for the
         # control being rendered at all, and the endpoint re-checks with the ticket.
-        "setSales":         com_mgr or (u.group == "Commercial" and (
+        "setSales":         com_mgr or (u.group in SELLING_GROUPS and (
                                 t is None
                                 or (t.get("sales_email") or "").lower() == u.email.lower())),
         # Any salesperson may put a lost or cancelled deal back into the pipeline —
         # Sales owns the shipper relationship that reopening reflects. (Was Head only.)
-        "reopen":           u.group == "Commercial" or admin,
+        "reopen":           u.group in SELLING_GROUPS or admin,
         "pspDecide":        u.group == "PSP" or admin,
         # Standing delegation so an absent PSP cannot stall the pipeline. Used through
         # the same endpoint, recorded as an override, see psp_decide.
@@ -1045,13 +1060,13 @@ def can(u: User, action: str, t: dict | None = None) -> bool:
         # PNS owns the watched accounts and decides when PSP needs to enter. Sales may
         # price its own work, but has no discretionary PSP escalation button.
         "sendToPsp":        u.group == "PNS" or admin,
-        "acceptProposal":   u.group == "Commercial" or admin,
-        "sendBackProposal": u.group in ("Commercial", "PNS") or admin,
+        "acceptProposal":   u.group in SELLING_GROUPS or admin,
+        "sendBackProposal": u.group in (*SELLING_GROUPS, "PNS") or admin,
         "seeMargin":        u.group in ("PNS", "PSP", "CSO") or admin,
         # CAPA is the QC team's process. Commercial can still raise one, they hear the
         # complaint first, and PNS still writes the proposal, but QC decides when it is
         # actually closed, which is the part that makes it theirs.
-        "capaRaise":        u.group in ("Commercial", "QC") or admin,
+        "capaRaise":        u.group in (*SELLING_GROUPS, "QC") or admin,
         "capaClose":        u.group == "QC" or admin,
         "capaSubmit":       u.group in ("PNS", "QC") or admin,
         # Registering people and setting roles: the PNS Admin and the PNS Head, as
@@ -1111,13 +1126,13 @@ def can(u: User, action: str, t: dict | None = None) -> bool:
         # relationship, so they are the ones who know the shipper ID and the date. PNS
         # and Sales Planning are in for the same reason they hold editInput: during the
         # rollout they enter most of it on Sales' behalf.
-        "startOnboarding":  u.group in ("Commercial", "PNS", "Sales Planning") or admin,
+        "startOnboarding":  u.group in (*SELLING_GROUPS, "PNS", "Sales Planning") or admin,
         # The OPV2 ids, which arrive over the following days as Sales get confirmation.
-        "editOnboardingIds": u.group in ("Commercial", "PNS", "Sales Planning") or admin,
+        "editOnboardingIds": u.group in (*SELLING_GROUPS, "PNS", "Sales Planning") or admin,
         # Confirming the shipper actually started shipping. Sales', because they are the
         # ones talking to the shipper. QC reach the same field through ackGolive when the
         # target passes and nobody confirmed.
-        "confirmGolive":    u.group == "Commercial" or admin,
+        "confirmGolive":    u.group in SELLING_GROUPS or admin,
         # Acknowledging a go-live that passed untouched. QC's, because QC inherit the
         # shipper -- and, while no QC user is registered at all, PNS's too. That fallback
         # is decided in the endpoint, not here: it needs to ask the database whether any
@@ -1149,7 +1164,7 @@ def attach_price(u: User, t: dict) -> bool:
         return True
     if u.group == "PNS":
         return PNS_PILOT or t["resp"] == "PNS"
-    return u.group == "Commercial" and t["resp"] == "Sales"
+    return u.group in SELLING_GROUPS and t["resp"] == "Sales"
 
 
 # ------------------------------------------------------------------ email
@@ -1371,7 +1386,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-10.110"
+BUILD = "2026-09-10.111"
 
 
 class Me(BaseModel):
@@ -1741,7 +1756,7 @@ async def list_tickets(
         # the pilot PNS works the Sales side too, so their queue is left unscoped.
         if u.group == "PNS" and not PNS_PILOT:
             sql += " AND (t.resp=%s OR t.status=%s)"; args += ["PNS", "Pending Vendor"]
-        elif u.group == "Commercial":
+        elif u.group in SELLING_GROUPS:
             sql += " AND (t.resp=%s OR t.status=%s)"; args += ["Sales", "Pending Vendor"]
 
     if status:
@@ -4343,7 +4358,7 @@ async def _refresh_from_salescrm(o: dict, account: dict | None = None,
             await notify(
                 f"{ref}, {t['shipper']} moved to {wants} by the Sales CRM sync, but "
                 f"onboarding needs: {', '.join(missing)}. Fill them on the ticket input.",
-                groups=["PNS", "Commercial"], ticket_ref=ref)
+                groups=["PNS", *SELLING_GROUPS], ticket_ref=ref)
         moved = wants
     return {"moved": moved, "missing": missing, "revenue_filled": filled_rev,
             "overwritten": changed}
@@ -4637,7 +4652,8 @@ async def create_ticket(body: NewTicket, u: User = Depends(current_user)):
                  + (" — MUST WIN" if body.must_win else "")
                  + f" raised by {u.name}" + (f", assigned to {owner}" if owner else ""),
                  roles=["PNS - Head"] if r["resp"] == "PNS" else [],
-                 groups=[] if r["resp"] == "PNS" else ["Commercial"], ticket_ref=ref)
+                 groups=[] if r["resp"] == "PNS" else list(SELLING_GROUPS),
+                 ticket_ref=ref)
     await audit(u.email, "create", "ticket", ref)
     return {"ok": True, "ref": ref, "status": status}
 
@@ -4821,7 +4837,7 @@ async def submit_price(ref: str, body: PriceIn, u: User = Depends(current_user))
                          f"Alex and Dhinesh sign-off", groups=["PNS"], ticket_ref=ref)
         else:
             await notify(f"{ref}, {t['shipper']}: proposal is ready",
-                         groups=["Commercial"], ticket_ref=ref)
+                         groups=list(SELLING_GROUPS), ticket_ref=ref)
 
     await log_status(t["id"], nxt, u.name, note)
     await audit(u.email, "price", "ticket", ref, "price_file", None, body.price_file)
@@ -4933,7 +4949,7 @@ async def change_status(ref: str, body: StatusIn, u: User = Depends(current_user
     elif nxt == "Proposal Accepted / Ready to Ship":
         await execute("UPDATE tickets SET outcome='accepted' WHERE id=%s", (t["id"],))
         await notify(f"{ref}, {t['shipper']} ACCEPTED. Contract needed.",
-                     groups=["PNS", "Commercial", "Ops"], ticket_ref=ref)
+                     groups=["PNS", *SELLING_GROUPS, "Ops"], ticket_ref=ref)
     elif nxt == "Cancel":
         # 'cancel' is the third value the outcome column was always documented to hold,
         # and it was the one nothing ever wrote — so a cancelled ticket read as still
@@ -4941,7 +4957,7 @@ async def change_status(ref: str, body: StatusIn, u: User = Depends(current_user
         # accepted against lost, and a deal nobody could build is neither.
         await execute("UPDATE tickets SET outcome='cancel' WHERE id=%s", (t["id"],))
         await notify(f"{ref}, {t['shipper']} was cancelled by {u.name}: {body.reason}",
-                     groups=["PNS", "Commercial"], ticket_ref=ref)
+                     groups=["PNS", *SELLING_GROUPS], ticket_ref=ref)
     elif nxt == "Pending Review - PSP":
         await notify(f"{ref}, {t['shipper']}: sent to PSP for a margin check by {u.name}",
                      groups=["PSP"], ticket_ref=ref)
@@ -5093,7 +5109,7 @@ async def edit_input(ref: str, body: InputPatch, u: User = Depends(current_user)
     await log_note(t["id"], t["status"], u.name, note[:500])
     await audit(u.email, "edit", "ticket", ref, "input", None, "; ".join(changes)[:500])
     await notify(f"{ref}, {t['shipper']}: {note}",
-                 groups=["PNS", "Commercial"], ticket_ref=ref)
+                 groups=["PNS", *SELLING_GROUPS], ticket_ref=ref)
     return {"ok": True, "ref": ref, "status": t["status"]}
 
 
@@ -5142,7 +5158,7 @@ async def set_priced_by(ref: str, body: PricedByIn, u: User = Depends(current_us
     await log_note(t["id"], t["status"], u.name, note[:500])
     await audit(u.email, "priced_by", "ticket", ref, "resp", t["resp"], body.resp)
     await notify(f"{ref}, {t['shipper']}: {note}",
-                 groups=["PNS", "Commercial"], ticket_ref=ref)
+                 groups=["PNS", *SELLING_GROUPS], ticket_ref=ref)
     return {"ok": True, "ref": ref, "status": t["status"]}
 
 
@@ -5210,10 +5226,10 @@ async def pns_review(ref: str, u: User = Depends(current_user)):
     # the same way pns_finalise does. A watched ticket parked here by hand has a chain.
     if nxt == "Proposal Submitted":
         await notify(f"{ref}, {t['shipper']}: {u.name} checked the price — proposal is ready",
-                     groups=["Commercial"], ticket_ref=ref)
+                     groups=list(SELLING_GROUPS), ticket_ref=ref)
     else:
         await notify(f"{ref}, {t['shipper']}: price checked by {u.name} — now at {nxt}",
-                     groups=["PNS", "Commercial"], ticket_ref=ref)
+                     groups=["PNS", *SELLING_GROUPS], ticket_ref=ref)
     await audit(u.email, "pns_review", "ticket", ref, "status", t["status"], nxt)
     return {"ok": True, "ref": ref, "status": nxt}
 
@@ -5243,10 +5259,10 @@ async def pns_finalise(ref: str, u: User = Depends(current_user)):
     elif nxt == "Pending Review - C-level":
         await notify(f"{ref}, {t['shipper']} ({t['acct_type']}): solution finalised by "
                      f"{u.name} and ready for Alex and Dhinesh",
-                     groups=["PNS", "Commercial"], ticket_ref=ref)
+                     groups=["PNS", *SELLING_GROUPS], ticket_ref=ref)
     else:
         await notify(f"{ref}, {t['shipper']}: solution finalised — proposal is ready",
-                     groups=["Commercial"], ticket_ref=ref)
+                     groups=list(SELLING_GROUPS), ticket_ref=ref)
     await audit(u.email, "pns_final", "ticket", ref, "status", t["status"], nxt)
     return {"ok": True, "ref": ref, "status": nxt}
 
@@ -5367,7 +5383,7 @@ async def reopen(ref: str, body: ReopenIn, u: User = Depends(current_user)):
     await execute("UPDATE tickets SET reentered_at=NOW() WHERE id=%s", (t["id"],))
     await log_status(t["id"], body.status, u.name, f"reopened by {u.name} (Sales)")
     await notify(f"{ref}, {t['shipper']} reopened as {body.status} by {u.name}",
-                 groups=["PNS", "Commercial"], ticket_ref=ref)
+                 groups=["PNS", *SELLING_GROUPS], ticket_ref=ref)
     await audit(u.email, "reopen", "ticket", ref, "status", t["status"], body.status)
     return {"ok": True, "ref": ref, "status": body.status}
 
@@ -5743,8 +5759,8 @@ async def send_charter(ref: str, body: CharterSend, u: User = Depends(current_us
     # negotiated it. Ops get the Kick-off instead, which is a different document with a
     # different job; sending the Charter wide was how price ended up in front of people
     # who had no use for it.
-    audience = await q("SELECT email FROM users WHERE role_group IN ('PNS','Commercial') "
-                       "AND active=1")
+    audience = await q("SELECT email FROM users WHERE role_group IN "
+                       "('PNS','Commercial','AM') AND active=1")
     to = {r["email"] for r in audience} | set(body.to or [])
     if t.get("sales_email"):
         to.add(t["sales_email"])
@@ -5813,7 +5829,7 @@ async def _kickoff_email(t: dict, inp: dict, u: User, extra=None, note=None) -> 
     need what Ops needs and they need it at the same moment."""
     ref = t["ticket_ref"]
     people = await q("SELECT email FROM users WHERE role_group IN "
-                     "('PNS','Commercial','Ops','QC') AND active=1")
+                     "('PNS','Commercial','AM','Ops','QC') AND active=1")
     to = {r["email"] for r in people} | set(extra or [])
     if t.get("sales_email"):
         to.add(t["sales_email"])
@@ -6099,7 +6115,7 @@ async def start_onboarding(ref: str, body: StartOnboarding,
     await audit(u.email, "onboarding_start", "ticket", ref, "shipper_id", None, shipper_id)
     await notify(f"{t['shipper']} ({ref}) is being onboarded - shipper {shipper_id}, "
                  f"target go-live {target}. Ops and QC: confirm you are ready.",
-                 groups=["PNS", "QC", "Ops", "Commercial"], ticket_ref=ref)
+                 groups=["PNS", "QC", "Ops", *SELLING_GROUPS], ticket_ref=ref)
 
     # The Kick-off goes with it. Best-effort: a mail relay that is down must not lose the
     # onboarding record that was already written, and the document can be resent.
@@ -6535,7 +6551,7 @@ async def exec_signoff(ref: str, body: SignoffIn, u: User = Depends(current_user
         status = "Proposal Submitted"
         await log_status(t["id"], status, u.name, note)
         await notify(f"{ref}, {t['shipper']}: signed off by Alex and Dhinesh, proposal is ready",
-                     groups=["Commercial"], ticket_ref=ref)
+                     groups=list(SELLING_GROUPS), ticket_ref=ref)
     else:
         await log_note(t["id"], status, u.name, note)
 
@@ -6678,7 +6694,8 @@ async def psp_decide(ref: str, body: PspIn, u: User = Depends(current_user)):
                    actor_role[:30], body.note))
     await notify(f"{ref}, PSP {'approved' if body.approve else 'rejected'} the price"
                  f"{': ' + body.note if body.note else ''}",
-                 groups=[t["resp"] == "PNS" and "PNS" or "Commercial"], ticket_ref=ref)
+                 groups=["PNS"] if t["resp"] == "PNS" else list(SELLING_GROUPS),
+                 ticket_ref=ref)
     if not body.approve:
         # A rejection puts the ticket back on whoever priced it, same rule as a send-back.
         await tell_owed(t, nxt, u.name,
@@ -6735,7 +6752,7 @@ async def submit_proposal(ref: str, u: User = Depends(current_user)):
                      f"awaiting Alex and Dhinesh sign-off", groups=["PNS"], ticket_ref=ref)
     else:
         await notify(f"{ref}, {t['shipper']}: proposal is ready",
-                     groups=["Commercial"], ticket_ref=ref)
+                     groups=list(SELLING_GROUPS), ticket_ref=ref)
     await audit(u.email, "submit", "ticket", ref, "status", t["status"], nxt)
     return {"ok": True, "ref": ref, "status": nxt}
 
@@ -6870,7 +6887,7 @@ async def bulk_delete_pns_unassigned(body: BulkDeleteIn, u: User = Depends(curre
         await notify(f"{u.name} moved {len(refs)} unassigned tickets to the recycle bin "
                      f"(no PNS PIC{'' if body.include_decided else ', live work only'}). "
                      f"They can be restored from Recycle bin.",
-                     groups=["PNS", "Commercial"])
+                     groups=["PNS", *SELLING_GROUPS])
     except Exception:                                   # noqa: BLE001 - see above
         log.exception("bulk delete bookkeeping failed after %d tickets were binned",
                       len(refs))
@@ -6888,7 +6905,7 @@ async def restore(ref: str, u: User = Depends(current_user)):
     await execute("UPDATE tickets SET deleted_at=NULL, deleted_by=NULL, "
                   "reentered_at=NOW() WHERE ticket_ref=%s", (ref,))
     await audit(u.email, "restore", "ticket", ref)
-    await notify(f"{ref} was restored by {u.name}", groups=["PNS", "Commercial"], ticket_ref=ref)
+    await notify(f"{ref} was restored by {u.name}", groups=["PNS", *SELLING_GROUPS], ticket_ref=ref)
     return {"ok": True, "ref": ref}
 
 
@@ -6946,7 +6963,8 @@ async def options(u: User = Depends(current_user)):
         for k in REMEMBERED_FIELDS
     }
     sales = [r["name"] for r in await q(
-        "SELECT name FROM users WHERE active=1 AND role_group IN ('Commercial','Admin') "
+        "SELECT name FROM users WHERE active=1 AND "
+        "role_group IN ('Commercial','AM','Admin') "
         "ORDER BY role_level DESC, name")]
     shippers = [r["name"] for r in await q("SELECT name FROM shippers ORDER BY name")]
     return {"remembered": remembered, "sales": sales, "shippers": shippers,
@@ -7295,7 +7313,7 @@ async def submit_capa(ref: str, body: CapaProposal, u: User = Depends(current_us
         await execute("UPDATE capa SET link_url=%s WHERE capa_ref=%s", (link, ref))
     await execute("UPDATE capa SET assignee=%s, proposal=%s, status='Submitted' "
                   "WHERE capa_ref=%s", (body.assignee, body.proposal, ref))
-    await notify(f"{ref}, PNS submitted a CAPA proposal", groups=["Commercial"])
+    await notify(f"{ref}, PNS submitted a CAPA proposal", groups=list(SELLING_GROUPS))
     return {"ok": True, "ref": ref, "status": "Submitted"}
 
 

@@ -3,6 +3,19 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-09-10",
+    title: "AM is a group of its own, carrying the same rights as Commercial",
+    by: "Michael + Claude",
+    changes: [
+      "NEW GROUP — AM. Account Managers hold the shipper relationship and do the same job as Sales inside this app, so they carry the same rights: raise a request, correct the intake, queue an import, attach a Sales-owed price, send a ticket back, record a proposal accepted or lost, reopen a dead deal, start onboarding, confirm go-live, raise a CAPA. They can be named as a ticket’s Sales PIC, and they receive the Charter and the Kick-off.",
+      "A separate group rather than a level of Commercial, because the split is about which team somebody is on and not about seniority, and the two are reported on separately.",
+      "AMs carry no region team. Team is a Commercial-only concept and the AMs registered today have no region, so nothing about them is scoped by territory.",
+      "What AM does NOT get is the two Sales leadership rights: changing account type or potential revenue, and reassigning somebody else’s Sales PIC. Those are about who leads Sales, which an AM head is not. An AM can still hand away their own deal.",
+      "Pinned in verify_permissions by COMPARING the two groups action for action rather than listing expected answers. The risk was never that AM is wrong today — it is that a new right gets granted to Commercial at one call site in six weeks and the two quietly diverge, with nothing saying which screens an AM lost. The comparison covers a new permission the day it is written.",
+    ],
+    overruled: [],
+  },
+  {
+    date: "2026-09-10",
     title: "Every existing ticket’s Submitted date moved to the day it reached PNS",
     by: "Michael + Claude",
     changes: [

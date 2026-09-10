@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, SERVICES, rp } from "../api";
+import { api, SELLING_GROUPS, SERVICES, rp } from "../api";
 import { charterHtml, charterText, copyRich } from "../charter";
 import Discussion from "./Discussion";
 import { PriceForm } from "./Queues";
@@ -708,7 +708,7 @@ export default function TicketDetail({ ticketRef: initialRef, me, notify, onBack
                   ceiling is checked against cannot come out different depending on where
                   they were typed. Shown to whoever may attach a price on this ticket,
                   which is the side that owes it. */}
-              {["PNS", "Commercial", "Admin"].includes(me.group) && (
+              {["PNS", ...SELLING_GROUPS, "Admin"].includes(me.group) && (
                 <div className="mt-4 border-t border-slate-100 pt-4">
                   <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-slate-400">
                     Update the price

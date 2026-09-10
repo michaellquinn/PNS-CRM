@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api } from "../api";
+import { api, SELLING_GROUPS } from "../api";
 import { Btn, Card, Empty, Field, Head, Pill, inputCls, refreshPnsTeam } from "../ui";
 
 const GROUP_TONE = {
@@ -207,8 +207,11 @@ export default function Users({ me, notify }) {
   if (!data) return <p className="text-sm text-slate-400">Loading…</p>;
 
   const rows = data.users.filter((r) => showInactive || r.active);
-  // Only Commercial people can be a manager or head of a salesperson.
-  const commercial = data.users.filter((r) => r.active && r.group === "Commercial");
+  // Who can be somebody's manager or head, and who has a reporting line at all. Both
+  // selling groups: an AM reports to an AM head, and the picker has to offer them or the
+  // org chart cannot be built in the UI at all (Michael, 2026-09-10).
+  const commercial = data.users.filter(
+    (r) => r.active && SELLING_GROUPS.includes(r.group));
   const nameOf = (email) =>
     data.users.find((r) => r.email === email)?.name || email;
   const mayGrantAdmin = me.permissions.grantAdmin;
@@ -372,7 +375,7 @@ export default function Users({ me, notify }) {
                         )}
                       </td>
                       <td className={td}>
-                        {r.group === "Commercial" ? (
+                        {SELLING_GROUPS.includes(r.group) ? (
                           <select className={cell} value={r.manager_email || ""} disabled={frozen}
                             onChange={(e) => act(
                               () => api.updateUser(r.email, { manager_email: e.target.value }),

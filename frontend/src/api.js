@@ -258,6 +258,12 @@ export const PENDING = STATUSES.filter((s) => s.startsWith("Pending"));
 // requirement gap never reads as a price somebody owes.
 export const REQUIREMENT_STATUS = "Pending Requirement";
 
+// The groups that sell (Michael, 2026-09-10). AM holds the shipper relationship and does
+// the same job as Sales inside this app, so the two carry the same rights. Named once and
+// mirrored from SELLING_GROUPS in the backend: written out at each call site, the next
+// right would sooner or later be granted to one and not the other.
+export const SELLING_GROUPS = ["Commercial", "AM"];
+
 // What "Pending Solution" means: still being worked, minus the ones waiting on Sales to
 // say what the deal even is. The two have their own menu entries and must not both list
 // the same ticket — that is the whole reason the status exists rather than a marker on

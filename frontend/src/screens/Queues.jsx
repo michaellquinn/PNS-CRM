@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, BOTTOM_MARGIN, LIVE_STATUSES, PENDING, PENDING_SOLUTION,
-         REQUIREMENT_STATUS, PICKABLE_LOSS_REASONS, SERVICES,
+         REQUIREMENT_STATUS, PICKABLE_LOSS_REASONS, SELLING_GROUPS, SERVICES,
          FTL, WATCHED_GROUPS, NEW_TICKET_DAYS, arrivedAgo, groupFilter, groupTone,
          isNewIncoming, isPnsWork, mayGoToPsp, rp } from "../api";
 import {
@@ -365,7 +365,7 @@ export function AwaitingPrice({ me, onOpen, notify, side }) {
   const [list, f, set, clear, patch] = useFilter(rows, { resp: [], review: [] }, "awaiting");
 
   // Anyone may look at this queue; only the sides that owe prices get the form.
-  const canAct = ["PNS", "Commercial", "Admin"].includes(me.group);
+  const canAct = ["PNS", ...SELLING_GROUPS, "Admin"].includes(me.group);
 
   const act = async (ref, fn) => {
     setBusy(ref);
@@ -385,7 +385,7 @@ export function AwaitingPrice({ me, onOpen, notify, side }) {
       right={<span className="text-[12px] text-slate-500">
         {side ? `${side} owes these`
               : me.group === "PNS" ? "PNS-priced tickets"
-              : me.group === "Commercial" ? "Tickets you must price" : "All tickets"}
+              : SELLING_GROUPS.includes(me.group) ? "Tickets you must price" : "All tickets"}
       </span>}
       rows={rows} err={err} empty="Nothing awaiting a price."
       bar={
