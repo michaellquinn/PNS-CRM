@@ -1,0 +1,42 @@
+-- Backfill submitted_on to the day the deal actually reached PNS (Michael, 2026-09-10).
+--
+-- WHY
+--   submitted_on used to be copied from Sales CRM's new_date -- the day the opportunity
+--   was CREATED in Sales CRM, which is routinely weeks before PNS is asked for anything.
+--   A ticket synced on the 10th displayed "Submitted 2026-09-04" and was six days old on
+--   the board before this team had ever seen it. The dashboard is ordered, aged and
+--   date-filtered on this column, so every one of those readings was wrong by the size of
+--   the gap: 25 of 40 synced tickets, 25 days out on average and 193 days at the worst.
+--
+--   The code stopped doing it in the same change as this file: the import now stamps
+--   arrival, and _refresh_from_salescrm no longer writes the column at all. That fixed
+--   every FUTURE ticket and, deliberately, not one existing one -- rewriting historical
+--   dates is not a thing to do as a side effect of a code change. Michael asked for it
+--   explicitly, which is what this file is.
+--
+-- WHERE THE REPLACEMENT DATE COMES FROM
+--   COALESCE(first_synced_at, created_at), in that order.
+--
+--   first_synced_at is the honest answer: written once when the sync first saw the deal
+--   and never revised. It is NULL on two tickets that predate the column, so created_at
+--   is the fallback -- the row was inserted here when the deal arrived here, by every
+--   intake path there is, so it says the same thing with one more assumption.
+--
+-- SCOPE
+--   Synced tickets only. A ticket raised by hand has stamped date.today() at creation
+--   since the beginning, so it is already correct and there is nothing to gain by
+--   touching it. The second condition means only rows that would actually change are
+--   written, so re-reading this file tells you exactly what it did.
+--
+-- NOT REVERSIBLE
+--   The old value was Sales CRM's new_date and is not stored anywhere else on the ticket,
+--   so this cannot be undone from the database alone. It can be recovered per-opportunity
+--   from Sales CRM, which still holds new_date, and the sync payload tables carry it for
+--   any opportunity a sweep has read. Said plainly here because "we can always put it
+--   back" is the assumption that makes a backfill feel cheap.
+--
+-- Highest migration before this was V30.
+UPDATE tickets
+   SET submitted_on = DATE(COALESCE(first_synced_at, created_at))
+ WHERE opportunity_id IS NOT NULL
+   AND submitted_on <> DATE(COALESCE(first_synced_at, created_at));

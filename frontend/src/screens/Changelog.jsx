@@ -3,6 +3,18 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-09-10",
+    title: "Every existing ticket’s Submitted date moved to the day it reached PNS",
+    by: "Michael + Claude",
+    changes: [
+      "The earlier fix today changed how NEW tickets are stamped and deliberately left history alone. Michael asked for the rest, so this backfills them: 25 of the 40 synced tickets moved, 25 days out on average and 193 days at the worst. 13 were already right, and 2 that predate the first-synced column fall back to the row’s own creation time, which says the same thing with one more assumption.",
+      "Tickets raised by hand are untouched. They have stamped the day they were raised since the beginning, so there was nothing to correct and no reason to take the risk.",
+      "This is not reversible from the database — the old value was Sales CRM’s own date and is not stored anywhere else on the ticket. It is recoverable per opportunity from Sales CRM, and the before-and-after of all 40 rows was recorded before the migration ran.",
+      "What this changes on screen: the board’s ordering, the “raised N days ago” age on the Pending and Proposal lists, and the date-range filter. All three were reading a date that had nothing to do with when PNS was asked for anything.",
+    ],
+    overruled: [],
+  },
+  {
+    date: "2026-09-10",
     title: "Submitted is the day the deal reached PNS, and Sales CRM’s new FTL line lands provisional",
     by: "Michael + Claude",
     changes: [
