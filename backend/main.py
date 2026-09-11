@@ -1262,6 +1262,33 @@ async def log_status(ticket_id: int, status: str, actor: str, note: str = "") ->
                   (status, ticket_id))
 
 
+async def start_when_revenue_arrives(t: dict, revenue, resp: str, actor: str) -> str | None:
+    """Move a ticket off "Open" once the revenue that parked it there is supplied.
+
+    The import drops a revenue-0 opportunity into Open on purpose: potential revenue
+    decides who prices the deal, which 5A ceiling applies and whether PNS reviews it, so
+    a ticket cannot enter a working status without it -- change_status and submit_price
+    both refuse. Open is where it waits, "asking for the number before anybody prices
+    anything".
+
+    Nothing moved it back out (Michael, 2026-09-11, on SOF-7001306). Both paths that can
+    supply the number -- a person editing the ticket, and the sync copying Sales CRM's
+    figure -- left the status alone, so the deal sat at Open with an owner, a service and
+    30 Mio against it, showing in the pricing queue and missing from Pending solution.
+    That is also why those two counts disagreed by exactly one.
+
+    ONE function, called from both, because the rule is "the thing that blocked it has
+    arrived, so it starts" and two copies of that would drift the first time one of them
+    grew a condition. Returns the new status, or None when nothing moved.
+    """
+    if t.get("status") != "Open" or int(revenue or 0) <= 0:
+        return None
+    nxt = pending_for(resp)
+    await log_status(t["id"], nxt, actor,
+                     "potential revenue supplied, so the ticket starts")
+    return nxt
+
+
 async def notify(body: str, groups=(), roles=(), people=(), ticket_ref: str | None = None,
                  subject: str | None = None, thread_key: str | None = None) -> None:
     """Record a notification, and email it if it names specific people.
@@ -1386,7 +1413,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-10.112"
+BUILD = "2026-09-11.1"
 
 
 class Me(BaseModel):
@@ -4250,6 +4277,9 @@ async def _refresh_from_salescrm(o: dict, account: dict | None = None,
             sets += ["resp=%s", "needs_review=%s"]
             args += [rr["resp"], int(rr["review"])]
     filled_rev = crm_rev if (crm_rev > 0 and not int(t.get("potential_rev") or 0)) else 0
+    # Sales CRM supplying the number counts the same as a person typing it. This flag
+    # already existed and was only ever reported in the run summary; nothing acted on it.
+    started_on_rev = bool(filled_rev)
 
     # First time this app has ever seen the deal, written once and never revised.
     sets.append("first_synced_at=COALESCE(first_synced_at, NOW())")
@@ -4258,6 +4288,15 @@ async def _refresh_from_salescrm(o: dict, account: dict | None = None,
     if changed:
         await log_note(t["id"], t["status"], "Sales CRM sync",
                        "Sales CRM takes priority — " + "; ".join(changed)[:400])
+
+    # Done AFTER the UPDATE above, so the row already carries the revenue and the resp
+    # this run derived from it. `moved` below can still overwrite the status when the
+    # STAGE says so -- a Closed-Won opportunity outranks "it just started", and that
+    # branch runs later on purpose.
+    if started_on_rev:
+        _r = await q("SELECT status, resp, id FROM tickets WHERE id=%s", (t["id"],), one=True)
+        if _r:
+            await start_when_revenue_arrives(_r, filled_rev, _r["resp"], "Sales CRM sync")
 
     payload = {}
     row = await q("SELECT payload FROM ticket_input WHERE ticket_id=%s", (t["id"],), one=True)
@@ -5110,7 +5149,13 @@ async def edit_input(ref: str, body: InputPatch, u: User = Depends(current_user)
     await audit(u.email, "edit", "ticket", ref, "input", None, "; ".join(changes)[:500])
     await notify(f"{ref}, {t['shipper']}: {note}",
                  groups=["PNS", *SELLING_GROUPS], ticket_ref=ref)
-    return {"ok": True, "ref": ref, "status": t["status"]}
+    # Read resp from the row we just wrote, not from `t`: the routing above may have just
+    # changed who prices the deal, and starting it under the OLD side would put it in the
+    # wrong queue on the very edit that corrected the facts.
+    _row = await q("SELECT resp FROM tickets WHERE id=%s", (t["id"],), one=True)
+    moved = await start_when_revenue_arrives(t, revenue, (_row or {}).get("resp") or t["resp"],
+                                             u.name)
+    return {"ok": True, "ref": ref, "status": moved or t["status"]}
 
 
 class PricedByIn(BaseModel):

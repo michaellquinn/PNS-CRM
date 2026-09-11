@@ -151,6 +151,39 @@ for to in ("Lost", "Cancel"):
 check(f"{REQ} -> Proposal Submitted is refused",
       "Proposal Submitted" not in MOVES.get(REQ, set()))
 
+# ------------------------------------------- Open is a waiting room, not a resting place
+# Michael, 2026-09-11, on SOF-7001306: it sat at "Open" with an owner, a service and
+# 30 Mio against it. The import parks a revenue-0 opportunity in Open on purpose --
+# potential revenue decides who prices the deal, which ceiling applies and whether PNS
+# reviews it, so nothing may enter a working status without it. What was missing was the
+# way OUT: both paths that supply the number (a person editing, the sync copying Sales
+# CRM's figure) left the status alone, so the ticket never started.
+#
+# It is also why Pricing - PNS + Pricing - Sales did not equal Pending solution: the
+# pricing queues count Open, that list did not, and the difference was exactly this one
+# stranded ticket.
+print()
+print("a ticket parked in Open for want of revenue starts once revenue arrives")
+_t = ast.parse(src)
+_starter = [n for n in ast.walk(_t)
+            if isinstance(n, (ast.FunctionDef,
+                              ast.AsyncFunctionDef))
+            and n.name == "start_when_revenue_arrives"]
+check("there is one rule for it", bool(_starter))
+if _starter:
+    body = ast.get_source_segment(src, _starter[0]) or ""
+    check("it only ever acts on Open", '"Open"' in body)
+    check("it refuses to act without revenue", "<= 0" in body or "> 0" in body)
+    check("it routes by who owes the price", "pending_for" in body)
+
+# BOTH callers, because fixing one and not the other is the shape this bug already took:
+# the import knew to park the ticket and neither writer knew to release it.
+_calls = [n for n in ast.walk(_t)
+          if isinstance(n, ast.Call)
+          and getattr(n.func, "id", "") == "start_when_revenue_arrives"]
+# A person editing the ticket AND the sync filling it from Sales CRM.
+check("both revenue writers call it", len(_calls) >= 2)
+
 print()
 if fails:
     print("FAILED %d check(s): %s" % (len(fails), "; ".join(fails[:5])))

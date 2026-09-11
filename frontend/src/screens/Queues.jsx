@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, BOTTOM_MARGIN, LIVE_STATUSES, PENDING, PENDING_SOLUTION,
+import { api, BOTTOM_MARGIN, LIVE_STATUSES, PENDING, SEND_BACK_STATUSES,
          REQUIREMENT_STATUS, PICKABLE_LOSS_REASONS, SELLING_GROUPS, SERVICES,
          FTL, WATCHED_GROUPS, NEW_TICKET_DAYS, arrivedAgo, groupFilter, groupTone,
          isNewIncoming, isPnsWork, mayGoToPsp, rp } from "../api";
@@ -1001,7 +1001,7 @@ export function ExecSignoff({ me, onOpen, notify }) {
    screen offering a move the other has already retired. Per-row state, so each card
    keeps its own draft without a map keyed by ref. */
 export function ProposalActions({ t, me, notify, onDone }) {
-  const [next, setNext] = useState(PENDING_SOLUTION[0]);
+  const [next, setNext] = useState(SEND_BACK_STATUSES[0]);
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const mayClose = me.permissions.acceptProposal;
@@ -1020,10 +1020,11 @@ export function ProposalActions({ t, me, notify, onDone }) {
       <select className={`${inputCls} max-w-[220px]`} value={next}
         onChange={(e) => setNext(e.target.value)}>
         <optgroup label="Send back">
-          {/* PENDING_SOLUTION, not PENDING: a proposal comes back for rework, and
-              Pending Requirement is not a move this screen can make — offering it here
-              would only ever produce a 409 from the transition map. */}
-          {PENDING_SOLUTION.map((x) => <option key={x} value={x}>{x}</option>)}
+          {/* Exactly what the transition map allows from Proposal Submitted. This
+              used to borrow a broader list and offered half a dozen destinations the
+              server refuses — including, after Pending solution was redefined on
+              2026-09-11, "Open". */}
+          {SEND_BACK_STATUSES.map((x) => <option key={x} value={x}>{x}</option>)}
         </optgroup>
         {mayClose && (
           <optgroup label="Lost">

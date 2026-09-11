@@ -20,6 +20,7 @@ These are structural checks on the AST, not behaviour tests: there is no databas
 That is the right level — each bug was a missing call, not a wrong answer.
 """
 import ast
+import io
 import os
 import sys
 
@@ -301,6 +302,45 @@ if _imp:
           "min_date" in SRC and "_crm_date(o)" in SRC,
           "the floor is about not dragging in ancient history, which IS a question "
           "about when Sales CRM raised the deal")
+
+# ------------------------------- Pricing - PNS + Pricing - Sales = Pending solution
+# Michael, 2026-09-11, stated as a rule the app should hold to. It is made true by
+# CONSTRUCTION rather than by arithmetic that happens to agree: Pending solution IS the
+# awaiting-price set, and the two pricing queues are that same set split by who owes the
+# price, so their sum cannot drift from it.
+#
+# Before this, Pending solution was every Pending-* status bar one, which pulled in
+# Pending CRM ID (waiting on an id) and the three review gates (waiting on approval of a
+# solution that already exists) while leaving out Open (which the pricing queues count).
+# The two numbers disagreed by exactly the one ticket stranded in Open.
+#
+# Pinned across the two files because that is where it can break: the frontend list and
+# the backend tuple are the same set written twice, and the day they diverge the menu
+# count stops matching the rows behind it.
+print()
+print("Pending solution is the awaiting-price set, in both files")
+_api = io.open(os.path.join(_REPO, "frontend", "src", "api.js"), encoding="utf-8").read()
+check("the frontend defines Pending solution AS the awaiting set",
+      "export const PENDING_SOLUTION = AWAIT_STATUSES;" in _api,
+      "listing the statuses again here is how the sum stops adding up")
+
+import re as _re
+_front = _re.search(r"export const AWAIT_STATUSES = \[(.*?)\];", _api, _re.S)
+check("the frontend mirrors AWAIT_STATUSES", bool(_front))
+_back = _re.search(r"^AWAIT_STATUSES = \((.*?)\)", SRC, _re.S | _re.M)
+check("the backend still has AWAIT_STATUSES", bool(_back))
+if _front and _back:
+    _f = sorted(_re.findall(r'"([^"]+)"', _front.group(1)))
+    _b = sorted(_re.findall(r'"([^"]+)"', _back.group(1)))
+    check("and the two lists are the same set", _f == _b,
+          f"frontend {_f} vs backend {_b} - the menu count and the rows would disagree")
+
+check("the proposal send-back dropdown does NOT reuse it",
+      "export const SEND_BACK_STATUSES" in _api
+      and "PENDING_SOLUTION.map" not in io.open(
+          os.path.join(_REPO, "frontend", "src", "screens", "Queues.jsx"),
+          encoding="utf-8").read(),
+      "borrowing this list offers Open as a send-back, which the server refuses")
 
 print()
 if fails:

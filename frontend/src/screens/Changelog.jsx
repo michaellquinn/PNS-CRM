@@ -2,6 +2,19 @@ import { Card, Head, Pill } from "../ui";
 
 const ENTRIES = [
   {
+    date: "2026-09-11",
+    title: "A ticket stuck on Open now starts when its revenue arrives, and the queue counts add up",
+    by: "Michael + Claude",
+    changes: [
+      "FIXED — SOF-7001306 sat on Open with an owner, a service and 30 Mio against it. An opportunity that imports with no potential revenue is parked on Open on purpose: that number decides who prices the deal, which 5A ceiling applies and whether PNS reviews it, so nothing may enter a working status without it. What was missing was the way out. Both paths that supply the number — a person editing the ticket, and the sync copying Sales CRM’s figure — left the status alone, so the deal never started.",
+      "One rule now covers both, because fixing one and not the other is the exact shape this bug already had: the import knew to park the ticket and neither writer knew to release it. The ticket moves to Pending PNS or Pending Sales by whoever owes the price, with a line in its history saying why it moved.",
+      "FIXED — Pricing - PNS + Pricing - Sales now equals Pending solution, and it is true by construction rather than by coincidence. Pending solution IS the awaiting-price set, and the two pricing queues are that same set split by who owes the price, so the sum cannot drift.",
+      "That means three things left Pending solution: Pending CRM ID, which waits on an id rather than a solution, and the three review gates, which wait on approval of a solution that already exists. Every one of them has its own menu entry, so nothing became harder to find. The two numbers were out by exactly one — the stranded ticket above, counted by the pricing queues and not by Pending solution.",
+      "Also fixed in passing: the send-back dropdown on a submitted proposal borrowed the Pending solution list and offered destinations the server refuses with a 409. It now offers exactly the two the transition map allows.",
+    ],
+    overruled: [],
+  },
+  {
     date: "2026-09-10",
     title: "AM is a group of its own, carrying the same rights as Commercial",
     by: "Michael + Claude",

@@ -264,11 +264,35 @@ export const REQUIREMENT_STATUS = "Pending Requirement";
 // right would sooner or later be granted to one and not the other.
 export const SELLING_GROUPS = ["Commercial", "AM"];
 
-// What "Pending Solution" means: still being worked, minus the ones waiting on Sales to
-// say what the deal even is. The two have their own menu entries and must not both list
-// the same ticket — that is the whole reason the status exists rather than a marker on
-// Pending Sales. "Pending CRM ID" is already out; it waits on an id and has its own queue.
-export const PENDING_SOLUTION = PENDING.filter((s) => s !== REQUIREMENT_STATUS);
+// Mirrors AWAIT_STATUSES in the backend: the statuses a ticket is in while somebody
+// still owes a price on it. "Open" is in because owning a ticket and starting it are
+// separate acts, and an unstarted deal must not be invisible to the people looking for
+// work.
+export const AWAIT_STATUSES = ["Open", "Pending Sales", "Pending PNS", "Pending Vendor"];
+
+// What "Pending solution" means: the work waiting for a solution, which is exactly what
+// the two pricing queues hold between them.
+//
+// Michael, 2026-09-11: "the total of Pricing - PNS + Pricing - Sales = Pending solution".
+// Defined AS the awaiting set rather than as a list that happens to add up, so the
+// identity holds by construction — Pricing - PNS and Pricing - Sales are these same
+// tickets split by who owes the price, so their sum cannot drift from this.
+//
+// It used to be every Pending-* status except Pending Requirement, which pulled in three
+// things that are not waiting for a solution at all: Pending CRM ID waits on an id, and
+// the three review gates wait on an approval of a solution that already exists. Each of
+// those has its own menu entry, so nothing became unreachable by leaving here.
+export const PENDING_SOLUTION = AWAIT_STATUSES;
+
+// Where a submitted proposal may be sent back to. Mirrors what the transition map allows
+// from "Proposal Submitted" and nothing else: a proposal comes back for REWORK, to
+// whichever side owes the price.
+//
+// Its own list rather than a slice of one of the above, because every list up there is
+// defined for a different question and borrowing one puts options in this dropdown that
+// the server refuses with a 409 — the screen offers a move and the ticket does not take
+// it, which reads as the app being broken.
+export const SEND_BACK_STATUSES = ["Pending PNS", "Pending Sales"];
 
 // Everything still being worked, mirroring the backend's PENDING_STATUSES. "Pending CRM
 // ID" is deliberately out: it is blocked on an id rather than waiting on a person, it
