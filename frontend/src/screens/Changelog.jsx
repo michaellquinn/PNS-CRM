@@ -3,6 +3,19 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-09-11",
+    title: "New request drops the paste-an-opportunity-ID card",
+    by: "Michael + Claude",
+    changes: [
+      "The green “Already raised it in Sales CRM?” box is gone from New request. It queued the id for the sync and the ticket appeared a few minutes later — which is exactly what the Import queue screen does.",
+      "Nobody loses anything. Both were gated on the same permission, so everyone who could use the card can already open Import queue, and it takes several ids at once and shows what became of each. Two ways to do one thing on two screens is how the two drift apart.",
+      "New request now says what it is FOR in its own description: a deal that is not in Sales CRM yet, which parks in Pending CRM ID until an opportunity id is added. That distinction used to be explained in the card being deleted, so it had to move somewhere people still read.",
+    ],
+    overruled: [
+      "Baskoro, 2026-08-28: the short way in belongs ABOVE the form on New request, because “a shortcut nobody sees until they have already filled in the long version is not a shortcut”. What stands instead: the shortcut is the Import queue screen, which is its own menu entry and so is seen before the form rather than after it.",
+    ],
+  },
+  {
+    date: "2026-09-11",
     title: "The Sales PIC picker is gone from synced tickets, because Sales CRM owns it",
     by: "Michael + Claude",
     changes: [
