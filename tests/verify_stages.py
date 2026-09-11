@@ -210,6 +210,38 @@ if _refresh:
               "if this changed, the round-trip check above is reasoning about the "
               "wrong guard")
 
+# ------------------------------------------- the reference screen agrees with the code
+# GET /api/reference/status-flow hand-writes a "left alone on purpose" list beside the
+# generated ones. A stage in BOTH makes that page state two opposite things at once, and
+# it has happened three times now: "Proposal Submitted" until 2026-08-18, and
+# Negotiation / EKYC Approval / Contract Sent for the length of one deploy on 2026-09-11.
+# It is the same failure as a test whose comment argues against its own assertion — the
+# explanation outlives the behaviour and then misleads whoever reads it next.
+print()
+print("no stage is both mapped and documented as left alone")
+_mapped = set()
+for group in (LOST, PARKED, ACCEPTED, SUBMITTED):
+    _mapped |= {norm(x) for x in group}
+
+_left = []
+for node in ast.walk(tree):
+    if not (isinstance(node, ast.Call)
+            and getattr(node.func, "id", "") == "StageRule"):
+        continue
+    kw = {k.arg: k.value for k in node.keywords}
+    becomes = kw.get("becomes")
+    if not (isinstance(becomes, ast.Constant) and becomes.value is None):
+        continue
+    stages = kw.get("stages")
+    if isinstance(stages, ast.List):
+        _left = [e.value for e in stages.elts if isinstance(e, ast.Constant)]
+
+check("the left-alone rule was found", bool(_left),
+      "if StageRule moved, this guard is checking nothing")
+for stage in _left:
+    check(f"{stage!r} is not also mapped", norm(stage) not in _mapped,
+          "the Status flow screen would say it both moves the ticket and does not")
+
 print()
 if fails:
     print("FAILED %d check(s):" % len(fails))

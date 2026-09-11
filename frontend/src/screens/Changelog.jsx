@@ -10,6 +10,7 @@ const ENTRIES = [
       "WHAT THIS COSTS, so nobody is surprised by it: a ticket moves whether or not a price is attached HERE. On the day this shipped, four of the ten tickets at those stages had no price file and no rate-card link, and they left the pricing queues for a list that reads “out with the shipper”.",
       "Pricing is not blocked. A price can still be attached from the ticket afterwards — it just has to be found from the ticket rather than picked off a queue.",
       "Matching is normalised as it is for every other stage, so casing and stray spaces behave the same. A bare “EKYC” is still nothing: the match is on the whole stage name, not a piece of it.",
+      "The Status flow reference screen is corrected in the same change. It hand-writes a “left alone on purpose” list beside the generated ones, and the three stages were briefly in both — so the page stated two opposite things at once. That has now happened three times, so it is pinned: a stage cannot be both mapped and documented as left alone.",
       "If Negotiation turns out to be too early — it starts soonest and covers the longest stretch of a deal — taking just that one back out is a one-line change, and the code says so where the change was made.",
     ],
     overruled: [

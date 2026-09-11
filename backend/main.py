@@ -1432,7 +1432,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-11.4"
+BUILD = "2026-09-11.5"
 
 
 class Me(BaseModel):
@@ -8516,25 +8516,31 @@ async def status_flow(u: User = Depends(current_user)):
                     "cannot onboard a shipper the account systems cannot find."),
             StageRule(
                 stages=list(SUBMITTED_STAGES), becomes="Proposal Submitted",
-                why="The price has already reached the shipper, so holding the ticket in "
-                    "an approval gate does not un-send it — it only makes our queues "
-                    "describe work that is already moot. The one non-terminal stage that "
-                    "overrides ours. Where the ticket was still in a gate, or carries no "
-                    "price in this app at all, the history says so and PNS is notified: "
-                    "the status follows Sales CRM, but a bypassed gate is not erased."),
+                why="By any of these, the shipper has a number in hand — so holding "
+                    "the ticket in an approval gate does not un-send it, it only makes "
+                    "our queues describe work that is already moot. Negotiation, EKYC "
+                    "Approval and Contract Sent joined this rule on 2026-09-11 "
+                    "(Michael): Sales CRM's commercial stages run ahead of ours. Note "
+                    "the cost — a ticket moves whether or not a price is attached HERE, "
+                    "so it leaves the pricing queues for a list that reads 'out with "
+                    "the shipper'. Pricing is not blocked; attach it from the ticket. "
+                    "Where a gate was still open, the history says so and PNS is "
+                    "notified: the status follows Sales CRM, but a bypassed gate is "
+                    "not erased."),
             StageRule(
-                # "Proposal Submitted" used to be listed here as left-alone. It moved to
-                # the rule above on 2026-08-18 and listing it in both places said two
-                # opposite things on one page.
-                stages=["New", "Negotiation", "EKYC Approval", "Contract Sent",
-                        "and every other stage"],
+                # Listed here and in the rule above is how this page says two opposite
+                # things at once. "Proposal Submitted" was in both until 2026-08-18;
+                # Negotiation, EKYC Approval and Contract Sent were in both for the
+                # length of one deploy on 2026-09-11. Anything that gains a mapping has
+                # to LEAVE this list in the same change.
+                stages=["New", "and every other stage"],
                 becomes=None,
                 why="Left alone on purpose. Sales CRM owns the COMMERCIAL stage; this app "
-                    "owns the SOLUTIONING status, and they answer different questions. A "
-                    "deal can sit at Negotiation there while PNS is still pricing here, "
-                    "and neither is wrong. What overrides ours is Closed-Lost, "
-                    "Future Opportunity, the accepted stages and Proposal "
-                    "Submitted, and nothing else."),
+                    "owns the SOLUTIONING status, and for an early stage they answer "
+                    "different questions — a brand new opportunity says nothing about "
+                    "how far the solution has got. What overrides ours is Closed-Lost, "
+                    "Future Opportunity, the accepted stages, and the stages above that "
+                    "mean the price has gone out."),
         ],
     }
 
