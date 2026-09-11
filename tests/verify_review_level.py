@@ -165,12 +165,21 @@ print(f"verify_review_level.py  {len(CHAINS)} approval chains PASSED")
 
 
 # ------------------------------------------------------- Sales CRM stage -> our status
-# Sales CRM owns the commercial stage and this app owns the solutioning status, so only a
-# few stages cross that line. The list is worth pinning because it moved on 2026-08-18:
-# Proposal Submitted became the one NON-terminal stage that overrides ours, on the
-# argument that ACCEPTED_STAGES had always done exactly that and the inconsistency was
-# the bug. Anything mid-funnel must still leave our status alone — a ticket must not jump
-# to Proposal Submitted because Sales moved the deal to Negotiation.
+# Sales CRM owns the commercial stage and this app owns the solutioning status, so only
+# some stages cross that line. The list is worth pinning because it keeps moving. On
+# 2026-08-18 Proposal Submitted became the one NON-terminal stage that overrides ours, on
+# the argument that ACCEPTED_STAGES had always done exactly that and the inconsistency was
+# the bug.
+#
+# On 2026-09-11 Michael OVERRULED the sentence that used to sit here — "a ticket must not
+# jump to Proposal Submitted because Sales moved the deal to Negotiation". It now does
+# exactly that, and so do EKYC Approval and Contract Sent. His reasoning: Sales CRM's
+# stages run ahead of ours, and by the time a deal reaches any of the three the shipper
+# has a number in hand whatever this app's queue still says.
+#
+# The cost is in verify_stages.py, where the three are pinned together with it: a ticket
+# moves whether or not a price is attached here, and leaves the pricing queues for a list
+# that reads "out with the shipper".
 #
 # It moved twice more, and both times this line was the stale one. Until 2026-08-31
 # it expected "Lost" - so this suite faithfully protected the behaviour that was
@@ -192,11 +201,17 @@ STAGES = [
     ("  PROPOSAL   SUBMITTED  ", "Proposal Submitted"),
     ("closed-lost", "Lost"),
     ("agreed to ship", "Proposal Accepted / Ready to Ship"),
-    # Mid-funnel: ours wins.
-    ("Negotiation",        None),
+    # Commercial stages that now mean the price has gone out (Michael, 2026-09-11).
+    ("Negotiation",        "Proposal Submitted"),
+    ("EKYC Approval",      "Proposal Submitted"),
+    ("Contract Sent",      "Proposal Submitted"),
+    ("  contract   sent ", "Proposal Submitted"),   # normalised, like every other stage
+    # Still genuinely no information: ours wins.
     ("New",                None),
+    # NOT "EKYC Approval". Kept to prove the match is on the whole stage name and not a
+    # substring of it — a bare "EKYC" is not a stage this picklist publishes, and if it
+    # ever becomes one it should be added deliberately rather than caught by accident.
     ("EKYC",               None),
-    ("Contract Sent",      None),
     (None,                 None),
 ]
 stage_fails = []

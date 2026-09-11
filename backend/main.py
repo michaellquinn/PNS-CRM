@@ -603,7 +603,26 @@ ACCEPTED_STAGES = ("Agreed to Ship", "Onboarding", "Ready to Ship", "Closed-Won"
 # rather than a step in Sales' process. Holding the ticket at "Pending Review - PSP"
 # after that does not un-send the proposal, it just makes our queues describe work that
 # is already moot. Spelling variants included because the picklist has been edited.
-SUBMITTED_STAGES = ("Proposal Submitted", "Proposal Sent", "Quotation Sent")
+# Stages that mean the price has left the building, so our status becomes Proposal
+# Submitted.
+#
+# The last three are Michael's call, 2026-09-11, and they widen this list well past its
+# original name. Sales CRM's commercial stages run ahead of ours: by the time a deal is
+# being negotiated, sent for EKYC approval or has its contract out, the shipper has a
+# number in hand — whatever this app's own queue still says. Tracking that is the point.
+#
+# THE COST, recorded because it is real and was taken deliberately: a ticket moves here
+# whether or not a price is attached in this app. At the time of the change, four of the
+# ten tickets at these stages had no price file and no rate-card link, and they left the
+# pricing queues for a list that reads "out with the shipper". Pricing is NOT blocked —
+# stage_blocks_work() still returns nothing for all three — so a price can still be
+# attached afterwards; it just has to be found from the ticket rather than from a queue.
+#
+# If that turns out to hurt, the narrower version is to keep Negotiation out and let the
+# other two through: Negotiation is the one that starts earliest and covers the longest
+# stretch of a deal's life.
+SUBMITTED_STAGES = ("Proposal Submitted", "Proposal Sent", "Quotation Sent",
+                    "Negotiation", "EKYC Approval", "Contract Sent")
 
 
 def _norm_stage(s: str | None) -> str:
@@ -1413,7 +1432,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-11.3"
+BUILD = "2026-09-11.4"
 
 
 class Me(BaseModel):

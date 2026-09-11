@@ -3,6 +3,21 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-09-11",
+    title: "Negotiation, EKYC Approval and Contract Sent now sync as Proposal submitted",
+    by: "Michael + Claude",
+    changes: [
+      "Those three Sales CRM stages used to say nothing about our status — a ticket sat wherever PNS had put it. They now move it to Proposal submitted. Sales CRM’s commercial stages run ahead of ours, and by the time a deal reaches any of the three the shipper has a number in hand whatever this app’s queue still says.",
+      "WHAT THIS COSTS, so nobody is surprised by it: a ticket moves whether or not a price is attached HERE. On the day this shipped, four of the ten tickets at those stages had no price file and no rate-card link, and they left the pricing queues for a list that reads “out with the shipper”.",
+      "Pricing is not blocked. A price can still be attached from the ticket afterwards — it just has to be found from the ticket rather than picked off a queue.",
+      "Matching is normalised as it is for every other stage, so casing and stray spaces behave the same. A bare “EKYC” is still nothing: the match is on the whole stage name, not a piece of it.",
+      "If Negotiation turns out to be too early — it starts soonest and covers the longest stretch of a deal — taking just that one back out is a one-line change, and the code says so where the change was made.",
+    ],
+    overruled: [
+      "Claude/Baskoro, 2026-08-18: “a ticket must not jump to Proposal Submitted because Sales moved the deal to Negotiation”, which was written into the tests as a rule. What stands instead: it does exactly that, plus EKYC Approval and Contract Sent. Only the terminal stages and Proposal Submitted itself crossed that line before.",
+    ],
+  },
+  {
+    date: "2026-09-11",
     title: "Lost has a screen, under Ready to ship",
     by: "Michael + Claude",
     changes: [

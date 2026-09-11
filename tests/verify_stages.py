@@ -148,9 +148,28 @@ for group in (LOST, PARKED, ACCEPTED, SUBMITTED):
 
 print()
 print("an ordinary mid-funnel stage is left alone and stays workable")
-for stage in ("New", "Negotiation", "EKYC Approval", "Contract Sent", "", None):
+# Negotiation, EKYC Approval and Contract Sent were in this list until 2026-09-11, when
+# Michael moved them to SUBMITTED_STAGES. Sales CRM's commercial stages run ahead of
+# ours: by the time a deal is at any of the three the shipper has a number in hand,
+# whatever this app's queue still says. What is left here is genuinely "no information".
+for stage in ("New", "", None):
     check(f"{stage!r} implies nothing", status_for_stage(stage, "PNS") is None)
     check(f"{stage!r} does not block work", stage_blocks_work({"stage": stage}) is None)
+
+print()
+print("the commercial stages that mean the price has already gone out")
+# Pinned as a list rather than folded into the loop above, because the COST of this is
+# specific and someone should meet it here before changing anything: a ticket moves to
+# Proposal Submitted whether or not a price is attached in this app, and leaves the
+# pricing queues for a list that reads "out with the shipper". Four of the ten tickets
+# at these stages had no price attached on the day it shipped.
+for stage in ("Negotiation", "EKYC Approval", "Contract Sent"):
+    check(f"{stage!r} -> Proposal Submitted",
+          status_for_stage(stage, "PNS") == "Proposal Submitted")
+    # Not blocked: the price can still be attached from the ticket afterwards. If this
+    # ever starts blocking, a deal at Negotiation could never be priced here at all.
+    check(f"{stage!r} still allows a price to be attached",
+          stage_blocks_work({"stage": stage}) is None)
 
 # ------------------------------------------------------- structural: no raw compares
 # Checked over the AST rather than by grepping, because the bug was a MEMBERSHIP TEST
