@@ -3,6 +3,18 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-09-11",
+    title: "Lost has a screen, under Ready to ship",
+    by: "Michael + Claude",
+    changes: [
+      "NEW — Lost, in Planning directly under Ready to ship. A ticket recorded as lost appeared on NO screen at all: it leaves every live queue by design and had nowhere to land, so the deal simply vanished from the app. Cancelled has had its own screen since August; this is the other half.",
+      "It shows what stopped, when, who recorded it and why — including the CODED loss reason, which the plain Cancelled screen has no equivalent of. That code is what the win rate is built from, so this is where a wrong one gets noticed and corrected.",
+      "Return to Open works the same as on Cancelled: the deal goes back to the unclaimed shelf with its whole history, and which side prices it is worked out again on the way in rather than assumed.",
+      "One screen and one query serve both outcomes, parameterised rather than copied. They ask the same question of the same audience and differ in two places — the words, and the coded reason. A second copy is where the two would have drifted.",
+    ],
+    overruled: [],
+  },
+  {
+    date: "2026-09-11",
     title: "Enter starts a new line, and you can reword your own post",
     by: "Michael + Claude",
     changes: [

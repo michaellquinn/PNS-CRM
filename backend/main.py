@@ -1413,7 +1413,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-11.2"
+BUILD = "2026-09-11.3"
 
 
 class Me(BaseModel):
@@ -7079,51 +7079,77 @@ class CancelledTicket(BaseModel):
     region: str | None = None
     sales: str | None = None
     owner: str | None = None
-    at: str                       # when it was cancelled
-    by: str                       # who cancelled it
+    at: str                       # when it reached this status
+    by: str                       # who put it there
     reason: str | None = None     # what they said, mandatory at the time
+    # Lost only: the coded reason from LOSS_REASONS, which a cancellation has no
+    # equivalent of. Null on a cancelled ticket and on a loss recorded before the code
+    # was required.
+    loss_reason: str | None = None
 
 
 class CancelledList(BaseModel):
     tickets: list[CancelledTicket]
 
 
-@app.get("/api/tickets/cancelled", response_model=CancelledList)
-async def list_cancelled(u: User = Depends(current_user)):
-    """Dropped requests, with the date and the name against each.
+async def _decided_list(status: str) -> dict:
+    """Tickets sitting in one decided status, with the date and the name against each.
 
-    Readable by everyone who works the pipeline: "why did this one stop" is a question
-    Commercial asks PNS and PNS asks Commercial, and an answer only one side can see is
-    not an answer. Who and when come out of ticket_history rather than a new column —
-    log_status() has always written the actor and the timestamp there, so the record
-    already existed and only needed reading. Two people deploy into this database from
-    separate clones and migrations have collided three times; a column that duplicates
-    something already stored is not worth a fourth."""
+    Cancel and Lost are the same screen asking the same question -- what stopped, when,
+    who said so and why -- so they are one query taking the status rather than two that
+    drift. Michael, 2026-09-11: a ticket moved to Lost appeared on no screen at all,
+    while Cancelled had had its own since August.
+
+    Who and when come out of ticket_history rather than a new column: log_status() has
+    always written the actor and the timestamp there, so the record already existed and
+    only needed reading. Two people deploy into this database from separate clones and
+    migrations have collided three times; a column duplicating something already stored
+    is not worth a fourth."""
     rows = await q(
         "SELECT t.ticket_ref AS ref, s.name AS shipper, t.service_type AS service, "
         "t.potential_rev AS revenue, s.acct_type, t.region, t.sales_name AS sales, "
-        "t.owner_name AS owner, "
-        # The LAST time it entered Cancel — a ticket can be reopened and dropped again,
-        # and the current state is what this screen reports.
-        "(SELECT h.at FROM ticket_history h WHERE h.ticket_id=t.id AND h.status='Cancel' "
+        "t.owner_name AS owner, t.loss_reason, "
+        # The LAST time it entered this status — a ticket can be reopened and decided
+        # again, and the current state is what this screen reports.
+        "(SELECT h.at FROM ticket_history h WHERE h.ticket_id=t.id AND h.status=%s "
         "ORDER BY h.at DESC LIMIT 1) AS at, "
-        "(SELECT h.actor FROM ticket_history h WHERE h.ticket_id=t.id AND h.status='Cancel' "
+        "(SELECT h.actor FROM ticket_history h WHERE h.ticket_id=t.id AND h.status=%s "
         "ORDER BY h.at DESC LIMIT 1) AS by_who, "
-        "(SELECT h.note FROM ticket_history h WHERE h.ticket_id=t.id AND h.status='Cancel' "
+        "(SELECT h.note FROM ticket_history h WHERE h.ticket_id=t.id AND h.status=%s "
         "ORDER BY h.at DESC LIMIT 1) AS reason "
         "FROM tickets t JOIN shippers s ON s.id=t.shipper_id "
-        "WHERE t.deleted_at IS NULL AND t.status='Cancel' "
-        "ORDER BY t.status_since DESC")
+        "WHERE t.deleted_at IS NULL AND t.status=%s "
+        "ORDER BY t.status_since DESC", (status, status, status, status))
     return {"tickets": [
         {"ref": r["ref"], "shipper": r["shipper"], "service": r["service"],
          "revenue": int(r["revenue"] or 0), "acct_type": r["acct_type"],
          "region": r["region"], "sales": r["sales"], "owner": r["owner"],
-         # A ticket cancelled before this screen existed has no history row naming who;
-         # say so rather than printing an empty cell that looks like a bug.
+         # Decided before this screen existed means no history row naming who; say so
+         # rather than printing an empty cell that looks like a bug.
          "at": str(r["at"])[:16] if r["at"] else "—",
          "by": r["by_who"] or "not recorded",
-         "reason": r["reason"]}
+         "reason": r["reason"],
+         "loss_reason": r["loss_reason"] if status == "Lost" else None}
         for r in rows]}
+
+
+@app.get("/api/tickets/lost", response_model=CancelledList)
+async def list_lost(u: User = Depends(current_user)):
+    """Deals the shipper did not take, with the reason recorded against each.
+
+    Same audience and the same reasoning as the cancelled list below: "why did this one
+    stop" is asked in both directions, and an answer only one side can see is not an
+    answer. A loss also carries a CODED reason, which is what the win-rate number is
+    built from -- so this screen is where a wrong code gets noticed."""
+    return await _decided_list("Lost")
+
+
+@app.get("/api/tickets/cancelled", response_model=CancelledList)
+async def list_cancelled(u: User = Depends(current_user)):
+    """Dropped requests, with the date and the name against each.
+
+    Readable by everyone who works the pipeline, same as the lost list above."""
+    return await _decided_list("Cancel")
 
 
 @app.get("/api/tickets/deleted", response_model=TicketList)

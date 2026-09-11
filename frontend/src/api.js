@@ -65,6 +65,8 @@ export const api = {
   // Dropped requests with the date and the name against each. Who and when come out of
   // the ticket history, which log_status() has always written — no new column.
   cancelled: () => call("/tickets/cancelled"),
+  // Same shape, same screen, different decided status — see _decided_list on the backend.
+  lost: () => call("/tickets/lost"),
   ticket: (ref) => call(`/tickets/${encodeURIComponent(ref)}`),
 
   createTicket: (body) => call("/tickets", { method: "POST", body: JSON.stringify(body) }),

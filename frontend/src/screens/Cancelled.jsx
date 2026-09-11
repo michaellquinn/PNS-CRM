@@ -1,23 +1,55 @@
 import { useEffect, useState } from "react";
-import { api, rp } from "../api";
+import { api, LOSS_REASONS, rp } from "../api";
 import { Btn, Card, Empty, Head } from "../ui";
 
-/* Dropped requests, with the date and the name against each (Michael, 2026-08-18).
-   Commercial raises plenty that turns out not to be feasible — no rate to price against,
-   no vendor on the lane, a solution Ninja does not run — and PNS cancels those from
-   Awaiting price. This is the record of what was dropped and why.
+/* What stopped, when, who said so and why — for BOTH decided-negative outcomes.
+   Cancelled since 2026-08-18; Lost added 2026-09-11 because a ticket moved to Lost
+   appeared on no screen at all and simply vanished from the app (Michael).
+
+   One component and one endpoint, parameterised, rather than a copy. They ask the same
+   question of the same audience and differ in exactly two places: the words, and the
+   coded loss reason a cancellation has no equivalent of. A second copy would have been
+   the place the two drifted — see the Proposals queue that was deleted on 2026-09-08
+   for having become an unreachable duplicate of a screen that had moved on.
 
    Open to everyone who works the pipeline on purpose: "why did this one stop" is a
    question Commercial asks PNS and PNS asks Commercial, and an answer only one side can
    see is not an answer. */
-export default function Cancelled({ me, onOpen, notify }) {
+const COPY = {
+  cancelled: {
+    title: "Cancelled",
+    sub: "Requests dropped because they could not be built. Each one carries the date, who cancelled it and the reason they gave — the reason is required at the time, so there is no blank row here unless the ticket was cancelled before this screen existed.",
+    noun: "cancelled",
+    empty: "Nothing has been cancelled.",
+    when: "Cancelled",
+    foot: "A cancelled ticket is not deleted.",
+  },
+  lost: {
+    title: "Lost",
+    sub: "Deals the shipper did not take. Each one carries the date, who recorded it and the coded reason — that code is what the win rate is built from, so a wrong one is worth correcting here.",
+    noun: "lost",
+    empty: "Nothing has been lost.",
+    when: "Lost",
+    foot: "A lost deal is not deleted.",
+  },
+};
+
+// The coded reason as a person reads it. Falls back to the raw code rather than blank:
+// "salescrm" is set by the sync and is not in the pickable list, and an unknown code is
+// still more use than an empty cell.
+const lossLabel = (code) =>
+  (LOSS_REASONS.find(([v]) => v === code) || [null, code])[1];
+
+function Decided({ me, onOpen, notify, kind }) {
+  const c = COPY[kind];
   const [rows, setRows] = useState(null);
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState(null);
 
   const load = () =>
-    api.cancelled().then((d) => setRows(d.tickets)).catch((e) => setErr(e.message));
-  useEffect(() => { load(); }, []);
+    (kind === "lost" ? api.lost() : api.cancelled())
+      .then((d) => setRows(d.tickets)).catch((e) => setErr(e.message));
+  useEffect(() => { load(); }, [kind]);
 
   // Back onto the unclaimed shelf, not into a queue naming a side. A deal that could not
   // be built and now can is somebody's to pick up again, and which side prices it is
@@ -36,11 +68,10 @@ export default function Cancelled({ me, onOpen, notify }) {
 
   return (
     <>
-      <Head title="Cancelled"
-        sub="Requests dropped because they could not be built. Each one carries the date, who cancelled it and the reason they gave — the reason is required at the time, so there is no blank row here unless the ticket was cancelled before this screen existed."
+      <Head title={c.title} sub={c.sub}
         right={rows && rows.length > 0 && (
           <span className="text-[12px] text-slate-500">
-            {rows.length} cancelled &middot; {rp(total)} of potential revenue
+            {rows.length} {c.noun} &middot; {rp(total)} of potential revenue
           </span>
         )} />
 
@@ -48,7 +79,7 @@ export default function Cancelled({ me, onOpen, notify }) {
         <Card className="mb-4 border-rose-200 bg-rose-50 p-3 text-[13px] text-rose-700">{err}</Card>
       )}
       {rows === null && !err && <p className="text-sm text-slate-400">Loading…</p>}
-      {rows && rows.length === 0 && <Empty>Nothing has been cancelled.</Empty>}
+      {rows && rows.length === 0 && <Empty>{c.empty}</Empty>}
 
       {rows && rows.length > 0 && (
         <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
@@ -60,7 +91,7 @@ export default function Cancelled({ me, onOpen, notify }) {
                   <th className="px-4 py-3.5">Shipper</th>
                   <th className="whitespace-nowrap px-4 py-3.5">Service</th>
                   <th className="whitespace-nowrap px-4 py-3.5 text-right">Revenue</th>
-                  <th className="whitespace-nowrap px-4 py-3.5">Cancelled</th>
+                  <th className="whitespace-nowrap px-4 py-3.5">{c.when}</th>
                   <th className="whitespace-nowrap px-4 py-3.5">By</th>
                   <th className="px-4 py-3.5">Reason</th>
                   <th className="px-4 py-3.5"></th>
@@ -96,7 +127,16 @@ export default function Cancelled({ me, onOpen, notify }) {
                     {/* The reason is the point of the screen, so it wraps in full rather
                         than being truncated to keep the row tidy. */}
                     <td className="min-w-[280px] px-4 py-3.5 text-slate-600">
-                      {t.reason || <span className="text-slate-300">—</span>}
+                      {/* The coded reason first where there is one: it is the fact the
+                          win rate is computed from, and the free text beneath it is
+                          whoever recorded it saying more. */}
+                      {t.loss_reason && (
+                        <div className="mb-0.5 font-medium text-slate-700">
+                          {lossLabel(t.loss_reason)}
+                        </div>
+                      )}
+                      {t.reason
+                        || (t.loss_reason ? null : <span className="text-slate-300">—</span>)}
                     </td>
                     <td className="whitespace-nowrap px-4 py-3.5 text-right">
                       {me.permissions.reopen && (
@@ -115,7 +155,7 @@ export default function Cancelled({ me, onOpen, notify }) {
 
       {rows && rows.length > 0 && (
         <p className="mt-3 text-[12px] text-slate-400">
-          A cancelled ticket is not deleted. <b>Return to Open</b> puts it back on the
+          {c.foot} <b>Return to Open</b> puts it back on the
           unclaimed shelf for somebody to pick up, with its history — including this
           cancellation and the reason — travelling with it. Which side prices it is
           worked out again on the way back in, so a deal PNS was pricing does not
@@ -125,3 +165,8 @@ export default function Cancelled({ me, onOpen, notify }) {
     </>
   );
 }
+
+/* Two menu entries, one screen. Default export stays Cancelled so nothing that already
+   imports it has to change. */
+export default function Cancelled(p) { return <Decided {...p} kind="cancelled" />; }
+export function Lost(p) { return <Decided {...p} kind="lost" />; }

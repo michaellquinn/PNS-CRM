@@ -23,7 +23,7 @@ import Fields from "./screens/Fields";
 import { PendingReview, ProposalReview, RequirementReview } from "./screens/Meetings";
 import StatusFlow from "./screens/StatusFlow";
 import DataChecks from "./screens/DataChecks";
-import Cancelled from "./screens/Cancelled";
+import Cancelled, { Lost } from "./screens/Cancelled";
 import {
   AwaitingPrice, NewIncoming, Open, PendingCrmId, ToReview, PspPending, ExecSignoff,
   ReadyToShip, RecycleBin, Watched,
@@ -140,6 +140,12 @@ const NAV = [
     // read, and Workload is the only screen that answers "who has capacity".
     { id: "ship", label: "Ready to ship", icon: "➔",
       count: "Proposal Accepted / Ready to Ship" },
+    // Directly under Ready to ship, which is where Michael asked for it (2026-09-11)
+    // and where it reads: the two outcomes of a submitted proposal, won then lost, side
+    // by side. Before this a ticket moved to Lost appeared on NO screen — it left every
+    // live queue by design and had nowhere to land, so it simply vanished from the app.
+    { id: "lost", label: "Lost", icon: "✕", count: "Lost",
+      keywords: "lost closed-lost did not take declined win rate reason why stopped" },
     { id: "workload", label: "Workload", icon: "◴", when: (m) => m.permissions.seeWorkload,
       keywords: "pns capacity assignment load who is free" },
     // What was dropped and why. In Planning rather than beside the working queues: it is
@@ -696,6 +702,7 @@ export default function App() {
     statusflow: <StatusFlow />,
     checks: <DataChecks me={me} onOpen={open} notify={notify} />,
     cancelled: <Cancelled me={me} notify={notify} onOpen={open} />,
+    lost: <Lost me={me} notify={notify} onOpen={open} />,
     detail: <TicketDetail ticketRef={ticketRef} me={me} notify={notify}
               focusThread={focusThread} onBack={goBack} />,
     "capa-all": <Capa view="all" me={me} notify={notify} onRaise={() => go("capa-raise")} />,
