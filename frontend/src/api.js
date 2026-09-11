@@ -186,6 +186,11 @@ export const api = {
   addComment: (ref, body) =>
     call(`/tickets/${encodeURIComponent(ref)}/comments`, { method: "POST", body: JSON.stringify(body) }),
   resolveComment: (id) => call(`/comments/${id}/resolve`, { method: "POST" }),
+  // Reword your own post. The server refuses anybody else's and stamps edited_at, which
+  // is what the "edited" marker on the post reads — a reworded message still carries the
+  // author's name, so the fact that it changed has to be visible.
+  editComment: (id, body) =>
+    call(`/comments/${id}`, { method: "PATCH", body: JSON.stringify({ body }) }),
   recapComments: (ref, body) =>
     call(`/tickets/${encodeURIComponent(ref)}/comments/recap`,
       { method: "POST", body: JSON.stringify(body || {}) }),

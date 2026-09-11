@@ -3,6 +3,19 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-09-11",
+    title: "Enter starts a new line, and you can reword your own post",
+    by: "Michael + Claude",
+    changes: [
+      "FIXED — the note box on Pending solution and Proposal submitted posted the moment you pressed Enter. It was also a single-line field, so that was two problems in one control: a note could not run to more than one line however much there was to say, and reaching for a second line posted the first half instead. It is a proper text box now and Enter does what Enter does.",
+      "Ctrl+Enter still posts, so walking forty rows is no slower than it was, and the box says so underneath rather than leaving it to be found.",
+      "The Discussion tab already behaved this way — Enter there only ever gets swallowed while the @ picker is open, to choose the person it is offering.",
+      "NEW — Edit on your own posts, in any thread. The server has always allowed it and refused everybody else’s; there was simply no button. Yours only, and it re-checks on save rather than trusting the button not to be drawn.",
+      "An edited post says so, with the date it was last changed, on the Discussion tab and in the walk’s history panel alike. A reworded message still carries its author’s name and its original time, so a thread could otherwise be changed under somebody who had already replied to it with nothing on screen showing anything had moved.",
+    ],
+    overruled: [],
+  },
+  {
+    date: "2026-09-11",
     title: "A ticket stuck on Open now starts when its revenue arrives, and the queue counts add up",
     by: "Michael + Claude",
     changes: [

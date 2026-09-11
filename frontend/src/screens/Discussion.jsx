@@ -44,6 +44,10 @@ export default function Discussion({ ticketRef, me, notify, onCountChange,
   const [tags, setTags] = useState([]);
   const [pick, setPick] = useState("");
   const [busy, setBusy] = useState(false);
+  // The post being reworded, and its draft. One at a time: two open editors on the same
+  // thread is a way to lose whichever you did not save.
+  const [editing, setEditing] = useState(null);
+  const [draft, setDraft] = useState("");
   // Which thread the composer posts into. "" is the general thread; "__new__" opens the
   // title box. A ticket usually has three or four open points at once and one flat list
   // makes "what is still open" unanswerable without reading everything.
@@ -104,6 +108,21 @@ export default function Discussion({ ticketRef, me, notify, onCountChange,
   const resolve = async (id) => {
     try { await api.resolveComment(id); notify("Marked answered"); await load(); }
     catch (e) { notify(e.message); }
+  };
+
+  const startEdit = (c) => { setEditing(c.id); setDraft(c.body); };
+  const cancelEdit = () => { setEditing(null); setDraft(""); };
+  const saveEdit = async (id) => {
+    const body = draft.trim();
+    if (!body) return;
+    setBusy(true);
+    try {
+      await api.editComment(id, body);
+      cancelEdit();
+      notify("Post updated");
+      await load();
+    } catch (e) { notify(e.message); }
+    finally { setBusy(false); }
   };
 
   const addTag = (email) => {
@@ -271,8 +290,34 @@ export default function Discussion({ ticketRef, me, notify, onCountChange,
                       </Pill>
                     )}
                     <span className="font-mono text-[11px] text-slate-400">{c.at}</span>
+                    {/* Said out loud, with WHEN. An edited post still carries the
+                        author's name and the original time, so without this the thread
+                        can be reworded under somebody who already replied to it and
+                        nothing on screen would show that anything moved. */}
+                    {c.edited_at && (
+                      <span className="text-[11px] italic text-slate-400"
+                        title={`Last edited ${c.edited_at}`}>
+                        edited {c.edited_at}
+                      </span>
+                    )}
                   </div>
-                  <Body text={c.body} />
+                  {editing === c.id ? (
+                    <div className="flex flex-col gap-2">
+                      <textarea className={`${inputCls} min-h-[90px]`} autoFocus
+                        value={draft} onChange={(e) => setDraft(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Escape") cancelEdit(); }} />
+                      <div className="flex items-center gap-2">
+                        <Btn kind="primary" disabled={busy || !draft.trim()}
+                          onClick={() => saveEdit(c.id)}>Save</Btn>
+                        <Btn onClick={cancelEdit}>Cancel</Btn>
+                        <span className="text-[11px] text-slate-400">
+                          Enter starts a new line. Escape cancels.
+                        </span>
+                      </div>
+                    </div>
+                  ) : (
+                    <Body text={c.body} />
+                  )}
                   {c.mentions.length > 0 && (
                     <p className="mt-1.5 text-[11px] text-slate-400">
                       Notified: {c.mentions.join(", ")}
@@ -284,9 +329,17 @@ export default function Discussion({ ticketRef, me, notify, onCountChange,
                     </p>
                   )}
                 </div>
-                {open && (
-                  <Btn onClick={() => resolve(c.id)}>Mark answered</Btn>
-                )}
+                <div className="flex shrink-0 items-center gap-2">
+                  {/* Yours only. `is_mine` comes from the server comparing the signed-in
+                      address to the author's, and the PATCH re-checks it — the button
+                      not being drawn is a convenience, not the rule. */}
+                  {c.is_mine && editing !== c.id && (
+                    <Btn onClick={() => startEdit(c)}>Edit</Btn>
+                  )}
+                  {open && (
+                    <Btn onClick={() => resolve(c.id)}>Mark answered</Btn>
+                  )}
+                </div>
               </div>
             </div>
           );

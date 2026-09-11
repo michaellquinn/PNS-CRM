@@ -237,6 +237,12 @@ function QuickComment({ t, notify, onDone }) {
                 <div className="mb-0.5 flex flex-wrap items-center gap-2">
                   <b className="text-[12px]">{c.author}</b>
                   <span className="font-mono text-[10.5px] text-slate-400">{c.at}</span>
+                  {/* Same fact as on the Discussion tab: a reworded note must read as
+                      reworded wherever it is shown, or the walk sees one version and
+                      the ticket another. */}
+                  {c.edited_at && (
+                    <span className="text-[10.5px] italic text-slate-400">edited</span>
+                  )}
                   {/* Only on the newest, and only when it is actually at the top: once
                       the full thread is expanded the ordering says this by itself, and
                       a badge on every render is noise. */}
@@ -268,16 +274,28 @@ function QuickComment({ t, notify, onDone }) {
         )}
       </div>
 
-      <div className="flex w-full flex-wrap items-center gap-2">
-        <input className={`${inputCls} min-w-[220px] flex-1`} autoFocus value={text}
+      {/* A TEXTAREA, and Enter makes a new line (Michael, 2026-09-11).
+          It was a single-line input that posted on Enter, which is two problems in one
+          control: a note could not be more than one line however much there was to say,
+          and reaching for a second line posted the first half instead. A walk note is
+          often three bullets about one deal.
+          Ctrl/Cmd+Enter still posts, so the fast path through forty rows is not lost —
+          it is spelled out under the box rather than left to be discovered. */}
+      <div className="flex w-full flex-col gap-2">
+        <textarea className={`${inputCls} min-h-[74px] w-full`} autoFocus value={text}
           placeholder={`What has changed since the last note? Posts to ${GENERAL_TITLE} on ${t.ref}.`}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send(); }
             if (e.key === "Escape") { setOpen(false); setText(""); }
           }} />
-        <Btn kind="primary" disabled={busy || !text.trim()} onClick={send}>Post</Btn>
-        <Btn onClick={() => { setOpen(false); setText(""); }}>Cancel</Btn>
+        <div className="flex flex-wrap items-center gap-2">
+          <Btn kind="primary" disabled={busy || !text.trim()} onClick={send}>Post</Btn>
+          <Btn onClick={() => { setOpen(false); setText(""); }}>Cancel</Btn>
+          <span className="text-[11px] text-slate-400">
+            Enter starts a new line · Ctrl+Enter posts · Escape closes
+          </span>
+        </div>
       </div>
     </div>
   );
