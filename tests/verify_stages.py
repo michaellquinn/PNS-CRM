@@ -210,6 +210,45 @@ if _refresh:
               "if this changed, the round-trip check above is reasoning about the "
               "wrong guard")
 
+# ----------------------------------- the import and the refresh read the SAME stage rule
+# Michael, 2026-09-11, on SOF-7001312: it arrived from Sales CRM already at EKYC Approval
+# and was created as "Pending Sales". The mapping was right and the refresh applied it;
+# the IMPORT never asked. So the two halves of one sync disagreed about the same fact,
+# and a deal imported past solutioning sat in a pricing queue until the refresh rotation
+# came round to it — a run or two on a book of fifty, and never right at the moment
+# somebody looked.
+#
+# Structural, because a unit test of status_for_stage passes either way: the function was
+# always correct, it simply had one caller instead of two.
+print()
+print("_import_opportunity decides its status from the stage, like the refresh does")
+_imp = [n for n in ast.walk(tree)
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and n.name == "_import_opportunity"]
+check("_import_opportunity exists", bool(_imp))
+if _imp:
+    body = ast.get_source_segment(src, _imp[0]) or ""
+    check("the import calls status_for_stage", "status_for_stage(" in body,
+          "without it a deal arriving at EKYC Approval is created in a pricing queue")
+    check("...and lets it win over the revenue-derived status",
+          "status = stage_says" in body,
+          "computing it and not using it is how this looked fixed and was not")
+
+# The safety claim that licenses it outranking the revenue gate: revenue gates
+# WORK_STATUSES, and no stage ever maps to one of those. If that stops being true, a
+# ticket could be imported into a status change_status() refuses for want of revenue.
+_ws = [n for n in ast.walk(tree) if isinstance(n, ast.Assign)
+       and any(getattr(x, "id", "") == "WORK_STATUSES" for x in n.targets)]
+_ns2 = {}
+if _ws:
+    exec(compile(ast.fix_missing_locations(ast.Module(body=_ws, type_ignores=[])),
+                 "<w>", "exec"), _ns2)
+_outcomes = {status_for_stage(s, "PNS")
+             for grp in (LOST, PARKED, ACCEPTED, SUBMITTED) for s in grp}
+check("no stage maps to a status that requires revenue",
+      not (set(_ns2.get("WORK_STATUSES", ())) & _outcomes),
+      "the import lets the stage outrank the revenue gate on exactly this basis")
+
 # ------------------------------------------- the reference screen agrees with the code
 # GET /api/reference/status-flow hand-writes a "left alone on purpose" list beside the
 # generated ones. A stage in BOTH makes that page state two opposite things at once, and

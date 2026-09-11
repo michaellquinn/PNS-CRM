@@ -1659,7 +1659,7 @@
       "Me": {
         "properties": {
           "build": {
-            "default": "2026-09-11.5",
+            "default": "2026-09-11.6",
             "title": "Build",
             "type": "string"
           },
@@ -4325,7 +4325,7 @@
   "info": {
     "description": "Ninja PNS - solutioning and pricing workflow for Ninja Xpress Indonesia. Every route below requires a signed-in session: identity arrives from the platform's auth proxy as an X-Forwarded-Email header the browser cannot set, and the app resolves a role from it. GET /health is the only unauthenticated route. Generated from the app's own route table by tools/gen_openapi.py - do not hand-edit.",
     "title": "Ninja PNS, Solutioning",
-    "version": "2026-09-11.5"
+    "version": "2026-09-11.6"
   },
   "openapi": "3.1.0",
   "paths": {

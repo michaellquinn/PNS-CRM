@@ -1432,7 +1432,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-11.5"
+BUILD = "2026-09-11.6"
 
 
 class Me(BaseModel):
@@ -4454,6 +4454,27 @@ async def _import_opportunity(o: dict, account: dict | None, plan: dict,
     # before anybody prices anything. This is why tickets turn up with a CRM ID and no
     # revenue, and the Open screen already explains what is missing.
     status = pending_for(r["resp"]) if plan["revenue"] else "Open"
+
+    # And what Sales CRM's STAGE says, which outranks both (Michael, 2026-09-11, on
+    # SOF-7001312 — an opportunity that arrived already at EKYC Approval was created as
+    # Pending Sales).
+    #
+    # The import decided a status from revenue and resp alone and never asked what the
+    # stage meant, while _refresh_from_salescrm always did. So the two halves of the same
+    # sync disagreed about the same fact: a deal imported past solutioning was created in
+    # a pricing queue and only corrected later, whenever the refresh rotation happened to
+    # reach it. On a book of fifty that is a run or two; it was never going to be right at
+    # the moment somebody looked.
+    #
+    # Outranking the revenue gate above is deliberate and safe. That gate exists because
+    # revenue decides ROUTING — who prices it, which ceiling applies, whether PNS reviews
+    # — and none of those questions is still open once the price has gone out or the deal
+    # is decided. status_for_stage never returns a WORK_STATUS, so this cannot put a
+    # ticket into a status change_status() would refuse for want of revenue.
+    stage_says = status_for_stage(plan["stage"], r["resp"])
+    if stage_says:
+        status = stage_says
+
     last = await q("SELECT MAX(id) AS n FROM tickets", one=True)
     ref = f"SOF-{1300 + int((last or {}).get('n') or 0)}"
 

@@ -3,6 +3,18 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-09-11",
+    title: "A newly imported deal now takes its status from the Sales CRM stage too",
+    by: "Michael + Claude",
+    changes: [
+      "FIXED — SOF-7001312 arrived from Sales CRM already at EKYC Approval and was created as Pending Sales. The stage mapping added earlier today was only half wired: the refresh applied it, the IMPORT never asked. So the two halves of one sync disagreed about the same fact.",
+      "A deal imported past solutioning therefore sat in a pricing queue until the refresh rotation came round to it — a run or two on a book of fifty, and never right at the moment somebody looked. Both halves now read the one rule, so the ticket is created in the right status rather than corrected into it later.",
+      "This applies to every stage that means something, not just the three added today: a deal imported at Agreed to Ship lands on Ready to ship, and one Sales have parked lands on Cancelled, instead of both being created as live work and moved moments afterwards.",
+      "The stage outranks the revenue rule that would otherwise park a no-revenue import on Open. That rule exists because revenue decides ROUTING — who prices it, which ceiling, whether PNS reviews — and none of those questions is still open once the price has gone out or the deal is decided. No stage maps to a status that requires revenue, and that is now checked rather than asserted.",
+    ],
+    overruled: [],
+  },
+  {
+    date: "2026-09-11",
     title: "Negotiation, EKYC Approval and Contract Sent now sync as Proposal submitted",
     by: "Michael + Claude",
     changes: [
