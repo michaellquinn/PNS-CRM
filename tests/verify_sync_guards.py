@@ -342,6 +342,37 @@ check("the proposal send-back dropdown does NOT reuse it",
           encoding="utf-8").read(),
       "borrowing this list offers Open as a send-back, which the server refuses")
 
+# ------------------------------------- the Sales PIC control matches who owns the field
+# Michael, 2026-09-11: the Sales PIC picker is hidden on a synced ticket. The reason is
+# not policy, it is honesty — sales_name is copied from the opportunity's Owner and
+# rewritten on EVERY refresh sweep, so anything set in this app was reverted within
+# minutes. A control whose effect a timer undoes is worse than none, because it looks
+# like it worked.
+#
+# The two halves are pinned TOGETHER because the UI's claim depends on the sync's
+# behaviour. If the refresh ever stops writing sales_name, hiding the control strands the
+# field with no way to set it at all, and this suite is where that gets noticed.
+print()
+print("who owns the Sales PIC, and what the UI says about it")
+_ref2 = [n for n in ast.walk(ast.parse(SRC))
+         if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+         and n.name == "_refresh_from_salescrm"]
+check("_refresh_from_salescrm exists", bool(_ref2))
+if _ref2:
+    body = ast.get_source_segment(SRC, _ref2[0]) or ""
+    check("the sweep rewrites sales_name from Sales CRM",
+          "sales_name=COALESCE" in body,
+          "if this stops, the hidden control below leaves nothing able to set the field")
+
+_td = io.open(os.path.join(_REPO, "frontend", "src", "screens", "TicketDetail.jsx"),
+              encoding="utf-8").read()
+check("the picker is offered only on a hand-raised ticket",
+      "p.setSales && !t.opportunity_id" in _td,
+      "on a synced ticket the next sweep undoes whatever was chosen")
+check("...and a synced ticket says where the value comes from instead",
+      "p.setSales && t.opportunity_id" in _td,
+      "hiding it with no explanation reads as the app having lost a feature")
+
 print()
 if fails:
     print("FAILED %d check(s):" % len(fails))

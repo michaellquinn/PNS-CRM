@@ -388,13 +388,35 @@ export default function TicketDetail({ ticketRef: initialRef, me, notify, onBack
                 onSet={(v) => run(() => api.assign(ref, { owner: v }),
                   v ? `${ref} assigned to ${v}` : "Owner cleared")} />
             )}
-            {p.setSales && (
+            {/* Sales PIC is Sales CRM's to decide on a SYNCED ticket (Michael,
+                2026-09-11), so the control is not offered there. It is not a policy
+                choice so much as an honest one: sales_name is copied from the
+                opportunity's Owner on import and overwritten on every refresh sweep —
+                the field map says "overwritten" in as many words — so anything set here
+                was reverted within five minutes. A button whose effect is undone by a
+                timer is worse than no button, because it looks like it worked.
+
+                A ticket raised BY HAND has no opportunity behind it, so the sync never
+                reads or writes it. There the control is the only way to change the Sales
+                PIC, and it stays. Four of the forty-nine tickets are in that position. */}
+            {p.setSales && !t.opportunity_id && (
               <Assigner label="Sales PIC" current={t.sales} options={opts?.sales || []} busy={busy}
                 allowClear={false}
                 hint={t.sales === me.name
-                  ? "This one is yours, so you can hand it to a colleague yourself. Once it is theirs, only a Sales Manager or the Head can move it back."
-                  : "A Sales Manager or the Head can move any ticket; a salesperson can hand over their own."}
+                  ? "This one is yours, so you can hand it to a colleague yourself. Once it is theirs, only a Sales Manager or the Head can move it back. Raised here by hand, so Sales CRM has no say in it."
+                  : "A Sales Manager or the Head can move any ticket; a salesperson can hand over their own. Raised here by hand, so Sales CRM has no say in it."}
                 onSet={(v) => run(() => api.setSales(ref, v), `${ref} reassigned to ${v}`)} />
+            )}
+            {p.setSales && t.opportunity_id && (
+              <div className="rounded-xl border border-slate-200 p-3">
+                <p className="mb-1 text-[12.5px] font-semibold">Sales PIC</p>
+                <p className="text-[12.5px]">{t.sales || <span className="text-slate-400">nobody named</span>}</p>
+                <p className="mt-1 text-[11.5px] text-slate-500">
+                  Set in Sales CRM, as the opportunity&rsquo;s Owner. The sync copies it
+                  here on every sweep, so changing it in this app would be undone within
+                  minutes &mdash; change the owner on the opportunity instead.
+                </p>
+              </div>
             )}
             {/* The one-off Alex grants in a meeting. Only the PNS Head sees this, and
                 only on a ticket that does not already carry the exception. */}

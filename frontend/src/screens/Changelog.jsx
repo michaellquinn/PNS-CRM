@@ -3,6 +3,18 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-09-11",
+    title: "The Sales PIC picker is gone from synced tickets, because Sales CRM owns it",
+    by: "Michael + Claude",
+    changes: [
+      "Sales PIC is copied from the opportunity’s Owner in Sales CRM on import, and rewritten on EVERY refresh sweep — the app’s own field map has always said “overwritten”. So setting it here was reverted within minutes. A control whose effect a timer undoes is worse than none, because it looks like it worked.",
+      "A synced ticket now shows the name and says where it comes from: change the Owner on the opportunity. Hiding the control with no explanation would read as the app having lost a feature.",
+      "The picker STAYS on a ticket raised here by hand. Those have no opportunity behind them, so the sync never reads or writes their Sales PIC and this is the only way to change it — four of the forty-nine tickets. Removing it outright would have stranded them with whoever raised the ticket, for good.",
+      "The two facts are pinned together in verify_sync_guards, not separately. The UI’s claim depends on the sweep’s behaviour: if the refresh ever stops writing the field, hiding the control leaves nothing able to set it at all.",
+    ],
+    overruled: [],
+  },
+  {
+    date: "2026-09-11",
     title: "A newly imported deal now takes its status from the Sales CRM stage too",
     by: "Michael + Claude",
     changes: [
