@@ -66,6 +66,9 @@ before = {s["check_key"]: s["fingerprint"] for s in specs}
 after = {s["check_key"]: s["fingerprint"] for s in m.ob_check_specs({**p, "pod_treatment": "New POD process"})}
 assert before["pickup:documents"] != after["pickup:documents"]
 assert before["packing:PCK"] == after["packing:PCK"]
+cascade = (Path(__file__).parents[1] / "backend/resources/db/migration/V33__operational_onboarding_cascade.sql").read_text(encoding="utf-8")
+assert cascade.count("ON DELETE CASCADE") == 5
+assert "DELETE FROM" not in cascade
 for group in m.OPERATIONAL_GROUPS:
     u = m.User(email="u@example.test", name="Reader", group=group, level="staff")
     assert m.can(u, "operationalOnly") and not m.can(u, "seePrice")

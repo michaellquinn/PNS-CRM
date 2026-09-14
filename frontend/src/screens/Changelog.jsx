@@ -2,6 +2,10 @@ import { Card, Head, Pill } from "../ui";
 
 const ENTRIES = [
   {
+    date: "2026-09-14", title: "Onboarding preserves recycle-bin behavior", by: "Michael + Codex",
+    changes: ["Operational records now follow the existing ticket-purge cascade. Adding onboarding does not prevent Admin from purging a ticket already in the recycle bin. This update does not delete any existing data."], overruled: [],
+  },
+  {
     date: "2026-09-14", title: "Opportunity onboarding and team readiness", by: "Michael + Codex",
     changes: [
       "Onboarding is now an opportunity worklist. Sales fills and submits the operational form inside the ticket's Onboarding tab; existing commercial statuses and pricing are unchanged.",

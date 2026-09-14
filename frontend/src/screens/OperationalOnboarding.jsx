@@ -134,7 +134,7 @@ export function OnboardingPane({ ticketRef, me, notify }) {
     {[...new Set(data.fields.map(f => f.section))].map(section => <section key={section} className="mb-5">
       <h4 className="mb-3 border-b pb-2 text-[13px] font-semibold text-slate-700">{section}</h4>
       <div className="grid gap-3 md:grid-cols-2">
-        {data.fields.filter(f => f.section === section).map(f => <label key={f.key} className={f.type === "textarea" || f.type === "packing" ? "md:col-span-2" : ""}>
+        {data.fields.filter(f => f.section === section).map(f => { const Field = f.type === "packing" ? "div" : "label"; return <Field key={f.key} className={f.type === "textarea" || f.type === "packing" ? "md:col-span-2" : ""}>
           <span className="mb-1 block text-[12px] text-slate-600">{f.label} *</span>
           {f.type === "packing" ? <div className="flex flex-wrap gap-3 rounded-lg border p-3">{f.options.map(tag => <label key={tag} className="flex items-center gap-2 text-[13px]">
             <input type="checkbox" disabled={!editable} checked={(p.packing || []).includes(tag)} onChange={e => {
@@ -145,7 +145,7 @@ export function OnboardingPane({ ticketRef, me, notify }) {
             <option value="">Choose…</option>{f.options.map(v => <option key={v}>{v}</option>)}
           </select> : f.type === "textarea" ? <textarea className={`${inputCls} min-h-[76px]`} disabled={!editable} value={p[f.key] || ""} onChange={e => set(f.key, e.target.value)} /> :
           <input className={inputCls} type={f.type} step={f.type === "number" ? "any" : undefined} disabled={!editable || ["opportunity_id", "service"].includes(f.key)} value={p[f.key] ?? ""} onChange={e => set(f.key, e.target.value)} />}
-        </label>)}
+        </Field>; })}
       </div>
     </section>)}
     <section className="mb-5 rounded-xl border p-4">
