@@ -3,6 +3,20 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-09-14",
+    title: "A ticket is assigned when it starts, and a notice goes to the people on it",
+    by: "Michael + Claude",
+    changes: [
+      "FIXED — a ticket sitting in Open was being given a PNS PIC anyway, so it read as taken on the ticket and untaken in the Open queue. Open means what it was defined to mean: arrived, nobody on it yet.",
+      "An imported deal with no potential revenue parks in Open precisely because it cannot be worked — revenue decides who prices it, which ceiling applies and whether PNS reviews. It now takes an owner at the moment revenue arrives and it starts, which is the same moment it leaves Open.",
+      "FIXED — notifications about one deal went to every member of PNS, Commercial and AM. A salesperson was told about the progress of deals that were never theirs, which is how the Bell stops being worth opening. Fourteen notices now go to the people on that ticket: the PNS owner, the deal’s salesperson, and that salesperson’s manager and head.",
+      "An unassigned ticket still reaches somebody — it falls back to the PNS Head rather than announcing itself to nobody.",
+      "They stay IN-APP. Naming people in a notification used to mean emailing them, so narrowing a broadcast would have started sending mail to everyone named — trading one complaint for a worse one. Notices can now name people without mailing them; the “sent back to you” emails are unchanged.",
+      "Three notices stay broadcast on purpose: a bulk move to the recycle bin and a CAPA proposal, which are not about one deal, and “shipper ACCEPTED, contract needed”, which still tells Ops as a group because they are not on the ticket and need to know.",
+    ],
+    overruled: [],
+  },
+  {
+    date: "2026-09-14",
     title: "NEW lasts five days, and the intake is edited on the charter itself",
     by: "Michael + Claude",
     changes: [

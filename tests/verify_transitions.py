@@ -184,6 +184,46 @@ _calls = [n for n in ast.walk(_t)
 # A person editing the ticket AND the sync filling it from Sales CRM.
 check("both revenue writers call it", len(_calls) >= 2)
 
+# --------------------------------- Open means nobody is on it, and a notice has a reader
+# Michael, 2026-09-14, on both.
+#
+# 1. A ticket parked in Open for want of revenue was being auto-assigned anyway, so it
+#    read as taken on the ticket and untaken in the Open queue -- two answers to one
+#    question, and a contradiction of what Open was defined to mean on 2026-09-07: "a new
+#    ticket arrived and no PNS assigned yet".
+#
+# 2. Ticket-scoped notices went to every member of PNS, Commercial and AM, so a
+#    salesperson was told about deals that were never theirs.
+print()
+print("a ticket is assigned when it starts, not while it waits in Open")
+check("the import does not assign a ticket it is parking in Open",
+      'r["resp"] == "PNS" and status != "Open"' in src)
+_start = [n for n in ast.walk(_t) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+          and n.name == "start_when_revenue_arrives"]
+check("start_when_revenue_arrives exists", bool(_start))
+if _start:
+    body = ast.get_source_segment(src, _start[0]) or ""
+    check("...and it is what assigns instead", "auto_assignee(" in body)
+    check("...only on PNS's side", 'nxt == "Pending PNS"' in body)
+
+print()
+print("a ticket notice names the people on that ticket")
+_tp = [n for n in ast.walk(_t) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+       and n.name == "ticket_people"]
+check("ticket_people exists", bool(_tp))
+if _tp:
+    body = ast.get_source_segment(src, _tp[0]) or ""
+    check("it names the PNS owner", 'owner_name' in body)
+    check("it names the salesperson", 'sales_name' in body)
+    check("it names their manager and head", 'manager_email' in body and 'head_email' in body)
+    check("an unowned ticket still reaches somebody",
+          'names_in("PNS", head_only=True)' in body)
+
+# The flag that makes targeting affordable. Without it, narrowing a broadcast to named
+# people would start EMAILING each of them -- trading one complaint for a worse one.
+check("notify can name people without mailing them", "email: bool = True" in src)
+check("...and the targeted calls use it", src.count("email=False") >= 10)
+
 print()
 if fails:
     print("FAILED %d check(s): %s" % (len(fails), "; ".join(fails[:5])))

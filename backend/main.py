@@ -1305,16 +1305,33 @@ async def start_when_revenue_arrives(t: dict, revenue, resp: str, actor: str) ->
     nxt = pending_for(resp)
     await log_status(t["id"], nxt, actor,
                      "potential revenue supplied, so the ticket starts")
+    # And it takes an owner here, because THIS is the moment it becomes workable
+    # (Michael, 2026-09-14). Assigning at import put a PNS PIC on a ticket sitting in
+    # Open, which contradicts what Open means -- "a new ticket arrived and no PNS
+    # assigned yet" -- and left it looking both taken and untaken at once. Only for
+    # PNS's side: a Sales-priced deal has no PNS work to own yet.
+    if nxt == "Pending PNS" and not t.get("owner_name"):
+        who = await auto_assignee(t.get("service_type"), t["id"], t.get("shipper_id"))
+        if who:
+            await execute("UPDATE tickets SET owner_name=%s WHERE id=%s", (who, t["id"]))
+            await log_note(t["id"], nxt, actor, f"assigned to {who}")
     return nxt
 
 
 async def notify(body: str, groups=(), roles=(), people=(), ticket_ref: str | None = None,
-                 subject: str | None = None, thread_key: str | None = None) -> None:
+                 subject: str | None = None, thread_key: str | None = None,
+                 email: bool = True) -> None:
     """Record a notification, and email it if it names specific people.
 
     `people` is the "this is aimed at you" channel, assigned, tagged, sent back. Those
     become email. `groups` and `roles` are broadcast and stay in-app only, which is the
     whole reason the mailbox stays readable.
+
+    `email=False` names people WITHOUT mailing them, which is the third case and the one
+    that was missing (Michael, 2026-09-14). A ticket moving along is a fact for the few
+    people on that deal and not for the whole of Commercial -- but it is also not worth
+    an email each time. Without this flag the only way to stop broadcasting to everyone
+    was to start emailing everyone named, which trades one complaint for a worse one.
 
     `thread_key` is which discussion thread it is about, when it is about one. Being
     tagged in a thread and landing on a ticket with eight of them is the complaint this
@@ -1328,6 +1345,53 @@ async def notify(body: str, groups=(), roles=(), people=(), ticket_ref: str | No
     if people:
         await email_people(list(people), subject or (ticket_ref or "Ninja PNS"), body,
                            ticket_ref)
+
+
+async def ticket_people(t: dict) -> list[str]:
+    """Who has a stake in this one ticket, by name (Michael, 2026-09-14).
+
+    Ticket-scoped notices used to go to every member of PNS, Commercial and AM, so a
+    salesperson was told about the progress of deals that were never theirs and the Bell
+    stopped being worth opening. This is the audience instead:
+
+      * the PNS owner -- or, when nobody has taken it, the PNS Head, so an unassigned
+        ticket is never announced to silence;
+      * the deal's own salesperson;
+      * that salesperson's manager and head, which is the "and manager" half: a Sales
+        Manager follows their people's deals without following everybody's.
+
+    Names, not addresses, because that is what notify() and the Bell store. Resolved
+    through the users table on each call rather than cached: moving somebody between
+    managers has to re-scope what they are told about, the same way it re-scopes the
+    dashboard filter.
+    """
+    out: list[str] = []
+    owner, sales = t.get("owner_name"), t.get("sales_name")
+    if owner:
+        out.append(owner)
+    else:
+        out += await names_in("PNS", head_only=True) or await names_in("PNS")
+    if sales:
+        out.append(sales)
+    # The line above the salesperson. Stored as emails on the user row, so it is one
+    # lookup back to the names the notification table holds.
+    if t.get("sales_email"):
+        row = await q("SELECT manager_email, head_email FROM users WHERE email=%s "
+                      "AND active=1", (t["sales_email"],), one=True)
+        leads = [e for e in ((row or {}).get("manager_email"),
+                             (row or {}).get("head_email")) if e]
+        if leads:
+            marks = ",".join(["%s"] * len(leads))
+            out += [r["name"] for r in await q(
+                f"SELECT name FROM users WHERE active=1 AND email IN ({marks})",
+                tuple(leads))]
+    # De-duplicated, order kept: the owner reads first in the Bell.
+    seen, uniq = set(), []
+    for n in out:
+        if n and n not in seen:
+            seen.add(n)
+            uniq.append(n)
+    return uniq
 
 
 async def audit(actor: str, action: str, entity: str, entity_id: str,
@@ -1432,7 +1496,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-14.2"
+BUILD = "2026-09-14.3"
 
 
 class Me(BaseModel):
@@ -4176,6 +4240,9 @@ async def _refresh_from_salescrm(o: dict, account: dict | None = None,
     oid = str(o.get("id"))
     t = await q("SELECT id, ticket_ref, status, resp, stage, potential_rev, service_type, "
                 "must_win, "
+                # Needed by ticket_people(): without them a notice from the sweep falls
+                # back to the PNS Head and drops the deal's own salesperson entirely.
+                "owner_name, sales_name, sales_email, "
                 "(SELECT name FROM shippers s WHERE s.id=shipper_id) AS shipper, "
                 "(SELECT acct_type FROM shippers s WHERE s.id=shipper_id) AS acct_type, "
                 # pricing is keyed on ticket_id, so these are single-valued. Needed
@@ -4315,7 +4382,8 @@ async def _refresh_from_salescrm(o: dict, account: dict | None = None,
     # STAGE says so -- a Closed-Won opportunity outranks "it just started", and that
     # branch runs later on purpose.
     if started_on_rev:
-        _r = await q("SELECT status, resp, id FROM tickets WHERE id=%s", (t["id"],), one=True)
+        _r = await q("SELECT status, resp, id, owner_name, service_type, shipper_id "
+                     "FROM tickets WHERE id=%s", (t["id"],), one=True)
         if _r:
             await start_when_revenue_arrives(_r, filled_rev, _r["resp"], "Sales CRM sync")
 
@@ -4418,7 +4486,7 @@ async def _refresh_from_salescrm(o: dict, account: dict | None = None,
             await notify(
                 f"{ref}, {t['shipper']} moved to {wants} by the Sales CRM sync, but "
                 f"onboarding needs: {', '.join(missing)}. Fill them on the ticket input.",
-                groups=["PNS", *SELLING_GROUPS], ticket_ref=ref)
+                people=await ticket_people(t), email=False, ticket_ref=ref)
         moved = wants
     return {"moved": moved, "missing": missing, "revenue_filled": filled_rev,
             "overwritten": changed}
@@ -4499,7 +4567,13 @@ async def _import_opportunity(o: dict, account: dict | None, plan: dict,
          plan["sales_name"], "GJ", date.today()))
     await execute("UPDATE tickets SET first_synced_at=NOW() WHERE id=%s", (tid,))
 
-    owner = await auto_assignee(plan["service"], tid, shipper_id) if r["resp"] == "PNS" else None
+    # NOT while the ticket is parked in Open (Michael, 2026-09-14). Open means "arrived,
+    # nobody on it yet", and a revenue-0 import lands there precisely because it cannot be
+    # worked. Giving it a PNS PIC anyway made it read as taken on the ticket and untaken
+    # in the queue -- two answers to the same question. It is assigned the moment revenue
+    # arrives and it starts; see start_when_revenue_arrives().
+    owner = (await auto_assignee(plan["service"], tid, shipper_id)
+             if r["resp"] == "PNS" and status != "Open" else None)
     if owner:
         await execute("UPDATE tickets SET owner_name=%s WHERE id=%s", (owner, tid))
 
@@ -4918,7 +4992,7 @@ async def submit_price(ref: str, body: PriceIn, u: User = Depends(current_user))
                          f"Alex and Dhinesh sign-off", groups=["PNS"], ticket_ref=ref)
         else:
             await notify(f"{ref}, {t['shipper']}: proposal is ready",
-                         groups=list(SELLING_GROUPS), ticket_ref=ref)
+                         people=await ticket_people(t), email=False, ticket_ref=ref)
 
     await log_status(t["id"], nxt, u.name, note)
     await audit(u.email, "price", "ticket", ref, "price_file", None, body.price_file)
@@ -5030,7 +5104,7 @@ async def change_status(ref: str, body: StatusIn, u: User = Depends(current_user
     elif nxt == "Proposal Accepted / Ready to Ship":
         await execute("UPDATE tickets SET outcome='accepted' WHERE id=%s", (t["id"],))
         await notify(f"{ref}, {t['shipper']} ACCEPTED. Contract needed.",
-                     groups=["PNS", *SELLING_GROUPS, "Ops"], ticket_ref=ref)
+                     people=await ticket_people(t), email=False, groups=["Ops"], ticket_ref=ref)
     elif nxt == "Cancel":
         # 'cancel' is the third value the outcome column was always documented to hold,
         # and it was the one nothing ever wrote — so a cancelled ticket read as still
@@ -5038,7 +5112,7 @@ async def change_status(ref: str, body: StatusIn, u: User = Depends(current_user
         # accepted against lost, and a deal nobody could build is neither.
         await execute("UPDATE tickets SET outcome='cancel' WHERE id=%s", (t["id"],))
         await notify(f"{ref}, {t['shipper']} was cancelled by {u.name}: {body.reason}",
-                     groups=["PNS", *SELLING_GROUPS], ticket_ref=ref)
+                     people=await ticket_people(t), email=False, ticket_ref=ref)
     elif nxt == "Pending Review - PSP":
         await notify(f"{ref}, {t['shipper']}: sent to PSP for a margin check by {u.name}",
                      groups=["PSP"], ticket_ref=ref)
@@ -5190,7 +5264,7 @@ async def edit_input(ref: str, body: InputPatch, u: User = Depends(current_user)
     await log_note(t["id"], t["status"], u.name, note[:500])
     await audit(u.email, "edit", "ticket", ref, "input", None, "; ".join(changes)[:500])
     await notify(f"{ref}, {t['shipper']}: {note}",
-                 groups=["PNS", *SELLING_GROUPS], ticket_ref=ref)
+                 people=await ticket_people(t), email=False, ticket_ref=ref)
     # Read resp from the row we just wrote, not from `t`: the routing above may have just
     # changed who prices the deal, and starting it under the OLD side would put it in the
     # wrong queue on the very edit that corrected the facts.
@@ -5245,7 +5319,7 @@ async def set_priced_by(ref: str, body: PricedByIn, u: User = Depends(current_us
     await log_note(t["id"], t["status"], u.name, note[:500])
     await audit(u.email, "priced_by", "ticket", ref, "resp", t["resp"], body.resp)
     await notify(f"{ref}, {t['shipper']}: {note}",
-                 groups=["PNS", *SELLING_GROUPS], ticket_ref=ref)
+                 people=await ticket_people(t), email=False, ticket_ref=ref)
     return {"ok": True, "ref": ref, "status": t["status"]}
 
 
@@ -5313,10 +5387,10 @@ async def pns_review(ref: str, u: User = Depends(current_user)):
     # the same way pns_finalise does. A watched ticket parked here by hand has a chain.
     if nxt == "Proposal Submitted":
         await notify(f"{ref}, {t['shipper']}: {u.name} checked the price — proposal is ready",
-                     groups=list(SELLING_GROUPS), ticket_ref=ref)
+                     people=await ticket_people(t), email=False, ticket_ref=ref)
     else:
         await notify(f"{ref}, {t['shipper']}: price checked by {u.name} — now at {nxt}",
-                     groups=["PNS", *SELLING_GROUPS], ticket_ref=ref)
+                     people=await ticket_people(t), email=False, ticket_ref=ref)
     await audit(u.email, "pns_review", "ticket", ref, "status", t["status"], nxt)
     return {"ok": True, "ref": ref, "status": nxt}
 
@@ -5346,10 +5420,10 @@ async def pns_finalise(ref: str, u: User = Depends(current_user)):
     elif nxt == "Pending Review - C-level":
         await notify(f"{ref}, {t['shipper']} ({t['acct_type']}): solution finalised by "
                      f"{u.name} and ready for Alex and Dhinesh",
-                     groups=["PNS", *SELLING_GROUPS], ticket_ref=ref)
+                     people=await ticket_people(t), email=False, ticket_ref=ref)
     else:
         await notify(f"{ref}, {t['shipper']}: solution finalised — proposal is ready",
-                     groups=list(SELLING_GROUPS), ticket_ref=ref)
+                     people=await ticket_people(t), email=False, ticket_ref=ref)
     await audit(u.email, "pns_final", "ticket", ref, "status", t["status"], nxt)
     return {"ok": True, "ref": ref, "status": nxt}
 
@@ -5470,7 +5544,7 @@ async def reopen(ref: str, body: ReopenIn, u: User = Depends(current_user)):
     await execute("UPDATE tickets SET reentered_at=NOW() WHERE id=%s", (t["id"],))
     await log_status(t["id"], body.status, u.name, f"reopened by {u.name} (Sales)")
     await notify(f"{ref}, {t['shipper']} reopened as {body.status} by {u.name}",
-                 groups=["PNS", *SELLING_GROUPS], ticket_ref=ref)
+                 people=await ticket_people(t), email=False, ticket_ref=ref)
     await audit(u.email, "reopen", "ticket", ref, "status", t["status"], body.status)
     return {"ok": True, "ref": ref, "status": body.status}
 
@@ -6638,7 +6712,7 @@ async def exec_signoff(ref: str, body: SignoffIn, u: User = Depends(current_user
         status = "Proposal Submitted"
         await log_status(t["id"], status, u.name, note)
         await notify(f"{ref}, {t['shipper']}: signed off by Alex and Dhinesh, proposal is ready",
-                     groups=list(SELLING_GROUPS), ticket_ref=ref)
+                     people=await ticket_people(t), email=False, ticket_ref=ref)
     else:
         await log_note(t["id"], status, u.name, note)
 
@@ -6839,7 +6913,7 @@ async def submit_proposal(ref: str, u: User = Depends(current_user)):
                      f"awaiting Alex and Dhinesh sign-off", groups=["PNS"], ticket_ref=ref)
     else:
         await notify(f"{ref}, {t['shipper']}: proposal is ready",
-                     groups=list(SELLING_GROUPS), ticket_ref=ref)
+                     people=await ticket_people(t), email=False, ticket_ref=ref)
     await audit(u.email, "submit", "ticket", ref, "status", t["status"], nxt)
     return {"ok": True, "ref": ref, "status": nxt}
 
@@ -6992,7 +7066,7 @@ async def restore(ref: str, u: User = Depends(current_user)):
     await execute("UPDATE tickets SET deleted_at=NULL, deleted_by=NULL, "
                   "reentered_at=NOW() WHERE ticket_ref=%s", (ref,))
     await audit(u.email, "restore", "ticket", ref)
-    await notify(f"{ref} was restored by {u.name}", groups=["PNS", *SELLING_GROUPS], ticket_ref=ref)
+    await notify(f"{ref} was restored by {u.name}", people=await ticket_people(t), email=False, ticket_ref=ref)
     return {"ok": True, "ref": ref}
 
 
