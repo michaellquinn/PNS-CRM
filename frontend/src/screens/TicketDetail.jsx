@@ -203,6 +203,18 @@ export default function TicketDetail({ ticketRef: initialRef, me, notify, onBack
     finally { setSending(false); }
   };
 
+  const openQ = qCount ?? t.open_questions;
+  // The whole Pricing tab goes for Ops and QC, rather than emptying its rows one by one.
+  // Two of the five were already gated and the other three were not, which is what the
+  // row-by-row approach costs. The server strips the fields either way — this only stops
+  // the tab rendering as five em dashes and a "Margin and cost" placeholder.
+  // ONE Operations tab with the areas as sections inside, not six more tabs on the bar
+  // (Baskoro, 2026-09-07). Twelve tabs whose shape changed per ticket would wrap to two
+  // rows on a laptop; the count badge keeps the at-a-glance signal that made separate
+  // tabs attractive in the first place. Hidden entirely when nothing is raised and you
+  // are not the one who raises them.
+  const unacked = reqs.filter((r) => !r.acked_at).length;
+  const showOps = reqs.length > 0 || p.raiseRequirement;
   const tabs = [["charter", "Project Charter"],
                 ...(p.seePrice ? [["pricing", "Pricing"]] : []),
                 ...(showOps ? [["ops", "Operations", unacked || undefined]] : []),
