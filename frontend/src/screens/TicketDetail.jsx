@@ -544,7 +544,10 @@ export default function TicketDetail({ ticketRef: initialRef, me, notify, onBack
                   overlapping fields, and a page carrying both would be two answers to
                   "what does this ticket say" with no way to tell which one is live. */}
               {draft ? (
-
+              /* A fragment, because the intake form is TWO siblings — the Request dl
+                 and the sections below it. They sat inside this block's own <> when
+                 the Input tab owned them; a ternary branch has to supply its own. */
+              <>
               <dl>
                 <Row label="Service type">
                   {draft ? (
@@ -633,6 +636,7 @@ export default function TicketDetail({ ticketRef: initialRef, me, notify, onBack
                   </dl>
                 </div>
               ))}
+              </>
               ) : (
               <>
               {SECTIONS.map(([label, fields]) => (
