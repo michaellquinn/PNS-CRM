@@ -3,6 +3,18 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-09-14",
+    title: "Send Charter to PNS & Sales is gone",
+    by: "Michael + Claude",
+    changes: [
+      "The greyed-out Send Charter button has been removed. It was gated on the intake being “cleared”, and nothing in this app has ever been able to clear one — no endpoint, no control, and the column was read in two places and written by none. So it sat permanently disabled on every real ticket and read as a problem nobody could fix.",
+      "Nothing was lost, because nothing worked. Copy for email is how the charter reaches people and is untouched.",
+      "The “Input not yet cleared” line above it went too. With the button gone, nothing depended on it and it was a warning about the same unfixable problem. The Guide no longer describes a button that is not there.",
+      "What the audited send would have given you — the charter emailed to PNS, Commercial and AM with the recipient list recorded against the ticket — is still not available. Pasting into Gmail leaves no record of who received it. If that ever matters for Legal, what it needs is the missing clear step, not this button back.",
+    ],
+    overruled: [],
+  },
+  {
+    date: "2026-09-14",
     title: "A ticket is assigned when it starts, and a notice goes to the people on it",
     by: "Michael + Claude",
     changes: [

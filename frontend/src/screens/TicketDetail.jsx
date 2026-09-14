@@ -203,33 +203,6 @@ export default function TicketDetail({ ticketRef: initialRef, me, notify, onBack
     finally { setSending(false); }
   };
 
-  // Publishing the charter is the app doing what PNS used to do by hand in Gmail. The
-  // server renders and sends it so the record of who received it lives with the ticket.
-  const sendCharter = async () => {
-    if (!window.confirm(
-      `Email the Project Charter for ${t.shipper} to PNS, Sales and ${t.sales || "the sales PIC"}?`))
-      return;
-    setSending(true);
-    try {
-      await api.sendCharter(ref);
-      notify("Charter sent to PNS and Sales");
-      await load();
-    } catch (e) { notify(e.message); }
-    finally { setSending(false); }
-  };
-
-  const openQ = qCount ?? t.open_questions;
-  // The whole Pricing tab goes for Ops and QC, rather than emptying its rows one by one.
-  // Two of the five were already gated and the other three were not, which is what the
-  // row-by-row approach costs. The server strips the fields either way — this only stops
-  // the tab rendering as five em dashes and a "Margin and cost" placeholder.
-  // ONE Operations tab with the areas as sections inside, not six more tabs on the bar
-  // (Baskoro, 2026-09-07). Twelve tabs whose shape changed per ticket would wrap to two
-  // rows on a laptop; the count badge keeps the at-a-glance signal that made separate
-  // tabs attractive in the first place. Hidden entirely when nothing is raised and you
-  // are not the one who raises them.
-  const unacked = reqs.filter((r) => !r.acked_at).length;
-  const showOps = reqs.length > 0 || p.raiseRequirement;
   const tabs = [["charter", "Project Charter"],
                 ...(p.seePrice ? [["pricing", "Pricing"]] : []),
                 ...(showOps ? [["ops", "Operations", unacked || undefined]] : []),
@@ -500,7 +473,7 @@ export default function TicketDetail({ ticketRef: initialRef, me, notify, onBack
                 <p className="text-[12px] text-slate-500">
                   {draft
                     ? "Editing the intake. The charter is generated from these answers, so it updates the moment you save."
-                    : <>Generated from the intake. {d.input_cleared ? "Input cleared." : "Input not yet cleared."}{" "}Price only — the charter never carries cost or margin.</>}
+                    : "Generated from the intake. Price only — the charter never carries cost or margin."}
                 </p>
                 <div className="flex flex-wrap items-center gap-2">
                 {p.editInput && (
@@ -514,14 +487,17 @@ export default function TicketDetail({ ticketRef: initialRef, me, notify, onBack
                   )
                 )}
                   <Btn onClick={copyCharter}>Copy for email</Btn>
-                  {/* Publishing is gated on the intake being cleared: the charter is the
-                      official record and Legal will act on whatever it says, gaps included. */}
-                  {me.permissions.markReviewed && (
-                    <Btn kind="primary" disabled={!d.input_cleared || sending}
-                      onClick={sendCharter}>
-                      {sending ? "Sending…" : "Send Charter to PNS & Sales"}
-                    </Btn>
-                  )}
+                  {/* "Send Charter to PNS & Sales" stood here until 2026-09-14
+                      (Michael). It was gated on the intake being CLEARED, and nothing in
+                      this app has ever been able to clear one — no endpoint, no control,
+                      and the column read in two places and written by none. So it was
+                      permanently greyed out on every real ticket and confused everyone
+                      who looked at it. Copy for email is how the charter goes out.
+
+                      POST /tickets/{ref}/charter/send still exists and still refuses an
+                      uncleared intake; nothing calls it. If the audited send is ever
+                      wanted, what it needs is the missing clear step, not this button
+                      back. */}
                   {/* The Kick-off is the Ops handover, so it only appears once the deal
                       is actually won. The server refuses it before that, and refuses it
                       again if the go-live identifiers are missing. */}

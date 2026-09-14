@@ -189,7 +189,7 @@ const TASKS = [
     steps: [
       "Open the ticket, Project Charter tab. It is generated from the intake and never carries cost or margin.",
       "Sections 1–3 are the charter itself (solutioning), tagged Charter. Section 4 is tagged Kick-off: the go-live date and the account-system IDs Ops need.",
-      "Copy for email puts it on the clipboard as a formatted table. Send Charter to PNS & Sales publishes it and records who received it — it stays disabled until the intake is cleared. Once the shipper accepts, a second button sends the Kick-off to PNS, Sales and Ops; that one carries no pricing at all.",
+      "Copy for email puts it on the clipboard as a formatted table, ready to paste into Gmail. Once the shipper accepts, a button sends the Kick-off to PNS, Sales and Ops; that one carries no pricing at all and points back at the Charter as the source of truth.",
     ],
   },
   {
