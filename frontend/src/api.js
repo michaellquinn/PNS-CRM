@@ -360,7 +360,7 @@ export const isPnsWork = (t) => t.priced_by === "PNS" || !!t.needs_review;
 // How long a ticket counts as newly arrived (Michael, 2026-09-02). Two days, then it
 // drops off the New incoming list by itself — nothing to dismiss and no state to
 // keep, because the window is measured from the ticket's own arrival.
-export const NEW_TICKET_DAYS = 2;
+export const NEW_TICKET_DAYS = 5;
 
 // Arrived here within the window, whichever way it arrived: typed into New request,
 // pasted into the Import queue, or found by the sweep.

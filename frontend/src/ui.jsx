@@ -2,7 +2,7 @@
 // reserved for brand and actions, so a filled red thing always means "act on me".
 
 import { useEffect, useRef, useState } from "react";
-import { api, dealName, accountDiffers } from "./api";
+import { api, dealName, accountDiffers, isNewIncoming } from "./api";
 
 // Who a ticket or CAPA can be assigned to. Read from the users table rather than a
 // hardcoded list, so registering someone in Administration puts them in the dropdowns.
@@ -291,6 +291,19 @@ export function TicketCard({ t, badges = [], children, onOpen }) {
               {t.ref}
             </span>
             <Pill dot>{t.status}</Pill>
+            {/* NEW for the length of the New incoming window, then gone (Michael,
+                2026-09-14). Rendered HERE rather than passed in as a badge by each
+                screen, so a ticket that is new is marked as new wherever it appears —
+                Open, either pricing queue, a watched group, the walk — and no screen has
+                to remember. It reads the same isNewIncoming() the New incoming list and
+                its sidebar count use, so the tag cannot disagree with either.
+
+                arrived_mins is computed by the database, not from a date in the browser:
+                the app container and OceanBase disagree about the local timezone, which
+                is how an hours-old ticket once read as arriving tomorrow. */}
+            {isNewIncoming(t) && (
+              <Pill tone="bg-rose-100 font-bold text-rose-700">NEW</Pill>
+            )}
             {/* One of the three watched groups. Must Win is per-deal, so it can appear
                 on an otherwise Standard account and must be visible at a glance. */}
             {t.must_win && <Pill tone="bg-orange-100 text-orange-800">Must Win</Pill>}

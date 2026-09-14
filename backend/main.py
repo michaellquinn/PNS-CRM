@@ -1432,7 +1432,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-11.8"
+BUILD = "2026-09-14.1"
 
 
 class Me(BaseModel):
@@ -1743,8 +1743,10 @@ async def list_tickets(
            "(SELECT a.decision FROM approvals a WHERE a.ticket_id=t.id AND a.kind='psp' "
            "ORDER BY a.decided_at DESC LIMIT 1) AS psp_decision, "
            "TIMESTAMPDIFF(DAY, t.status_since, NOW()) AS sla_days_db, "
-           # Minutes, not days: the New incoming window is two days wide and a row
-           # needs to read "3h ago", which a day count cannot say. COALESCE, not
+           # Minutes, not days: a row needs to read "3h ago", which a day count cannot
+           # say. The window's WIDTH is NEW_TICKET_DAYS in api.js and is not repeated
+           # here -- this returns the elapsed time and the frontend decides what counts
+           # as new, so widening the window is one edit. COALESCE, not
            # GREATEST: a re-entry can only happen after the row was created, so when
            # reentered_at is set it is always the later of the two.
            "TIMESTAMPDIFF(MINUTE, COALESCE(t.reentered_at, t.created_at), NOW()) "

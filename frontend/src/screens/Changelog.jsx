@@ -2,6 +2,19 @@ import { Card, Head, Pill } from "../ui";
 
 const ENTRIES = [
   {
+    date: "2026-09-14",
+    title: "NEW lasts five days, and the intake is edited on the charter itself",
+    by: "Michael + Claude",
+    changes: [
+      "New incoming now covers FIVE days instead of two, and every screen that mentions the window reads the same number, so nothing says two any more.",
+      "NEW — a red NEW tag on the ticket itself, for those same five days, then gone. It is drawn on the ticket card rather than added screen by screen, so a new ticket is marked wherever it turns up: Open, either pricing queue, a watched group, the walk. The tag, the New incoming list and the sidebar count all ask one function, so they cannot disagree about what counts as new.",
+      "GONE — the Input tab. Its form now lives on the Project Charter behind an Edit intake button. The charter is generated from those answers, so correcting a typo used to mean leaving the charter, finding the field among every intake answer, saving, and coming back to see what it did. Now the change and its effect are one move on one screen.",
+      "Editing SWAPS the charter for the form rather than putting the form underneath it. The two carry overlapping fields, and a page showing both would be two answers to “what does this ticket say” with no way to tell which is live.",
+      "Nothing became uneditable or unreadable. The answers the charter does not carry — service type, account type, potential revenue, the RDO detail — are all still there, and an “All intake answers” section keeps them readable without holding an edit open. Somebody who cannot edit has no other way to see them.",
+    ],
+    overruled: [],
+  },
+  {
     date: "2026-09-11",
     title: "New request drops the paste-an-opportunity-ID card",
     by: "Michael + Claude",

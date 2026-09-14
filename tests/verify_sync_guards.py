@@ -373,6 +373,32 @@ check("...and a synced ticket says where the value comes from instead",
       "p.setSales && t.opportunity_id" in _td,
       "hiding it with no explanation reads as the app having lost a feature")
 
+# ------------------------------------ the NEW tag, the list and the badge are one answer
+# Michael, 2026-09-14: a NEW tag appears on a ticket for the length of the New incoming
+# window and then goes. Three things now read that window -- the tag on every ticket card,
+# the New incoming list, and the sidebar count beside it -- and they have to agree, or a
+# ticket is tagged NEW on one screen and absent from the list of new tickets on another.
+#
+# They agree by all calling isNewIncoming(). The failure to guard against is somebody
+# hand-rolling the arithmetic in one of the three, which reads as correct and drifts the
+# day the window changes.
+print()
+print("everything that says a ticket is new asks the same function")
+_ui = io.open(os.path.join(_REPO, "frontend", "src", "ui.jsx"), encoding="utf-8").read()
+check("the ticket card tags NEW", "isNewIncoming(t)" in _ui,
+      "the tag is rendered centrally so every screen gets it")
+check("...and does not do the arithmetic itself",
+      "NEW_TICKET_DAYS" not in _ui,
+      "a second copy of the window is how the tag and the list drift apart")
+
+_api2 = io.open(os.path.join(_REPO, "frontend", "src", "api.js"), encoding="utf-8").read()
+check("the window is declared once", _api2.count("export const NEW_TICKET_DAYS") == 1)
+check("isNewIncoming is what reads it",
+      "NEW_TICKET_DAYS * 24 * 60" in _api2,
+      "the elapsed time comes from the database in MINUTES -- the container and "
+      "OceanBase disagree about the local timezone, so a date compared in the browser "
+      "read an hours-old ticket as arriving tomorrow")
+
 print()
 if fails:
     print("FAILED %d check(s):" % len(fails))

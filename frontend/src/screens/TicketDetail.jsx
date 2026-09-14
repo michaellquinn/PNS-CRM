@@ -230,7 +230,7 @@ export default function TicketDetail({ ticketRef: initialRef, me, notify, onBack
   // are not the one who raises them.
   const unacked = reqs.filter((r) => !r.acked_at).length;
   const showOps = reqs.length > 0 || p.raiseRequirement;
-  const tabs = [["charter", "Project Charter"], ["input", "Input"],
+  const tabs = [["charter", "Project Charter"],
                 ...(p.seePrice ? [["pricing", "Pricing"]] : []),
                 ...(showOps ? [["ops", "Operations", unacked || undefined]] : []),
                 ["files", "Attachments", fCount], ["discussion", "Discussion", openQ],
@@ -498,10 +498,21 @@ export default function TicketDetail({ ticketRef: initialRef, me, notify, onBack
             <>
               <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-slate-50 px-3 py-2">
                 <p className="text-[12px] text-slate-500">
-                  Generated from the intake. {d.input_cleared ? "Input cleared." : "Input not yet cleared."}
-                  {" "}Price only — the charter never carries cost or margin.
+                  {draft
+                    ? "Editing the intake. The charter is generated from these answers, so it updates the moment you save."
+                    : <>Generated from the intake. {d.input_cleared ? "Input cleared." : "Input not yet cleared."}{" "}Price only — the charter never carries cost or margin.</>}
                 </p>
                 <div className="flex flex-wrap items-center gap-2">
+                {p.editInput && (
+                  draft ? (
+                    <span className="flex gap-2">
+                      <Btn onClick={() => setDraft(null)}>Cancel</Btn>
+                      <Btn kind="primary" disabled={busy} onClick={saveEdit}>Save changes</Btn>
+                    </span>
+                  ) : (
+                    <Btn onClick={startEdit}>Edit intake</Btn>
+                  )
+                )}
                   <Btn onClick={copyCharter}>Copy for email</Btn>
                   {/* Publishing is gated on the intake being cleared: the charter is the
                       official record and Legal will act on whatever it says, gaps included. */}
@@ -522,75 +533,17 @@ export default function TicketDetail({ ticketRef: initialRef, me, notify, onBack
                   )}
                 </div>
               </div>
-              {SECTIONS.map(([label, fields]) => (
-                <div key={label} className="mb-5 last:mb-0">
-                  <div className="mb-2 flex items-center gap-2 text-[10.5px] font-bold uppercase tracking-wider text-slate-400">
-                    {label}
-                    {/* Sections 1-3 are the charter (solutioning); 4 is the Kick-Off
-                        block Ops works from. Tagged so the two never blur together. */}
-                    <span className={`rounded px-1.5 py-0.5 text-[9px] ${label.startsWith("4")
-                      ? "bg-teal-50 text-teal-700" : "bg-violet-50 text-violet-700"}`}>
-                      {label.startsWith("4") ? "Kick-off · onboarding" : "Charter · solutioning"}
-                    </span>
-                  </div>
-                  <dl>
-                    {fields.map(([k, l]) => (
-                      <Row key={k} label={l}>
-                        {display(k, i[k]) || <span className="text-slate-400">—</span>}
-                      </Row>
-                    ))}
-                    {label.startsWith("2") && (
-                      <Row label="Photos of the goods">
-                        {photos.length === 0 ? (
-                          <span className="text-slate-400">none attached</span>
-                        ) : (
-                          <div className="flex flex-wrap gap-2">
-                            {photos.map((f) => (
-                              <a key={f.id} href={f.url} target="_blank" rel="noopener noreferrer"
-                                title={f.caption || f.filename}>
-                                <img src={f.url} alt={f.caption || f.filename} loading="lazy"
-                                  className="h-20 w-20 rounded-lg border border-slate-200 object-cover" />
-                              </a>
-                            ))}
-                          </div>
-                        )}
-                      </Row>
-                    )}
-                    {/* The charter's own pricing row, which is not the Pricing tab and
-                        so is not covered by hiding it. */}
-                    {label.startsWith("3") && p.seePrice && (
-                      <Row label="Pricing">
-                        <PriceChip file={d.price_file} url={d.price_url} />
-                      </Row>
-                    )}
-                  </dl>
-                </div>
-              ))}
-            </>
-          )}
+              {/* ONE tab for the document and the answers behind it (Michael, 2026-09-14).
+                  The Input tab was a separate place to change the very thing this page
+                  renders, so correcting a typo meant leaving the charter, finding the
+                  field among every intake answer, saving, and coming back to see what it
+                  did. Pressing Edit intake swaps this body for the form and Save swaps it
+                  straight back, so the change and its effect are one move on one screen.
 
-          {/* ------------------------------------------------------------ input */}
-          {tab === "input" && (
-            <>
-              <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-slate-50 px-3 py-2">
-                <p className="text-[12px] text-slate-500">
-                  {!p.editInput
-                    ? "Read-only — Commercial, Sales Planning, PNS and Admin correct the original input."
-                    : p.editAcctOrRev
-                      ? "You can correct anything here, including account type and potential revenue. Both re-run the routing rule, and the change is written to the history with your name on it."
-                      : "Account type and potential revenue are the Sales Head's — they change who owes the price."}
-                </p>
-                {p.editInput && (
-                  draft ? (
-                    <span className="flex gap-2">
-                      <Btn onClick={() => setDraft(null)}>Cancel</Btn>
-                      <Btn kind="primary" disabled={busy} onClick={saveEdit}>Save changes</Btn>
-                    </span>
-                  ) : (
-                    <Btn onClick={startEdit}>Edit input</Btn>
-                  )
-                )}
-              </div>
+                  It is a SWAP, not the form underneath the charter: the two show
+                  overlapping fields, and a page carrying both would be two answers to
+                  "what does this ticket say" with no way to tell which one is live. */}
+              {draft ? (
 
               <dl>
                 <Row label="Service type">
@@ -680,8 +633,159 @@ export default function TicketDetail({ ticketRef: initialRef, me, notify, onBack
                   </dl>
                 </div>
               ))}
+              ) : (
+              <>
+              {SECTIONS.map(([label, fields]) => (
+                <div key={label} className="mb-5 last:mb-0">
+                  <div className="mb-2 flex items-center gap-2 text-[10.5px] font-bold uppercase tracking-wider text-slate-400">
+                    {label}
+                    {/* Sections 1-3 are the charter (solutioning); 4 is the Kick-Off
+                        block Ops works from. Tagged so the two never blur together. */}
+                    <span className={`rounded px-1.5 py-0.5 text-[9px] ${label.startsWith("4")
+                      ? "bg-teal-50 text-teal-700" : "bg-violet-50 text-violet-700"}`}>
+                      {label.startsWith("4") ? "Kick-off · onboarding" : "Charter · solutioning"}
+                    </span>
+                  </div>
+                  <dl>
+                    {fields.map(([k, l]) => (
+                      <Row key={k} label={l}>
+                        {display(k, i[k]) || <span className="text-slate-400">—</span>}
+                      </Row>
+                    ))}
+                    {label.startsWith("2") && (
+                      <Row label="Photos of the goods">
+                        {photos.length === 0 ? (
+                          <span className="text-slate-400">none attached</span>
+                        ) : (
+                          <div className="flex flex-wrap gap-2">
+                            {photos.map((f) => (
+                              <a key={f.id} href={f.url} target="_blank" rel="noopener noreferrer"
+                                title={f.caption || f.filename}>
+                                <img src={f.url} alt={f.caption || f.filename} loading="lazy"
+                                  className="h-20 w-20 rounded-lg border border-slate-200 object-cover" />
+                              </a>
+                            ))}
+                          </div>
+                        )}
+                      </Row>
+                    )}
+                    {/* The charter's own pricing row, which is not the Pricing tab and
+                        so is not covered by hiding it. */}
+                    {label.startsWith("3") && p.seePrice && (
+                      <Row label="Pricing">
+                        <PriceChip file={d.price_file} url={d.price_url} />
+                      </Row>
+                    )}
+                  </dl>
+                </div>
+              ))}
+              {/* Every intake answer, including the ones the charter does not carry —
+                  service type, account type, potential revenue, the RDO detail. Folded
+                  away rather than dropped: this is the only remaining place to READ them
+                  without holding an edit open, and somebody who cannot edit has no other
+                  way to see them at all. */}
+              <details className="mt-5 rounded-lg border border-slate-200 px-3.5 py-2.5">
+                <summary className="cursor-pointer text-[12.5px] font-semibold text-slate-600">
+                  All intake answers
+                </summary>
+                <div className="mt-3">
+
+              <dl>
+                <Row label="Service type">
+                  {draft ? (
+                    <select className={`${inputCls} max-w-[240px]`} value={draft.__service}
+                      onChange={(e) => setDraft({ ...draft, __service: e.target.value })}>
+                      {SERVICES.map((s) => <option key={s}>{s}</option>)}
+                    </select>
+                  ) : <span>{t.service}</span>}
+                </Row>
+                {/* The two read-only branches below wrap their value in a <span> rather
+                    than emitting it as a bare expression. That is not styling.
+
+                    `<>{value}{cond && <span/>}</>` renders a BARE TEXT NODE next to a
+                    conditional that is usually `false`. When Edit input swapped that
+                    fragment for a single <input>, React's deletion pass threw
+                    NotFoundError: Failed to execute 'removeChild' — the text node was
+                    already detached — and the exception unmounted the whole tab, so
+                    pressing Edit input blanked the screen on every ticket. Instrumenting
+                    removeChild on the live build named the node: TEXT("Rp 25.000.000")
+                    with a null parent, inside DD.text-[13px].
+
+                    A text node has no identity for React to reconcile against; an element
+                    does. Wrapping it is the fix, and it is why this must not be
+                    "simplified" back. */}
+                <Row label="Account type">
+                  {draft && p.editAcctOrRev ? (
+                    <select className={`${inputCls} max-w-[240px]`} value={draft.__acct}
+                      onChange={(e) => setDraft({ ...draft, __acct: e.target.value })}>
+                      <option>Standard</option><option>Strategic</option><option>Hypercare</option>
+                    </select>
+                  ) : (
+                    <span>
+                      <span>{t.acct_type}</span>
+                      {!p.editAcctOrRev && <span className="ml-2 text-[11px] text-slate-400">🔒 Sales Head only</span>}
+                    </span>
+                  )}
+                </Row>
+                <Row label="Potential revenue">
+                  {draft && p.editAcctOrRev ? (
+                    <input className={`${inputCls} max-w-[240px] font-mono`} value={draft.__revenue}
+                      onChange={(e) => setDraft({ ...draft, __revenue: e.target.value })} />
+                  ) : (
+                    <span>
+                      <span>{rp(t.revenue)}</span>
+                      {!p.editAcctOrRev && <span className="ml-2 text-[11px] text-slate-400">🔒 Sales Head only</span>}
+                    </span>
+                  )}
+                </Row>
+              </dl>
+
+              {SECTIONS.map(([label, fields]) => (
+                <div key={label} className="mt-5">
+                  <div className="mb-2 text-[10.5px] font-bold uppercase tracking-wider text-slate-400">{label}</div>
+                  <dl>
+                    {fields.map(([k, l]) => (
+                      <Row key={k} label={l}>
+                        {!draft ? (
+                          // Wrapped, for the same reason as the two rows above: this is
+                          // a bare text node that Edit input swaps for a form control,
+                          // thirty-odd times in one pass. Text nodes have no identity for
+                          // React to reconcile, and the deletion pass threw NotFoundError
+                          // and unmounted the tab. An element does have identity.
+                          <span>{display(k, i[k]) || <span className="text-slate-400">—</span>}</span>
+                        ) : HOURS.includes(k) ? (
+                          <input type="number" min="0" step="0.5" placeholder="None"
+                            className={`${inputCls} max-w-[140px]`} value={draft[k]}
+                            onChange={(e) => setDraft({ ...draft, [k]: e.target.value })} />
+                        ) : LONG.includes(k) ? (
+                          <textarea className={`${inputCls} min-h-[56px]`} value={draft[k]}
+                            onChange={(e) => setDraft({ ...draft, [k]: e.target.value })} />
+                        ) : YESNO.includes(k) ? (
+                          <select className={`${inputCls} max-w-[140px]`} value={draft[k] || "No"}
+                            onChange={(e) => setDraft({ ...draft, [k]: e.target.value })}>
+                            <option>Yes</option><option>No</option>
+                          </select>
+                        ) : remembered[k] ? (
+                          <Combo value={draft[k]} options={remembered[k]}
+                            placeholder="Type anything; past answers are suggested"
+                            onChange={(v) => setDraft({ ...draft, [k]: v })} />
+                        ) : (
+                          <input className={inputCls} value={draft[k]}
+                            onChange={(e) => setDraft({ ...draft, [k]: e.target.value })} />
+                        )}
+                      </Row>
+                    ))}
+                  </dl>
+                </div>
+              ))}
+                </div>
+              </details>
+              </>
+              )}
             </>
           )}
+
+          {/* ------------------------------------------------------------ input */}
 
           {tab === "pricing" && p.seePrice && (
             <dl>
