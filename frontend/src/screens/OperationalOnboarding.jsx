@@ -14,11 +14,9 @@ export function OperationalList({ view = "onboarding", me, onOpen }) {
   const [err, setErr] = useState("");
   const [filter, setFilter] = useState("");
   const [query, setQuery] = useState("");
-  const [legacy, setLegacy] = useState([]);
   useEffect(() => {
     setData(null); setErr("");
     api.operationalList(view).then(setData).catch(e => setErr(e.message));
-    if (view === "golive") api.operationalLegacy().then(d => setLegacy(d.rows)).catch(() => {});
   }, [view]);
   if (err) return <Empty>{err}</Empty>;
   const rows = (data?.rows || []).filter(r => (!filter || r.status === filter) && `${r.ref} ${r.opportunity_name} ${r.shipper}`.toLowerCase().includes(query.toLowerCase()));
@@ -48,13 +46,16 @@ export function OperationalList({ view = "onboarding", me, onOpen }) {
         {!!r.pending.length && <p className="mt-2 text-[12px] text-amber-800">Outstanding: {r.pending.join(" · ")}</p>}
       </Card>)}
     </div>}
-    {view === "golive" && !!legacy.length && <Card className="mt-5 p-4">
-      <h3 className="font-semibold">Existing monitoring records</h3>
-      <p className="mb-3 text-[12px] text-slate-500">Preserved from the earlier onboarding process. New requirements are submitted inside the opportunity ticket.</p>
-      {legacy.map(r => <button key={r.ref} onClick={() => onOpen(r.ref)} className="block w-full border-t py-2 text-left text-[13px]">
-        <span className="font-mono text-[#EE1B2C]">{r.ref}</span> · {r.shipper} · {r.phase_label} · target {r.target_golive}{r.actual_golive && ` · actual ${r.actual_golive}`}
-      </button>)}
-    </Card>}
+    {/* "Existing monitoring records" stood here until 2026-09-14 (Michael). It listed
+        rows from the ORIGINAL onboarding table that had not been migrated and were
+        still live -- two of them, both stuck at "Awaiting QC acknowledgement" since
+        August, which in that model means the target passed and nobody ever confirmed
+        whether the shipper started shipping.
+
+        Removing it does not resolve them. The old Onboarding screen is gone from the
+        menu and the ticket's Onboarding tab reads the new process only, so nothing in
+        the app lists them any more. GET /api/onboarding-v2/legacy is deliberately left
+        in place: it is now the only way to see what is in there. */}
   </>;
 }
 

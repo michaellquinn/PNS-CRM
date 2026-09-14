@@ -2,6 +2,17 @@ import { Card, Head, Pill } from "../ui";
 
 const ENTRIES = [
   {
+    date: "2026-09-14",
+    title: "The Existing monitoring records block is off Go Live",
+    by: "Michael + Claude",
+    changes: [
+      "Removed at Michael’s request. It listed rows from the ORIGINAL onboarding table that had not been migrated and were still live — two of them, SOF-4001323 and SOF-4001332.",
+      "Both were stuck at “Awaiting QC acknowledgement” since August, which in that model means the target go-live passed and nobody ever confirmed whether the shipper started shipping. That model never guesses: a target that passed proves nothing, so it waits for a person and waits for ever.",
+      "REMOVING IT DOES NOT RESOLVE THEM. The old Onboarding screen is gone from the menu and the ticket’s Onboarding tab reads the new process only, so nothing in the app lists those two any more. The endpoint behind the block is deliberately left in place, because it is now the only way to see what is in there.",
+    ],
+    overruled: [],
+  },
+  {
     date: "2026-09-14", title: "Onboarding preserves recycle-bin behavior", by: "Michael + Codex",
     changes: ["Operational records now follow the existing ticket-purge cascade. Adding onboarding does not prevent Admin from purging a ticket already in the recycle bin. This update does not delete any existing data."], overruled: [],
   },
