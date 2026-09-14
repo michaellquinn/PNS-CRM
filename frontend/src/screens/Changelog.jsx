@@ -2,6 +2,18 @@ import { Card, Head, Pill } from "../ui";
 
 const ENTRIES = [
   {
+    date: "2026-09-14", title: "Opportunity onboarding and team readiness", by: "Michael + Codex",
+    changes: [
+      "Onboarding is now an opportunity worklist. Sales fills and submits the operational form inside the ticket's Onboarding tab; existing commercial statuses and pricing are unchanged.",
+      "Pending Readiness routes packing to CL, TKBM to Sort, and fleet/document checks to the assigned pickup and delivery teams. Sales Managers approve exceptions only after the affected team confirms the workaround is feasible.",
+      "Sales records actual go-live separately from the plan. After the seven-day monitoring period the opportunity appears in To Handover — QC, where QC explicitly accepts it.",
+      "The five-column Operational Database updates on Sales submission, with validated Excel preview/import. Operational accounts cannot access commercial ticket APIs or tabs. Team accounts can be assigned later under Users & roles.",
+    ], overruled: [
+      "The former inline To hand over start form is replaced by in-ticket Sales intake. To Handover now means QC acceptance after monitoring; old onboarding records remain preserved read-only under Go Live.",
+      "The earlier rule allowing operations to see potential revenue is overridden: operational accounts now receive only operational data, with commercial APIs restricted.",
+    ],
+  },
+  {
     date: "2026-09-14",
     title: "Send Charter to PNS & Sales is gone",
     by: "Michael + Claude",

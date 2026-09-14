@@ -54,6 +54,16 @@ export async function shrinkImage(file, maxEdge = 1600, quality = 0.82) {
 }
 
 export const api = {
+  operationalList: view => call(`/onboarding-v2${qs({ view })}`),
+  operationalDetail: ref => call(`/onboarding-v2/tickets/${encodeURIComponent(ref)}`),
+  operationalSave: (ref, body) => call(`/onboarding-v2/tickets/${encodeURIComponent(ref)}/intake`, { method: "POST", body: JSON.stringify(body) }),
+  operationalUpload: (ref, form) => upload(`/onboarding-v2/tickets/${encodeURIComponent(ref)}/documents`, form),
+  operationalDecision: (id, body) => call(`/onboarding-v2/checks/${id}`, { method: "POST", body: JSON.stringify(body) }),
+  operationalGolive: (ref, on) => call(`/onboarding-v2/tickets/${encodeURIComponent(ref)}/golive`, { method: "POST", body: JSON.stringify({ on }) }),
+  operationalQcAccept: ref => call(`/onboarding-v2/tickets/${encodeURIComponent(ref)}/qc-accept`, { method: "POST", body: "{}" }),
+  operationalMaster: () => call("/operational-master"),
+  operationalImport: form => upload("/operational-master/import", form),
+  operationalLegacy: () => call("/onboarding-v2/legacy"),
   me: () => call("/me"),
   stats: () => call("/stats"),
 

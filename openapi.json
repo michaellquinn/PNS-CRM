@@ -339,6 +339,49 @@
         "title": "AssignIn",
         "type": "object"
       },
+      "Body_operational_import_api_operational_master_import_post": {
+        "properties": {
+          "commit": {
+            "default": false,
+            "title": "Commit",
+            "type": "boolean"
+          },
+          "digest": {
+            "default": "",
+            "title": "Digest",
+            "type": "string"
+          },
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "title": "Body_operational_import_api_operational_master_import_post",
+        "type": "object"
+      },
+      "Body_operational_upload_api_onboarding_v2_tickets__ref__documents_post": {
+        "properties": {
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file",
+          "kind"
+        ],
+        "title": "Body_operational_upload_api_onboarding_v2_tickets__ref__documents_post",
+        "type": "object"
+      },
       "Body_upload_capa_file_api_capa__ref__files_post": {
         "properties": {
           "caption": {
@@ -1659,7 +1702,7 @@
       "Me": {
         "properties": {
           "build": {
-            "default": "2026-09-14.5",
+            "default": "2026-09-14.6",
             "title": "Build",
             "type": "string"
           },
@@ -2421,6 +2464,388 @@
           "phase_label"
         ],
         "title": "OnboardingRow",
+        "type": "object"
+      },
+      "OperationalDate": {
+        "properties": {
+          "on": {
+            "title": "On",
+            "type": "string"
+          }
+        },
+        "required": [
+          "on"
+        ],
+        "title": "OperationalDate",
+        "type": "object"
+      },
+      "OperationalDecision": {
+        "properties": {
+          "action": {
+            "default": "confirm",
+            "title": "Action",
+            "type": "string"
+          },
+          "fingerprint": {
+            "title": "Fingerprint",
+            "type": "string"
+          },
+          "note": {
+            "default": "",
+            "title": "Note",
+            "type": "string"
+          },
+          "reason": {
+            "default": "",
+            "title": "Reason",
+            "type": "string"
+          },
+          "status": {
+            "default": "ready",
+            "title": "Status",
+            "type": "string"
+          },
+          "workaround": {
+            "default": "",
+            "title": "Workaround",
+            "type": "string"
+          }
+        },
+        "required": [
+          "fingerprint"
+        ],
+        "title": "OperationalDecision",
+        "type": "object"
+      },
+      "OperationalDetailResponse": {
+        "properties": {
+          "actual_golive": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actual Golive"
+          },
+          "can_edit": {
+            "title": "Can Edit",
+            "type": "boolean"
+          },
+          "checks": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Checks",
+            "type": "array"
+          },
+          "documents": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Documents",
+            "type": "array"
+          },
+          "eligible": {
+            "title": "Eligible",
+            "type": "boolean"
+          },
+          "events": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Events",
+            "type": "array"
+          },
+          "fields": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "handover_due": {
+            "title": "Handover Due",
+            "type": "boolean"
+          },
+          "opportunity_name": {
+            "title": "Opportunity Name",
+            "type": "string"
+          },
+          "packing_labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Packing Labels",
+            "type": "object"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "title": "Payload",
+            "type": "object"
+          },
+          "qc_accepted_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Qc Accepted At"
+          },
+          "ref": {
+            "title": "Ref",
+            "type": "string"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "shipper": {
+            "title": "Shipper",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "submitted_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Submitted At"
+          },
+          "ticket_status": {
+            "title": "Ticket Status",
+            "type": "string"
+          },
+          "timezone": {
+            "title": "Timezone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ref",
+          "shipper",
+          "opportunity_name",
+          "ticket_status",
+          "fields",
+          "payload",
+          "revision",
+          "submitted_at",
+          "actual_golive",
+          "qc_accepted_at",
+          "handover_due",
+          "checks",
+          "documents",
+          "events",
+          "status",
+          "can_edit",
+          "packing_labels",
+          "eligible",
+          "timezone"
+        ],
+        "title": "OperationalDetailResponse",
+        "type": "object"
+      },
+      "OperationalImportPreview": {
+        "properties": {
+          "digest": {
+            "title": "Digest",
+            "type": "string"
+          },
+          "errors": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Errors",
+            "type": "array"
+          },
+          "preview": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Preview",
+            "type": "array"
+          }
+        },
+        "required": [
+          "digest",
+          "preview",
+          "errors"
+        ],
+        "title": "OperationalImportPreview",
+        "type": "object"
+      },
+      "OperationalImportResult": {
+        "properties": {
+          "imported": {
+            "title": "Imported",
+            "type": "integer"
+          },
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ok",
+          "imported"
+        ],
+        "title": "OperationalImportResult",
+        "type": "object"
+      },
+      "OperationalMasterResponse": {
+        "properties": {
+          "columns": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Columns",
+            "type": "array"
+          },
+          "rows": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Rows",
+            "type": "array"
+          }
+        },
+        "required": [
+          "rows",
+          "columns"
+        ],
+        "title": "OperationalMasterResponse",
+        "type": "object"
+      },
+      "OperationalRowsResponse": {
+        "properties": {
+          "rows": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Rows",
+            "type": "array"
+          }
+        },
+        "required": [
+          "rows"
+        ],
+        "title": "OperationalRowsResponse",
+        "type": "object"
+      },
+      "OperationalSave": {
+        "properties": {
+          "documents_reviewed": {
+            "default": false,
+            "title": "Documents Reviewed",
+            "type": "boolean"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "title": "Payload",
+            "type": "object"
+          },
+          "revision": {
+            "default": 0,
+            "title": "Revision",
+            "type": "integer"
+          },
+          "submit": {
+            "default": false,
+            "title": "Submit",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "payload"
+        ],
+        "title": "OperationalSave",
+        "type": "object"
+      },
+      "OperationalSaveResponse": {
+        "properties": {
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ok",
+          "revision",
+          "status"
+        ],
+        "title": "OperationalSaveResponse",
+        "type": "object"
+      },
+      "OperationalUploadResponse": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ok",
+          "id"
+        ],
+        "title": "OperationalUploadResponse",
+        "type": "object"
+      },
+      "OperationalWorklistResponse": {
+        "properties": {
+          "cutoff": {
+            "title": "Cutoff",
+            "type": "string"
+          },
+          "rows": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Rows",
+            "type": "array"
+          },
+          "timezone": {
+            "title": "Timezone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "rows",
+          "timezone",
+          "cutoff"
+        ],
+        "title": "OperationalWorklistResponse",
         "type": "object"
       },
       "Options": {
@@ -4325,7 +4750,7 @@
   "info": {
     "description": "Ninja PNS - solutioning and pricing workflow for Ninja Xpress Indonesia. Every route below requires a signed-in session: identity arrives from the platform's auth proxy as an X-Forwarded-Email header the browser cannot set, and the app resolves a role from it. GET /health is the only unauthenticated route. Generated from the app's own route table by tools/gen_openapi.py - do not hand-edit.",
     "title": "Ninja PNS, Solutioning",
-    "version": "2026-09-14.5"
+    "version": "2026-09-14.6"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -5265,6 +5690,384 @@
         "summary": "Every onboarding, soonest go-live first."
       }
     },
+    "/api/onboarding-v2": {
+      "get": {
+        "description": "List operational opportunities by intake, readiness, launch or QC handover milestone.",
+        "operationId": "operational_worklist_api_onboarding_v2_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "view",
+            "required": false,
+            "schema": {
+              "default": "onboarding",
+              "title": "View",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationalWorklistResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List operational opportunities by intake, readiness, launch or QC handover milestone."
+      }
+    },
+    "/api/onboarding-v2/checks/{cid}": {
+      "post": {
+        "description": "Record an assigned-team readiness decision or a Sales-requested, team-assessed manager exception.",
+        "operationId": "operational_decision_api_onboarding_v2_checks__cid__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "cid",
+            "required": true,
+            "schema": {
+              "title": "Cid",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperationalDecision"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ok"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Record an assigned-team readiness decision or a Sales-requested, team-assessed manager exception."
+      }
+    },
+    "/api/onboarding-v2/documents/{fid}": {
+      "get": {
+        "description": "Download an operational upload, restricted to published material for operational readers.",
+        "operationId": "operational_document_api_onboarding_v2_documents__fid__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "fid",
+            "required": true,
+            "schema": {
+              "title": "Fid",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Download an operational upload, restricted to published material for operational readers."
+      }
+    },
+    "/api/onboarding-v2/legacy": {
+      "get": {
+        "description": "List preserved legacy monitoring dates without exposing old commercial notes or revenue.",
+        "operationId": "operational_legacy_api_onboarding_v2_legacy_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationalRowsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List preserved legacy monitoring dates without exposing old commercial notes or revenue."
+      }
+    },
+    "/api/onboarding-v2/tickets/{ref}": {
+      "get": {
+        "description": "Read the operational form, released requirements and readiness decisions without financial data.",
+        "operationId": "operational_detail_api_onboarding_v2_tickets__ref__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationalDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read the operational form, released requirements and readiness decisions without financial data."
+      }
+    },
+    "/api/onboarding-v2/tickets/{ref}/documents": {
+      "post": {
+        "description": "Upload operational product photos or pickup points before Sales publishes this launch.",
+        "operationId": "operational_upload_api_onboarding_v2_tickets__ref__documents_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_operational_upload_api_onboarding_v2_tickets__ref__documents_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationalUploadResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Upload operational product photos or pickup points before Sales publishes this launch."
+      }
+    },
+    "/api/onboarding-v2/tickets/{ref}/golive": {
+      "post": {
+        "description": "Record Sales-confirmed actual go-live after readiness and start seven-day monitoring.",
+        "operationId": "operational_golive_api_onboarding_v2_tickets__ref__golive_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperationalDate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ok"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Record Sales-confirmed actual go-live after readiness and start seven-day monitoring."
+      }
+    },
+    "/api/onboarding-v2/tickets/{ref}/intake": {
+      "post": {
+        "description": "Save a private Sales draft or publish complete requirements and synchronize the operational database.",
+        "operationId": "operational_save_api_onboarding_v2_tickets__ref__intake_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperationalSave"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationalSaveResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Save a private Sales draft or publish complete requirements and synchronize the operational database."
+      }
+    },
+    "/api/onboarding-v2/tickets/{ref}/qc-accept": {
+      "post": {
+        "description": "Accept operational handover as QC after the seven-day monitoring period.",
+        "operationId": "operational_qc_accept_api_onboarding_v2_tickets__ref__qc_accept_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ok"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Accept operational handover as QC after the seven-day monitoring period."
+      }
+    },
     "/api/onboarding/export.csv": {
       "get": {
         "description": "Every active onboarding's ids, as a CSV QC can paste into their monitoring.\n\nONE ROW PER ID, with the shipper repeated on each. A cell holding eight comma-joined\nids looks tidier and puts the reader straight back into manual work, which is the\nthing this button exists to remove.",
@@ -5567,6 +6370,89 @@
           }
         },
         "summary": "Ops or QC say they are ready for this shipper."
+      }
+    },
+    "/api/operational-master": {
+      "get": {
+        "description": "Read the reusable five-column opportunity-level operational database.",
+        "operationId": "operational_master_api_operational_master_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationalMasterResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Read the reusable five-column opportunity-level operational database."
+      }
+    },
+    "/api/operational-master/import": {
+      "post": {
+        "description": "Preview or atomically import value-only Excel rows matched to unique CRM opportunities.",
+        "operationId": "operational_import_api_operational_master_import_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_operational_import_api_operational_master_import_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/OperationalImportPreview"
+                    },
+                    {
+                      "$ref": "#/components/schemas/OperationalImportResult"
+                    }
+                  ],
+                  "title": "Response Operational Import Api Operational Master Import Post"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Preview or atomically import value-only Excel rows matched to unique CRM opportunities."
+      }
+    },
+    "/api/operational-master/template.xlsx": {
+      "get": {
+        "description": "Download the five-column operational Excel import template.",
+        "operationId": "operational_template_api_operational_master_template_xlsx_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Download the five-column operational Excel import template."
       }
     },
     "/api/options": {

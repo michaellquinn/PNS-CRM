@@ -4,6 +4,7 @@ import { charterHtml, charterText, copyRich } from "../charter";
 import Discussion from "./Discussion";
 import { PriceForm } from "./Queues";
 import Attachments from "./Attachments";
+import { OnboardingPane, OperationalTicket } from "./OperationalOnboarding";
 import {
   Btn, Card, Combo, Confirm, Head, Pill, PriceChip, Sla, inputCls,
   useDirectory, useOptions, usePnsTeam, refreshOptions,
@@ -69,14 +70,19 @@ function Row({ label, children }) {
 }
 
 // The prop is `ticketRef`, not `ref` — React reserves `ref` on components.
-export default function TicketDetail({ ticketRef: initialRef, me, notify, onBack,
-                                       focusThread = null }) {
+export default function TicketDetail(props) {
+  return props.me.permissions.operationalOnly ? <OperationalTicket {...props} /> : <CommercialTicketDetail {...props} />;
+}
+
+function CommercialTicketDetail({ ticketRef: initialRef, me, notify, onBack,
+                                       focusThread = null, initialTab = null }) {
   const [ref, setRef] = useState(initialRef);
   const [d, setD] = useState(null);
   const [err, setErr] = useState(null);
   // Arriving from a notification about a discussion thread opens ON the discussion,
   // not on the charter the reader did not ask for.
-  const [tab, setTab] = useState(focusThread ? "discussion" : "charter");
+  const [tab, setTab] = useState(initialTab || (focusThread ? "discussion" : "charter"));
+  useEffect(() => { if (initialTab) setTab(initialTab); }, [initialTab, initialRef]);
   const [all, setAll] = useState([]);
   const [draft, setDraft] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -216,6 +222,7 @@ export default function TicketDetail({ ticketRef: initialRef, me, notify, onBack
   const unacked = reqs.filter((r) => !r.acked_at).length;
   const showOps = reqs.length > 0 || p.raiseRequirement;
   const tabs = [["charter", "Project Charter"],
+                ["onboarding", "Onboarding"],
                 ...(p.seePrice ? [["pricing", "Pricing"]] : []),
                 ...(showOps ? [["ops", "Operations", unacked || undefined]] : []),
                 ["files", "Attachments", fCount], ["discussion", "Discussion", openQ],
@@ -479,6 +486,7 @@ export default function TicketDetail({ ticketRef: initialRef, me, notify, onBack
         </div>
 
         <div className="p-4">
+          {tab === "onboarding" && <OnboardingPane ticketRef={ref} me={me} notify={notify} />}
           {tab === "charter" && (
             <>
               <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-slate-50 px-3 py-2">

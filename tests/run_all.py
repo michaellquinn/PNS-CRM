@@ -107,7 +107,7 @@ SUITES = ["verify_rules.py", "verify_assign.py", "verify_workload.py", "verify_a
           "verify_transitions.py", "verify_sync_guards.py", "verify_names.py",
           "verify_service_line.py", "verify_stages.py", "verify_threads.py",
           "verify_onboarding.py", "verify_crm_retry.py", "verify_import_queue.py",
-          "verify_sync_budget.py"]
+          "verify_sync_budget.py", "verify_operational_onboarding.py"]
 
 # Suites that EXECUTE backend/main.py rather than reading it need the backend's own
 # dependencies installed. Most suites here deliberately parse the AST instead, precisely

@@ -9,7 +9,10 @@ description: >
   Ninja PNS — solutioning and pricing workflow for Ninja Xpress Indonesia. Routes each
   new shipper requirement to Commercial or the PNS team by account type, service and
   potential revenue, then tracks it from intake through pricing, review and approval to
-  a signed contract. Used by the Commercial, PNS, PSP and Legal teams.
+  a signed contract. A separate opportunity-level onboarding flow collects operational
+  requirements, team readiness, actual go-live and seven-day QC handover, with a reusable
+  Excel-importable operational database. Commercial and PNS teams work the deals;
+  CL, Sort, fleet, DE and QC users receive an operational-only view.
 
 # The app already ships Flyway migrations under backend/resources/db/migration/ and has
 # used OceanBase (MySQL wire) since the first deploy — this just makes that declaration

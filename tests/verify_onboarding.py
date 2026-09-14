@@ -162,9 +162,9 @@ for g in ("Commercial", "Ops", "QC", "PSP", "Sales Planning"):
 check("PNS raiseRequirement", m.can(user("PNS"), "raiseRequirement"), True)
 print("  ok   only PNS and Admin may raise one")
 
-print("\nthe sell price is hidden from Ops and QC, and from nobody else")
+print("\nthe sell price is hidden from operational teams, not Finance")
 for g in m.ROLE_GROUPS:
-    want = g not in ("Ops", "QC")
+    want = g not in m.OPERATIONAL_GROUPS
     got = m.can(user(g), "seePrice")
     check(f"{g} seePrice", got, want)
     print(f"  {'ok  ' if got == want else 'FAIL'} {g:16} seePrice={got}")

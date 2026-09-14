@@ -22,6 +22,9 @@ import os
 import time
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta
+from datetime import timezone
+import hashlib
+import io
 from email.message import EmailMessage
 from urllib.parse import unquote, urlparse
 
@@ -885,7 +888,8 @@ class User(BaseModel):
 # Legal folded into Visitor on 2026-08-11 (V17): the two were one role under two names,
 # and choosing between them was a question with no consequence. Ops arrived at the same
 # time — they receive the Kick-off, and without a group there was no list to send it to.
-ROLE_GROUPS = ["Commercial", "AM", "PNS", "PSP", "Ops", "Finance", "Sales Planning",
+OPERATIONAL_GROUPS = ("Ops", "QC", "CL", "Sort", "2W", "4W", "Sameday", "DE")
+ROLE_GROUPS = ["Commercial", "AM", "PNS", "PSP", "Ops", "CL", "Sort", "2W", "4W", "Sameday", "DE", "Finance", "Sales Planning",
                "CSO", "QC", "Visitor", "Admin"]
 # Account Management (Michael, 2026-09-10). AMs hold the shipper relationship and do the
 # same job as Sales inside this app -- raise the request, correct the intake, follow it
@@ -904,7 +908,7 @@ SELLING_GROUPS = ("Commercial", "AM")
 # AMs registered on 2026-09-10 have no region, so nothing here is scoped by territory.
 # Visitor, Finance and Ops look and never touch. Sales Planning is different: they
 # correct what Sales submitted, so they get the intake edit and nothing else.
-READ_ONLY_GROUPS = ("Visitor", "Finance", "Ops")
+READ_ONLY_GROUPS = ("Visitor", "Finance", "Ops", "CL", "Sort", "2W", "4W", "Sameday", "DE")
 # "manager" exists for Commercial: a Sales Manager may reassign the Sales PIC, same as
 # the Sales Head, and nothing else beyond staff. Other groups have no manager tier.
 ROLE_LEVELS = ["staff", "manager", "head"]
@@ -934,6 +938,16 @@ def can(u: User, action: str, t: dict | None = None) -> bool:
     """Single source of truth. The frontend renders from /api/me/permissions;
     every mutating route below calls this again before touching data."""
     admin = u.group == "Admin"
+    if action == "operationalOnly":
+        return u.group in OPERATIONAL_GROUPS
+    if action == "editOnboarding":
+        return admin or (u.group in SELLING_GROUPS and (t is None or u.level in ("manager", "head") or u.name == t.get("sales_name") or u.email == t.get("sales_email")))
+    if action == "confirmOperational":
+        return admin or u.group in OPERATIONAL_GROUPS
+    if action == "approveOnboardingException":
+        return admin or (u.group == "Commercial" and u.level in ("manager", "head"))
+    if action == "importOperational":
+        return admin or (u.group == "Commercial" and u.level in ("manager", "head"))
     com_head = admin or (u.group == "Commercial" and u.level == "head")
     pns_head = admin or (u.group == "PNS" and u.level == "head")
     # The Sales Manager tier: everything staff can do, plus reassigning the Sales PIC.
@@ -960,10 +974,10 @@ def can(u: User, action: str, t: dict | None = None) -> bool:
     # commercial terms are none of their business. Cost and margin were already behind
     # seeMargin; the sell price never was.
     #
-    # Potential revenue is NOT covered: Baskoro's call, asked and answered — it is the
-    # size of the deal, not what the shipper pays per parcel, and Ops keep seeing it.
+    # Quinn's onboarding scope supersedes the former Ops revenue visibility:
+    # operational accounts use the allowlisted operational APIs only.
     if action == "seePrice":
-        return u.group not in ("Ops", "QC")
+        return u.group not in OPERATIONAL_GROUPS
 
     # Onboarding is the one place Ops and QC ACT (Baskoro, 2026-09-07). Answered here,
     # above the same early return and for the same reason: Ops sits in READ_ONLY_GROUPS,
@@ -1496,7 +1510,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-14.5"
+BUILD = "2026-09-14.6"
 
 
 class Me(BaseModel):
@@ -1711,7 +1725,8 @@ async def me(u: User = Depends(current_user)):
                "pspAssign", "pspOverride", "allowPsp", "syncSalesCrm",
                "manageIgnored",
                "queueSync", "editSyncSettings", "bulkDelete", "manageImportQueue",
-               "seePrice",
+               "seePrice", "operationalOnly", "editOnboarding", "confirmOperational",
+               "approveOnboardingException", "importOperational",
                "startOnboarding", "editOnboardingIds", "confirmGolive", "ackGolive",
                "markReady", "raiseRequirement", "ackRequirement"]
     return Me(email=u.email, name=u.name, group=u.group, level=u.level, team=u.team,
@@ -8764,3 +8779,711 @@ async def mark_read(u: User = Depends(current_user)):
         "INSERT IGNORE INTO notification_reads (notification_id, user_email) "
         "SELECT id, %s FROM notifications", (u.email,))
     return {"ok": True}
+
+
+# Operational onboarding: all mutations below touch operational tables only.
+# Fixed WIB offset has no DST and works without an OS timezone database.
+OB_WIB = timezone(timedelta(hours=7))
+OB_FUNCTIONS = ["2W", "4W", "Sameday"]
+OB_PACKING = {"PCK": "Bubble Wrap", "PCK Kayu": "Packing kayu", "PCK Wrap": "Plastic wrap", "No": "No packing required"}
+OB_FIELDS = [
+    ("request_type", "Request type", "select", "A · Basic requirements", ["New Shipper", "New OD", "New Volume"], None),
+    ("planned_golive", "Planned go-live date", "date", "A · Basic requirements", [], "golive"),
+    ("pickup_at", "First pickup date and time (WIB)", "datetime-local", "A · Basic requirements", [], None),
+    ("shipper_name", "Shipper name", "text", "B · Shipper profile", [], "shipper"),
+    ("shipper_id", "Shipper ID", "text", "B · Shipper profile", [], "shipperId"),
+    ("global_id", "Global ID", "text", "B · Shipper profile", [], None),
+    ("opportunity_id", "Sales CRM opportunity ID", "text", "B · Shipper profile", [], None),
+    ("shipper_status", "Shipper status", "select", "B · Shipper profile", ["New", "Existing"], "shipperStatus"),
+    ("product_condition", "Ninja product", "select", "B · Shipper profile", ["Dry", "Cold"], None),
+    ("product_type", "Product type", "text", "B · Shipper profile", [], "product"),
+    ("product_volume", "Product volume", "number", "B · Shipper profile", [], "volume"),
+    ("volume_unit", "Volume unit", "select", "B · Shipper profile", ["CBM", "tons"], None),
+    ("dimensions", "Product dimensions (include units)", "text", "B · Shipper profile", [], "dim"),
+    ("weight", "Product weight (include units)", "text", "B · Shipper profile", [], "wt"),
+    ("complexity_tier", "Complexity tier / operational assessment", "text", "B · Shipper profile", [], None),
+    ("service", "Ninja service", "text", "C · Service and documents", [], None),
+    ("delivery_mode", "Shipment mode", "select", "C · Service and documents", ["Port to Port", "Port to Door", "Door to Port", "Door to Door"], None),
+    ("mps", "MPS", "select", "C · Service and documents", ["Yes", "No"], "mps"),
+    ("cod", "COD", "select", "C · Service and documents", ["Yes", "No"], "cod"),
+    ("rdo", "RDO", "select", "C · Service and documents", ["Yes", "No"], "rdo"),
+    ("rdo_treatment", "RDO treatment details", "textarea", "C · Service and documents", [], "rdoNotes"),
+    ("pod_treatment", "POD treatment details", "textarea", "C · Service and documents", [], None),
+    ("surat_jalan_treatment", "Other Surat Jalan treatment details", "textarea", "C · Service and documents", [], None),
+    ("packing", "Packing tags", "packing", "C · Service and documents", list(OB_PACKING), None),
+    ("handling", "Handling request", "textarea", "C · Service and documents", [], "handling"),
+    ("sla", "SLA (include unit and scope)", "text", "C · Service and documents", [], "sla"),
+    ("oc_by", "Order creation by", "select", "C · Service and documents", ["SSM", "Shipper"], None),
+    ("api_required", "API required", "select", "C · Service and documents", ["Yes", "No"], None),
+    ("pickup_pic", "Pickup PIC", "text", "D · Pickup", [], "pickPic"),
+    ("pickup_contact", "Pickup PIC contact", "text", "D · Pickup", [], "pickContact"),
+    ("pickup_frequency", "Shipment frequency", "text", "D · Pickup", [], "freq"),
+    ("pickup_vehicle", "Pickup vehicle requirement", "text", "D · Pickup", [], "truck"),
+    ("pickup_function", "Pickup responsibility", "select", "D · Pickup", OB_FUNCTIONS, None),
+    ("pickup_time", "Pickup time", "time", "D · Pickup", [], None),
+    ("pickup_wait", "Pickup waiting time (include units)", "text", "D · Pickup", [], "pickWait"),
+    ("pickup_driver", "Specific pickup driver requirement", "text", "D · Pickup", [], None),
+    ("pickup_tkbm", "Pickup TKBM", "select", "D · Pickup", ["Yes", "No"], "tkbmO"),
+    ("pickup_tkbm_count", "Pickup TKBM quantity (0 if No)", "number", "D · Pickup", [], None),
+    ("implan", "Implan", "select", "D · Pickup", ["Yes", "No"], None),
+    ("implan_count", "Implan quantity (0 if No)", "number", "D · Pickup", [], None),
+    ("delivery_to", "Delivery to", "select", "E · Delivery", ["End customer", "Reseller", "GT", "MT"], "destType"),
+    ("delivery_vehicle", "Delivery vehicle requirement", "text", "E · Delivery", [], "truck"),
+    ("destination", "Destination point", "textarea", "E · Delivery", [], "dest"),
+    ("delivery_function", "Delivery responsibility", "select", "E · Delivery", OB_FUNCTIONS, None),
+    ("delivery_time", "Delivery time", "time", "E · Delivery", [], None),
+    ("delivery_wait", "Delivery waiting time (include units)", "text", "E · Delivery", [], "delWait"),
+    ("delivery_driver", "Specific delivery driver requirement", "text", "E · Delivery", [], None),
+    ("delivery_tkbm", "Delivery TKBM", "select", "E · Delivery", ["Yes", "No"], "tkbmD"),
+    ("delivery_tkbm_count", "Delivery TKBM quantity (0 if No)", "number", "E · Delivery", [], None),
+]
+
+
+def ob_now():
+    return datetime.now(OB_WIB).replace(tzinfo=None)
+
+
+def ob_json(value):
+    return value if isinstance(value, dict) else json.loads(value or "{}")
+
+
+def ob_serial(row):
+    return {k: str(v) if isinstance(v, (datetime, date)) else v for k, v in row.items()}
+
+
+def ob_schema():
+    return [{"key": k, "label": label, "type": typ, "section": section, "options": options}
+            for k, label, typ, section, options, _ in OB_FIELDS]
+
+
+def ob_payload(raw):
+    # An allowlist, not removal of a few known price keys from an arbitrary payload.
+    result = {}
+    for key, _, typ, _, _, _ in OB_FIELDS:
+        value = raw.get(key, [] if typ == "packing" else "")
+        if typ == "packing":
+            if not isinstance(value, list) or any(x not in OB_PACKING for x in value):
+                raise HTTPException(400, "Invalid packing tags")
+            result[key] = list(dict.fromkeys(value))
+        else:
+            if not isinstance(value, (str, int, float)) or isinstance(value, bool):
+                raise HTTPException(400, f"Invalid {key}")
+            result[key] = str(value).strip()
+            if len(result[key]) > 4000:
+                raise HTTPException(400, f"{key} exceeds 4000 characters")
+    return result
+
+
+def ob_validate(p, t, documents):
+    missing = [label for key, label, _, _, _, _ in OB_FIELDS if not p.get(key)]
+    for kind, label in [("product_photo", "Product photo"), ("pickup_points", "All pickup points upload")]:
+        if not any(d["kind"] == kind for d in documents):
+            missing.append(label)
+    if missing:
+        raise HTTPException(400, "Complete all requirements: " + ", ".join(missing))
+    for key, label, typ, _, options, _ in OB_FIELDS:
+        if typ == "select" and p[key] not in options:
+            raise HTTPException(400, f"Choose a valid {label}")
+    if "No" in p["packing"] and len(p["packing"]) != 1:
+        raise HTTPException(400, "No packing cannot be combined with packing tags")
+    if p["service"] != t["service_type"] or p["opportunity_id"] != str(t.get("opportunity_id") or ""):
+        raise HTTPException(400, "Service and opportunity ID must match the linked Sales CRM opportunity")
+    if len(p["global_id"]) > 64 or len(p["shipper_id"]) > 64:
+        raise HTTPException(400, "Shipper and Global IDs must be at most 64 characters")
+    one_shipper_id(p["shipper_id"])
+    try:
+        pickup = datetime.fromisoformat(p["pickup_at"])
+        planned = date.fromisoformat(p["planned_golive"])
+        datetime.strptime(p["pickup_time"], "%H:%M")
+        datetime.strptime(p["delivery_time"], "%H:%M")
+    except ValueError:
+        raise HTTPException(400, "Provide valid planned go-live, pickup date/time and operational times")
+    if pickup.tzinfo or pickup <= ob_now() or planned > pickup.date():
+        raise HTTPException(400, "First pickup must be in the future (WIB), with planned go-live on or before it")
+    if p["pickup_time"] != pickup.strftime("%H:%M"):
+        raise HTTPException(400, "Pickup time must match the first pickup time")
+    if ob_now() > datetime.combine(pickup.date() - timedelta(days=1), datetime.min.time()).replace(hour=20):
+        raise HTTPException(400, "Sales requirements must be submitted by D-1 20:00 WIB; reschedule pickup")
+    for switch, count in [("pickup_tkbm", "pickup_tkbm_count"), ("delivery_tkbm", "delivery_tkbm_count"), ("implan", "implan_count")]:
+        if not p[count].isdigit() or (p[switch] == "Yes" and int(p[count]) < 1) or (p[switch] == "No" and int(p[count]) != 0):
+            raise HTTPException(400, f"{count}: use a positive integer for Yes, 0 for No")
+    try:
+        if not 0 < float(p["product_volume"]) < 1e12:
+            raise ValueError()
+    except ValueError:
+        raise HTTPException(400, "Product volume must be positive")
+    return pickup
+
+
+def ob_check_specs(p):
+    specs = []
+    def add(key, label, owner, fields):
+        values = {k: p.get(k) for k in fields + ["pickup_at", "planned_golive", "service", "shipper_id", "global_id"]}
+        fingerprint = hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()
+        specs.append({"check_key": key, "label": label, "owner_group": owner, "fingerprint": fingerprint})
+    for tag in p.get("packing", []):
+        if tag != "No":
+            add("packing:" + tag, f"{tag} · {OB_PACKING[tag]}", "CL", ["packing", "handling", "product_type", "dimensions", "weight"])
+    for leg in ["pickup", "delivery"]:
+        owner = p.get(leg + "_function")
+        if owner in OB_FUNCTIONS:
+            add(leg + ":fleet", leg.title() + " fleet readiness", owner,
+                [leg + "_function", leg + "_vehicle", leg + "_time", leg + "_wait", leg + "_driver", "product_volume", "volume_unit", "dimensions", "weight", "destination", "product_condition", "pickup_pic", "pickup_contact", "pickup_frequency", "delivery_to", "delivery_mode", "handling", "sla", "implan", "implan_count", "mps", "cod", "oc_by", "api_required"])
+            add(leg + ":documents", leg.title() + " RDO / POD / Surat Jalan", owner,
+                [leg + "_function", "rdo", "rdo_treatment", "pod_treatment", "surat_jalan_treatment"])
+        if p.get(leg + "_tkbm") == "Yes":
+            add(leg + ":tkbm", leg.title() + " TKBM readiness", "Sort", [leg + "_tkbm", leg + "_tkbm_count", leg + "_time", "destination"])
+    return specs
+
+
+def ob_readiness(checks):
+    if not checks:
+        return "Awaiting Sales Input"
+    if any(c["status"] != "ready" and not c.get("approved_at") for c in checks):
+        return "Pending Readiness"
+    return "Approved with exception" if any(c.get("approved_at") for c in checks) else "Ready"
+
+
+def ob_deadline(submitted, pickup):
+    s = datetime.fromisoformat(str(submitted))
+    cutoff = datetime.combine(s.date() + timedelta(days=1), datetime.min.time()).replace(hour=20)
+    return min(cutoff, datetime.fromisoformat(pickup))
+
+
+async def ob_event(tid, u, body):
+    await execute("INSERT INTO onboarding_events(ticket_id,actor,body,at) VALUES(%s,%s,%s,%s)", (tid, u.name, body, ob_now()))
+
+
+async def ob_rows():
+    return await q("SELECT t.id, t.ticket_ref, t.opportunity_id, t.opportunity_name, t.service_type, t.sales_name, t.sales_email, s.name AS shipper, "
+                   "i.payload, i.released_payload, i.revision, i.submitted_at, i.actual_golive, i.qc_accepted_at "
+                   "FROM tickets t JOIN shippers s ON s.id=t.shipper_id LEFT JOIN onboarding_intake i ON i.ticket_id=t.id "
+                   "WHERE t.deleted_at IS NULL AND (t.status='Proposal Accepted / Ready to Ship' OR i.submitted_at IS NOT NULL) "
+                   "ORDER BY t.id DESC")
+
+
+@app.middleware("http")
+async def operational_access_boundary(request: Request, call_next):
+    # Operational users cannot fetch commercial charters, raw CRM, attachments,
+    # discussion/history or financial APIs through direct URLs either.
+    path = request.url.path
+    if path.startswith("/api/") and path != "/api/me":
+        try:
+            u = await current_user(request)
+        except HTTPException:
+            return await call_next(request)
+        if u.group in OPERATIONAL_GROUPS and not path.startswith(("/api/onboarding-v2", "/api/operational-master")):
+            from fastapi.responses import JSONResponse
+            return JSONResponse({"detail": "Operational accounts use Onboarding; commercial data is restricted"}, status_code=403)
+    return await call_next(request)
+
+
+class OperationalWorklistResponse(BaseModel):
+    rows: list[dict]
+    timezone: str
+    cutoff: str
+
+
+class OperationalDetailResponse(BaseModel):
+    ref: str
+    shipper: str
+    opportunity_name: str
+    ticket_status: str
+    fields: list[dict]
+    payload: dict
+    revision: int
+    submitted_at: str | None
+    actual_golive: str | None
+    qc_accepted_at: str | None
+    handover_due: bool
+    checks: list[dict]
+    documents: list[dict]
+    events: list[dict]
+    status: str
+    can_edit: bool
+    packing_labels: dict[str, str]
+    eligible: bool
+    timezone: str
+
+
+class OperationalSaveResponse(BaseModel):
+    ok: bool
+    revision: int
+    status: str
+
+
+class OperationalUploadResponse(BaseModel):
+    ok: bool
+    id: int
+
+
+class OperationalRowsResponse(BaseModel):
+    rows: list[dict]
+
+
+class OperationalMasterResponse(OperationalRowsResponse):
+    columns: list[str]
+
+
+@app.get("/api/onboarding-v2", response_model=OperationalWorklistResponse)
+async def operational_worklist(view: str = "onboarding", u: User = Depends(current_user)):
+    """List operational opportunities by intake, readiness, launch or QC handover milestone."""
+    if view not in ("onboarding", "readiness", "golive", "handover", "completed"):
+        raise HTTPException(400, "Unknown onboarding view")
+    checks = await q("SELECT * FROM onboarding_checks ORDER BY id")
+    by_ticket = {}
+    for c in checks:
+        by_ticket.setdefault(c["ticket_id"], []).append(c)
+    result = []
+    for r in await ob_rows():
+        if u.group in OPERATIONAL_GROUPS and not r["submitted_at"]:
+            continue
+        p = ob_json(r["released_payload"])
+        cs = by_ticket.get(r["id"], [])
+        pending = [c for c in cs if c["status"] != "ready" and not c.get("approved_at")]
+        if u.group in OPERATIONAL_GROUPS:
+            pending = [c for c in pending if c["owner_group"] == u.group]
+        ready = ob_readiness(cs)
+        due = r["actual_golive"] and ob_now().date() > r["actual_golive"] + timedelta(days=7)
+        if view == "readiness" and (not pending or r["actual_golive"]):
+            continue
+        if view == "golive" and (ready not in ("Ready", "Approved with exception") or r["actual_golive"]):
+            continue
+        if view == "handover" and (not due or r["qc_accepted_at"]):
+            continue
+        if view == "completed" and not r["qc_accepted_at"]:
+            continue
+        deadline = ob_deadline(r["submitted_at"], p["pickup_at"]) if r["submitted_at"] and p.get("pickup_at") else None
+        result.append({"ref": r["ticket_ref"], "opportunity_id": r["opportunity_id"], "opportunity_name": r["opportunity_name"] or r["shipper"],
+                       "shipper": r["shipper"], "service": r["service_type"], "sales": r["sales_name"],
+                       "status": "QC accepted" if r["qc_accepted_at"] else "To Handover — QC" if due else "Monitoring · 7 days" if r["actual_golive"] else ready,
+                       "pickup_at": p.get("pickup_at"), "deadline": str(deadline) if deadline else None,
+                       "overdue": bool(deadline and pending and ob_now() >= deadline), "pending": [c["label"] + " · " + c["owner_group"] for c in pending],
+                       "actual_golive": str(r["actual_golive"]) if r["actual_golive"] else None})
+    result.sort(key=lambda r: (not r["overdue"], r["deadline"] or "9999", r["ref"]))
+    return {"rows": result, "timezone": "Asia/Jakarta", "cutoff": "20:00"}
+
+
+@app.get("/api/onboarding-v2/tickets/{ref}", response_model=OperationalDetailResponse)
+async def operational_detail(ref: str, u: User = Depends(current_user)):
+    """Read the operational form, released requirements and readiness decisions without financial data."""
+    t = await get_ticket(ref)
+    intake = await q("SELECT * FROM onboarding_intake WHERE ticket_id=%s", (t["id"],), one=True)
+    if u.group in OPERATIONAL_GROUPS and not (intake or {}).get("submitted_at"):
+        raise HTTPException(403, "Sales has not submitted operational requirements yet")
+    inp = await q("SELECT payload FROM ticket_input WHERE ticket_id=%s", (t["id"],), one=True)
+    source = ob_json((inp or {}).get("payload"))
+    p = ob_payload(ob_json((intake or {}).get("released_payload" if u.group in OPERATIONAL_GROUPS else "payload")))
+    if not intake:
+        for key, _, _, _, options, source_key in OB_FIELDS:
+            value = source.get(source_key) if source_key else None
+            if value is not None and (not options or value in options):
+                p[key] = str(value)
+        p["shipper_name"] = t.get("shipper", "")
+        p["service"] = t["service_type"]
+        p["opportunity_id"] = str(t.get("opportunity_id") or "")
+        crm = source.get("_crm") or {}
+        # Never equate Global ID and shipper ID by guessing.
+        p["global_id"] = str(source.get("globalId") or crm.get("global_id") or "")
+    checks = await q("SELECT * FROM onboarding_checks WHERE ticket_id=%s ORDER BY id", (t["id"],))
+    docs = await q("SELECT id,kind,filename,content_type FROM onboarding_documents WHERE ticket_id=%s ORDER BY id", (t["id"],))
+    events = await q("SELECT actor,body,at FROM onboarding_events WHERE ticket_id=%s ORDER BY id DESC LIMIT 100", (t["id"],))
+    actual = (intake or {}).get("actual_golive")
+    return {"ref": ref, "shipper": t["shipper"], "opportunity_name": t.get("opportunity_name") or t["shipper"],
+            "ticket_status": t["status"], "fields": ob_schema(), "payload": p, "revision": (intake or {}).get("revision", 0),
+            "submitted_at": str(intake["submitted_at"]) if intake and intake["submitted_at"] else None,
+            "actual_golive": str(actual) if actual else None, "qc_accepted_at": str(intake["qc_accepted_at"]) if intake and intake["qc_accepted_at"] else None,
+            "handover_due": bool(actual and ob_now().date() > actual + timedelta(days=7)),
+            "checks": [ob_serial(c) for c in checks], "documents": docs, "events": [ob_serial(e) for e in events],
+            "status": ob_readiness(checks), "can_edit": can(u, "editOnboarding", t), "packing_labels": OB_PACKING,
+            "eligible": t["status"] == "Proposal Accepted / Ready to Ship", "timezone": "Asia/Jakarta"}
+
+
+class OperationalSave(BaseModel):
+    payload: dict
+    revision: int = 0
+    submit: bool = False
+    documents_reviewed: bool = False
+
+
+@app.post("/api/onboarding-v2/tickets/{ref}/intake", response_model=OperationalSaveResponse)
+async def operational_save(ref: str, body: OperationalSave, u: User = Depends(current_user)):
+    """Save a private Sales draft or publish complete requirements and synchronize the operational database."""
+    t = await get_ticket(ref)
+    require(u, "editOnboarding", t)
+    if t["status"] != "Proposal Accepted / Ready to Ship":
+        raise HTTPException(409, "Onboarding is available after the opportunity is Ready to Ship")
+    p = ob_payload(body.payload)
+    docs = await q("SELECT id,kind FROM onboarding_documents WHERE ticket_id=%s", (t["id"],))
+    if body.submit:
+        ob_validate(p, t, docs)
+        if not body.documents_reviewed:
+            raise HTTPException(400, "Confirm operational uploads contain no pricing/revenue or commercial documents")
+    if _pool is None:
+        raise HTTPException(503, "Database unavailable")
+    async with _pool.acquire() as conn, conn.cursor(DictCursor) as cur:
+        await conn.begin()
+        try:
+            # Lock the parent even for the first save; prevents simultaneous inserts.
+            await cur.execute("SELECT id FROM tickets WHERE id=%s FOR UPDATE", (t["id"],))
+            await cur.execute("SELECT * FROM onboarding_intake WHERE ticket_id=%s FOR UPDATE", (t["id"],))
+            old = await cur.fetchone()
+            if (old or {}).get("revision", 0) != body.revision:
+                raise HTTPException(409, "Onboarding changed in another tab; reload before saving")
+            if old and old.get("actual_golive"):
+                raise HTTPException(409, "Actual go-live is confirmed; preserve this launch record")
+            revision = body.revision + 1
+            now = ob_now()
+            await cur.execute("INSERT INTO onboarding_intake(ticket_id,payload,revision,updated_at) VALUES(%s,%s,%s,%s) "
+                              "ON DUPLICATE KEY UPDATE payload=VALUES(payload),revision=VALUES(revision),updated_at=VALUES(updated_at)",
+                              (t["id"], json.dumps(p), revision, now))
+            if body.submit:
+                # Changed requirements start a new response deadline; unchanged
+                # submissions cannot extend outstanding confirmation deadlines.
+                changed = not old or ob_json(old.get("released_payload")) != p
+                submitted = now if changed else old.get("submitted_at") or now
+                await cur.execute("UPDATE onboarding_intake SET released_payload=%s,submitted_at=%s,submitted_by=%s WHERE ticket_id=%s", (json.dumps(p), submitted, u.email, t["id"]))
+                specs = ob_check_specs(p)
+                keys = [s["check_key"] for s in specs]
+                # Record the old check states before replacing changed requirements.
+                await cur.execute("SELECT * FROM onboarding_checks WHERE ticket_id=%s", (t["id"],))
+                existing = await cur.fetchall()
+                existing_by_key = {c["check_key"]: c for c in existing}
+                for c in existing:
+                    new = next((s for s in specs if s["check_key"] == c["check_key"]), None)
+                    if not new or new["fingerprint"] != c["fingerprint"]:
+                        await cur.execute("INSERT INTO onboarding_events(ticket_id,actor,body,at) VALUES(%s,%s,%s,%s)",
+                                          (t["id"], u.name, "Requirement revised/removed; previous confirmation: " + json.dumps(ob_serial(c)), now))
+                        await cur.execute("DELETE FROM onboarding_checks WHERE id=%s", (c["id"],))
+                for s in specs:
+                    c = existing_by_key.get(s["check_key"])
+                    if c and c["fingerprint"] == s["fingerprint"]:
+                        continue
+                    await cur.execute("INSERT INTO onboarding_checks(ticket_id,check_key,label,owner_group,fingerprint,revision) VALUES(%s,%s,%s,%s,%s,%s)",
+                                      (t["id"], s["check_key"], s["label"], s["owner_group"], s["fingerprint"], revision))
+                await cur.execute("INSERT INTO operational_master(ticket_id,global_id,opportunity_name,service,pickup_function,delivery_function,source,updated_by,updated_at) "
+                                  "VALUES(%s,%s,%s,%s,%s,%s,'onboarding',%s,%s) ON DUPLICATE KEY UPDATE global_id=VALUES(global_id),opportunity_name=VALUES(opportunity_name),"
+                                  "service=VALUES(service),pickup_function=VALUES(pickup_function),delivery_function=VALUES(delivery_function),source='onboarding',updated_by=VALUES(updated_by),updated_at=VALUES(updated_at)",
+                                  (t["id"], p["global_id"], t.get("opportunity_name") or t["shipper"], p["service"], p["pickup_function"], p["delivery_function"], u.email, now))
+            await cur.execute("INSERT INTO onboarding_events(ticket_id,actor,body,at) VALUES(%s,%s,%s,%s)",
+                              (t["id"], u.name, ("Sales submitted; operational database synced" if body.submit else "Draft saved") + f" · revision {revision}", now))
+            await conn.commit()
+        except Exception:
+            await conn.rollback()
+            raise
+    if body.submit:
+        await notify(f"{ref}: Sales submitted onboarding. Related teams: confirm readiness before pickup.", groups=list({s["owner_group"] for s in ob_check_specs(p)}), ticket_ref=ref)
+    return {"ok": True, "revision": revision, "status": "Submitted and database synced" if body.submit else "Draft saved"}
+
+
+@app.post("/api/onboarding-v2/tickets/{ref}/documents", response_model=OperationalUploadResponse)
+async def operational_upload(ref: str, file: UploadFile = FastFile(...), kind: str = Form(...), u: User = Depends(current_user)):
+    """Upload operational product photos or pickup points before Sales publishes this launch."""
+    t = await get_ticket(ref)
+    require(u, "editOnboarding", t)
+    if kind not in ("product_photo", "pickup_points"):
+        raise HTTPException(400, "Upload a product photo or pickup points")
+    data, ctype = await read_upload(file)
+    if kind == "product_photo" and ctype not in INLINE_TYPES:
+        raise HTTPException(400, "Product photo must be an image")
+    async with ob_locked(t["id"]) as cur:
+        await cur.execute("SELECT submitted_at FROM onboarding_intake WHERE ticket_id=%s FOR UPDATE", (t["id"],))
+        intake = await cur.fetchone()
+        if intake and intake["submitted_at"]:
+            raise HTTPException(409, "Submitted operational documents are immutable for this launch")
+        await cur.execute("INSERT INTO onboarding_documents(ticket_id,kind,filename,content_type,data,uploaded_by,at) VALUES(%s,%s,%s,%s,%s,%s,%s)",
+                          (t["id"], kind, (file.filename or "document")[:255], ctype, data, u.email, ob_now()))
+        fid = cur.lastrowid
+    return {"ok": True, "id": fid}
+
+
+@app.get("/api/onboarding-v2/documents/{fid}")
+async def operational_document(fid: int, u: User = Depends(current_user)):
+    """Download an operational upload, restricted to published material for operational readers."""
+    r = await q("SELECT d.*, i.submitted_at FROM onboarding_documents d LEFT JOIN onboarding_intake i ON i.ticket_id=d.ticket_id WHERE d.id=%s", (fid,), one=True)
+    if not r:
+        raise HTTPException(404, "Document not found")
+    if u.group in OPERATIONAL_GROUPS and not r["submitted_at"]:
+        raise HTTPException(403, "Document not yet released")
+    return file_response(r)
+
+
+class OperationalDecision(BaseModel):
+    fingerprint: str
+    status: str = "ready"
+    note: str = ""
+    action: str = "confirm"
+    reason: str = ""
+    workaround: str = ""
+
+
+@app.post("/api/onboarding-v2/checks/{cid}", response_model=Ok)
+async def operational_decision(cid: int, body: OperationalDecision, u: User = Depends(current_user)):
+    """Record an assigned-team readiness decision or a Sales-requested, team-assessed manager exception."""
+    c = await q("SELECT ticket_id FROM onboarding_checks WHERE id=%s", (cid,), one=True)
+    if not c:
+        raise HTTPException(409, "Requirement changed; reload")
+    async with ob_locked(c["ticket_id"]) as cur:
+        await cur.execute("SELECT c.*,i.released_payload,i.actual_golive,i.submitted_at FROM onboarding_checks c JOIN onboarding_intake i ON i.ticket_id=c.ticket_id WHERE c.id=%s FOR UPDATE", (cid,))
+        c = await cur.fetchone()
+        await ob_apply_decision(cur, c, cid, body, u)
+    return {"ok": True}
+
+
+@asynccontextmanager
+async def ob_locked(tid):
+    if _pool is None:
+        raise HTTPException(503, "Database unavailable")
+    async with _pool.acquire() as conn, conn.cursor(DictCursor) as cur:
+        await conn.begin()
+        try:
+            await cur.execute("SELECT id FROM tickets WHERE id=%s FOR UPDATE", (tid,))
+            yield cur
+            await conn.commit()
+        except Exception:
+            await conn.rollback()
+            raise
+
+
+async def ob_apply_decision(cur, c, cid, body, u):
+    if not c or c["fingerprint"] != body.fingerprint:
+        raise HTTPException(409, "Requirement changed; reload")
+    if c["actual_golive"]:
+        raise HTTPException(409, "Launch already confirmed")
+    p = ob_json(c["released_payload"])
+    if body.action in ("confirm", "feasible", "approve") and ob_now() >= datetime.fromisoformat(p["pickup_at"]):
+        raise HTTPException(409, "Readiness or exception approval must precede pickup; reschedule")
+    if body.action == "confirm":
+        require(u, "confirmOperational")
+        if u.group != c["owner_group"]:
+            raise HTTPException(403, "Only the assigned team confirms its readiness; assign team users first")
+        if body.status not in ("ready", "not_ready", "clarification") or (body.status != "ready" and not body.note.strip()):
+            raise HTTPException(400, "Choose a readiness state and explain blockers")
+        if body.status == "ready" and ob_now() > ob_deadline(c["submitted_at"], p["pickup_at"]):
+            raise HTTPException(409, "Confirmation deadline passed; report the blocker and request an assessed exception or reschedule")
+        await cur.execute("UPDATE onboarding_checks SET status=%s,note=%s,confirmed_by=%s,confirmed_name=%s,confirmed_at=%s,feasible_by=NULL,feasible_at=NULL,approved_by=NULL,approved_at=NULL WHERE id=%s AND fingerprint=%s",
+                      (body.status, body.note[:4000], u.email, u.name, ob_now(), cid, body.fingerprint))
+    elif body.action == "request":
+        rows = await ob_rows()
+        t = next((r for r in rows if r["id"] == c["ticket_id"]), None)
+        require(u, "editOnboarding", t)
+        if not body.reason.strip() or not body.workaround.strip():
+            raise HTTPException(400, "Exception reason and proposed workable alternative are required")
+        if c["status"] == "ready":
+            raise HTTPException(409, "Already ready; no exception required")
+        await cur.execute("UPDATE onboarding_checks SET exception_reason=%s,workaround=%s,feasible_by=NULL,feasible_at=NULL,approved_by=NULL,approved_at=NULL WHERE id=%s AND fingerprint=%s",
+                      (body.reason[:4000], body.workaround[:4000], cid, body.fingerprint))
+    elif body.action == "feasible":
+        if u.group != c["owner_group"] or not c["exception_reason"]:
+            raise HTTPException(403, "Assigned team must assess a requested workaround")
+        await cur.execute("UPDATE onboarding_checks SET feasible_by=%s,feasible_at=%s WHERE id=%s AND fingerprint=%s", (u.email, ob_now(), cid, body.fingerprint))
+    elif body.action == "approve":
+        require(u, "approveOnboardingException")
+        if not c["feasible_at"] or not c["exception_reason"]:
+            raise HTTPException(409, "Affected team must confirm workaround feasibility first")
+        await cur.execute("UPDATE onboarding_checks SET approved_by=%s,approved_at=%s WHERE id=%s AND fingerprint=%s", (u.email, ob_now(), cid, body.fingerprint))
+    elif body.action == "reject":
+        require(u, "approveOnboardingException")
+        if not c["exception_reason"] or not body.note.strip():
+            raise HTTPException(400, "Give a reason for rejecting the exception")
+        await cur.execute("UPDATE onboarding_checks SET exception_reason=NULL,workaround=NULL,feasible_by=NULL,feasible_at=NULL,approved_by=NULL,approved_at=NULL WHERE id=%s", (cid,))
+    else:
+        raise HTTPException(400, "Unknown readiness action")
+    detail = body.note or (body.reason + " · Alternative: " + body.workaround if body.reason else "recorded")
+    await cur.execute("INSERT INTO onboarding_events(ticket_id,actor,body,at) VALUES(%s,%s,%s,%s)", (c["ticket_id"], u.name, f"{c['label']} · {body.action} · {body.status}: {detail[:8000]}", ob_now()))
+
+
+class OperationalDate(BaseModel):
+    on: str
+
+
+@app.post("/api/onboarding-v2/tickets/{ref}/golive", response_model=Ok)
+async def operational_golive(ref: str, body: OperationalDate, u: User = Depends(current_user)):
+    """Record Sales-confirmed actual go-live after readiness and start seven-day monitoring."""
+    t = await get_ticket(ref)
+    require(u, "editOnboarding", t)
+    async with ob_locked(t["id"]) as cur:
+        await cur.execute("SELECT * FROM onboarding_intake WHERE ticket_id=%s FOR UPDATE", (t["id"],))
+        intake = await cur.fetchone()
+        await cur.execute("SELECT * FROM onboarding_checks WHERE ticket_id=%s FOR UPDATE", (t["id"],))
+        checks = await cur.fetchall()
+        await ob_apply_golive(cur, t, intake, checks, body, u)
+    return {"ok": True}
+
+
+async def ob_apply_golive(cur, t, intake, checks, body, u):
+    if not intake or not intake["submitted_at"] or intake["actual_golive"]:
+        raise HTTPException(409, "Submit requirements first; actual go-live cannot be overwritten")
+    if ob_readiness(checks) not in ("Ready", "Approved with exception"):
+        raise HTTPException(409, "Related teams must confirm readiness or obtain an approved exception")
+    try:
+        actual = date.fromisoformat(body.on)
+    except ValueError:
+        raise HTTPException(400, "Provide the actual go-live date")
+    if actual > ob_now().date() or actual < intake["submitted_at"].date():
+        raise HTTPException(400, "Actual go-live cannot be future or earlier than Sales submission")
+    pickup = datetime.fromisoformat(ob_json(intake["released_payload"])["pickup_at"])
+    if actual < pickup.date() or ob_now() < pickup:
+        raise HTTPException(400, "Confirm actual go-live after the first pickup; reschedule planned pickup if it changed")
+    latest = max((c.get("approved_at") or c.get("confirmed_at") or intake["submitted_at"] for c in checks))
+    if actual < latest.date():
+        raise HTTPException(400, "Actual go-live cannot precede required readiness/exception decisions")
+    await cur.execute("UPDATE onboarding_intake SET actual_golive=%s,actual_by=%s,actual_at=%s WHERE ticket_id=%s AND actual_golive IS NULL", (actual, u.email, ob_now(), t["id"]))
+    await cur.execute("INSERT INTO onboarding_events(ticket_id,actor,body,at) VALUES(%s,%s,%s,%s)", (t["id"], u.name, f"Actual go-live confirmed: {actual}; seven-day monitoring begins", ob_now()))
+
+
+@app.post("/api/onboarding-v2/tickets/{ref}/qc-accept", response_model=Ok)
+async def operational_qc_accept(ref: str, u: User = Depends(current_user)):
+    """Accept operational handover as QC after the seven-day monitoring period."""
+    if u.group != "QC":
+        raise HTTPException(403, "QC must accept the handover; assign QC users first")
+    t = await get_ticket(ref)
+    async with ob_locked(t["id"]) as cur:
+        await cur.execute("SELECT * FROM onboarding_intake WHERE ticket_id=%s FOR UPDATE", (t["id"],))
+        intake = await cur.fetchone()
+        await ob_apply_qc(cur, t, intake, u)
+    return {"ok": True}
+
+
+async def ob_apply_qc(cur, t, intake, u):
+    if not intake or not intake["actual_golive"] or ob_now().date() <= intake["actual_golive"] + timedelta(days=7):
+        raise HTTPException(409, "Seven-day monitoring must finish before QC handover")
+    if intake["qc_accepted_at"]:
+        raise HTTPException(409, "QC already accepted")
+    await cur.execute("UPDATE onboarding_intake SET qc_accepted_by=%s,qc_accepted_at=%s WHERE ticket_id=%s AND qc_accepted_at IS NULL", (u.email, ob_now(), t["id"]))
+    await cur.execute("INSERT INTO onboarding_events(ticket_id,actor,body,at) VALUES(%s,%s,%s,%s)", (t["id"], u.name, "QC accepted operational handover", ob_now()))
+
+
+OB_MASTER_HEADERS = ["Global ID", "Opportunity Name", "Service", "Pickup", "Delivery"]
+
+
+@app.get("/api/onboarding-v2/legacy", response_model=OperationalRowsResponse)
+async def operational_legacy(u: User = Depends(current_user)):
+    """List preserved legacy monitoring dates without exposing old commercial notes or revenue."""
+    # Only allowlisted metadata; no commercial notes, prices or old attachments.
+    migrated = {r["ticket_ref"] for r in await ob_rows() if r["submitted_at"]}
+    return {"rows": [{"ref": r.ref, "shipper": r.shipper, "phase_label": r.phase_label,
+                       "target_golive": r.target_golive, "actual_golive": r.actual_golive}
+                      for r in await _load_onboardings() if r.ref not in migrated and r.phase in LIVE_PHASES]}
+
+
+@app.get("/api/operational-master", response_model=OperationalMasterResponse)
+async def operational_master(u: User = Depends(current_user)):
+    """Read the reusable five-column opportunity-level operational database."""
+    rows = await q("SELECT m.*,t.ticket_ref FROM operational_master m JOIN tickets t ON t.id=m.ticket_id WHERE t.deleted_at IS NULL ORDER BY m.updated_at DESC")
+    return {"rows": [ob_serial(r) for r in rows], "columns": OB_MASTER_HEADERS}
+
+
+def ob_excel_rows(data):
+    from openpyxl import load_workbook
+    import zipfile
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as z:
+            if sum(i.file_size for i in z.infolist()) > 20 * 1024 * 1024 or len(z.infolist()) > 1000:
+                raise HTTPException(413, "Workbook expanded size is too large")
+        wb = load_workbook(io.BytesIO(data), read_only=True, data_only=False, keep_links=False)
+        sheet = wb.active
+        if sheet.max_row > 2001 or sheet.max_column > 20:
+            raise HTTPException(400, "Use at most 2000 rows and 20 columns")
+        rows = list(sheet.iter_rows(values_only=True))
+        wb.close()
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(400, "Upload a valid .xlsx workbook")
+    if not rows or list(rows[0][:5]) != OB_MASTER_HEADERS:
+        raise HTTPException(400, "Use columns in this order: " + ", ".join(OB_MASTER_HEADERS))
+    output = []
+    for n, row in enumerate(rows[1:], 2):
+        if not any(v is not None for v in row):
+            continue
+        if any(v is None or str(v).strip() == "" for v in row[:5]) or len(row) < 5:
+            raise HTTPException(400, f"Row {n}: all five columns are required")
+        if any(str(v).startswith("=") for v in row):
+            raise HTTPException(400, f"Row {n}: formulas are not permitted; upload values only")
+        if not isinstance(row[0], str):
+            raise HTTPException(400, f"Row {n}: format Global ID as text to preserve leading zeros")
+        values = [str(v).strip() for v in row[:5]]
+        if len(values[0]) > 64 or len(values[1]) > 500 or values[3] not in OB_FUNCTIONS or values[4] not in OB_FUNCTIONS:
+            raise HTTPException(400, f"Row {n}: invalid identifier/name or operational function")
+        output.append(values)
+    return output
+
+
+class OperationalImportPreview(BaseModel):
+    digest: str
+    preview: list[dict]
+    errors: list[str]
+
+
+class OperationalImportResult(BaseModel):
+    ok: bool
+    imported: int
+
+
+@app.post("/api/operational-master/import", response_model=OperationalImportPreview | OperationalImportResult)
+async def operational_import(file: UploadFile = FastFile(...), commit: bool = Form(False), digest: str = Form(""), u: User = Depends(current_user)):
+    """Preview or atomically import value-only Excel rows matched to unique CRM opportunities."""
+    require(u, "importOperational")
+    if not (file.filename or "").lower().endswith(".xlsx"):
+        raise HTTPException(400, "Use .xlsx")
+    data = await file.read(2 * 1024 * 1024 + 1)
+    if len(data) > 2 * 1024 * 1024:
+        raise HTTPException(413, "Excel import limit is 2 MB")
+    values = ob_excel_rows(data)
+    token = hashlib.sha256(data).hexdigest()
+    rows = await ob_rows()
+    mapped, errors, seen = [], [], set()
+    for n, v in enumerate(values, 2):
+        matches = [r for r in rows if (r["opportunity_name"] or r["shipper"]) == v[1] and r["service_type"] == v[2]]
+        if len(matches) != 1:
+            errors.append(f"Row {n}: opportunity name + service must identify exactly one eligible CRM opportunity")
+            continue
+        r = matches[0]
+        master = await q("SELECT * FROM operational_master WHERE ticket_id=%s", (r["id"],), one=True)
+        if r["id"] in seen or (master and master["global_id"] != v[0]):
+            errors.append(f"Row {n}: duplicate opportunity or conflicting Global ID")
+            continue
+        seen.add(r["id"])
+        if master and master["source"] == "onboarding" and [master[k] for k in ("global_id", "opportunity_name", "service", "pickup_function", "delivery_function")] != v:
+            errors.append(f"Row {n}: submitted onboarding owns this record; revise it inside the ticket")
+            continue
+        mapped.append((r, v, "Update" if master else "New"))
+    preview = [{"ref": r["ticket_ref"], "values": v, "action": action} for r, v, action in mapped]
+    if not commit:
+        return {"digest": token, "preview": preview, "errors": errors}
+    if digest != token or errors or not mapped:
+        raise HTTPException(409, "Preview this same workbook and resolve every error before import")
+    # No deletion; one atomic commit, with parent locks and conflict rechecks.
+    async with _pool.acquire() as conn, conn.cursor(DictCursor) as cur:
+        await conn.begin()
+        try:
+            for r, v, _ in sorted(mapped, key=lambda item: item[0]["id"]):
+                await cur.execute("SELECT id FROM tickets WHERE id=%s FOR UPDATE", (r["id"],))
+                await cur.execute("SELECT * FROM operational_master WHERE ticket_id=%s FOR UPDATE", (r["id"],))
+                old = await cur.fetchone()
+                if old and (old["global_id"] != v[0] or old["source"] == "onboarding"):
+                    if [old[k] for k in ("global_id", "opportunity_name", "service", "pickup_function", "delivery_function")] == v:
+                        continue
+                    raise HTTPException(409, "Database changed after preview; recheck conflicts")
+                await cur.execute("INSERT INTO operational_master(ticket_id,global_id,opportunity_name,service,pickup_function,delivery_function,source,updated_by,updated_at) VALUES(%s,%s,%s,%s,%s,%s,'excel',%s,%s) "
+                                  "ON DUPLICATE KEY UPDATE pickup_function=VALUES(pickup_function),delivery_function=VALUES(delivery_function),updated_by=VALUES(updated_by),updated_at=VALUES(updated_at)",
+                                  (r["id"], *v, u.email, ob_now()))
+                await cur.execute("INSERT INTO onboarding_events(ticket_id,actor,body,at) VALUES(%s,%s,%s,%s)", (r["id"], u.name, "Operational Excel import: " + json.dumps(v), ob_now()))
+            await conn.commit()
+        except Exception:
+            await conn.rollback()
+            raise
+    return {"ok": True, "imported": len(mapped)}
+
+
+@app.get("/api/operational-master/template.xlsx")
+async def operational_template(u: User = Depends(current_user)):
+    """Download the five-column operational Excel import template."""
+    require(u, "importOperational")
+    from openpyxl import Workbook
+    wb = Workbook()
+    wb.active.append(OB_MASTER_HEADERS)
+    stream = io.BytesIO()
+    wb.save(stream)
+    return Response(stream.getvalue(), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={"Content-Disposition": 'attachment; filename="operational-database-template.xlsx"'})

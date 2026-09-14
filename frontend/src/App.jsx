@@ -14,7 +14,7 @@ import Sync from "./screens/Sync";
 import ImportQueue from "./screens/ImportQueue";
 import Changelog from "./screens/Changelog";
 import Guide from "./screens/Guide";
-import { Onboarding, ToHandOver } from "./screens/Onboarding";
+import { OperationalList, OperationalDatabase } from "./screens/OperationalOnboarding";
 import { NewRequest, NewCapa } from "./screens/Forms";
 import Accounts from "./screens/Accounts";
 import Ignored from "./screens/Ignored";
@@ -170,10 +170,12 @@ const NAV = [
   // solutioning ends when the shipper accepts, and what follows asks a different
   // question of different people. Ops read it; Sales complete it.
   ["Onboarding", [
-    { id: "handover", label: "To hand over", icon: "⇥",
-      keywords: "shipper id go live missing onboarding handover" },
     { id: "onboarding", label: "Onboarding", icon: "◉",
       keywords: "go live ops kick off onboarding schedule" },
+    { id: "readiness", label: "Pending Readiness", icon: "◷" },
+    { id: "golive", label: "Go Live", icon: "▷" },
+    { id: "handover", label: "To Handover — QC", icon: "⇥" },
+    { id: "operational-db", label: "Operational Database", icon: "▤" },
   ]],
   ["CAPA", [
     { id: "capa-all", label: "All CAPA", icon: "▤", when: works },
@@ -533,6 +535,9 @@ export default function App() {
   }, []);
 
   useEffect(() => { api.me().then(setMe).catch((e) => setErr(e.message)); }, []);
+  useEffect(() => {
+    if (me?.permissions.operationalOnly && !["onboarding", "readiness", "golive", "handover", "operational-db", "detail"].includes(screen)) setScreen("onboarding");
+  }, [me, screen]);
 
   // Back goes back through the app, instead of leaving it.
   //
@@ -586,7 +591,7 @@ export default function App() {
   const refreshNotes = () => api.notifications().then(setNotes).catch(() => {});
 
   useEffect(() => {
-    if (!me) return;
+    if (!me || me.permissions.operationalOnly) return;
     refreshNotes();
     Promise.all([api.tickets({}), api.tickets({ awaiting: true })])
       .then(([all, awaiting]) => {
@@ -704,15 +709,19 @@ export default function App() {
     cancelled: <Cancelled me={me} notify={notify} onOpen={open} />,
     lost: <Lost me={me} notify={notify} onOpen={open} />,
     detail: <TicketDetail ticketRef={ticketRef} me={me} notify={notify}
-              focusThread={focusThread} onBack={goBack} />,
+              focusThread={focusThread === "__onboarding__" ? null : focusThread}
+              initialTab={focusThread === "__onboarding__" ? "onboarding" : null} onBack={goBack} />,
     "capa-all": <Capa view="all" me={me} notify={notify} onRaise={() => go("capa-raise")} />,
     "capa-new": <Capa view="new" me={me} notify={notify} onRaise={() => go("capa-raise")} />,
     "capa-submitted": <Capa view="submitted" me={me} notify={notify} onRaise={() => go("capa-raise")} />,
     "capa-closed": <Capa view="closed" me={me} notify={notify} onRaise={() => go("capa-raise")} />,
     "capa-raise": <NewCapa notify={notify} onCreated={() => go("capa-all")} />,
     guide: <Guide onGo={go} />,
-    handover: <ToHandOver me={me} notify={notify} onOpen={open} />,
-    onboarding: <Onboarding me={me} notify={notify} onOpen={open} />,
+    handover: <OperationalList view="handover" me={me} onOpen={ref => open(ref, "__onboarding__")} />,
+    onboarding: <OperationalList me={me} onOpen={ref => open(ref, "__onboarding__")} />,
+    readiness: <OperationalList view="readiness" me={me} onOpen={ref => open(ref, "__onboarding__")} />,
+    golive: <OperationalList view="golive" me={me} onOpen={ref => open(ref, "__onboarding__")} />,
+    "operational-db": <OperationalDatabase me={me} notify={notify} onOpen={ref => open(ref, "__onboarding__")} />,
     matrix: <Matrix />,
     changelog: <Changelog />,
     users: <Users me={me} notify={notify} />,
@@ -722,7 +731,7 @@ export default function App() {
   const sidebar = (
     <nav className="flex h-full flex-col gap-5 overflow-y-auto p-4">
       {NAV.map(([group, items]) => {
-        const shown = items.filter((i) => !i.when || i.when(me));
+        const shown = items.filter((i) => (!me.permissions.operationalOnly || ["onboarding", "readiness", "golive", "handover", "operational-db"].includes(i.id)) && (!i.when || i.when(me)));
         if (!shown.length) return null;
         return (
           <div key={group}>
@@ -776,15 +785,15 @@ export default function App() {
           <span className="grid h-6 w-6 place-items-center rounded bg-[#EE1B2C] text-xs font-extrabold text-white">N</span>
           <span className="hidden font-bold tracking-tight sm:inline">Ninja PNS</span>
         </div>
-        <GlobalSearch me={me} onOpenTicket={open} onGo={go} />
+        {!me.permissions.operationalOnly && <GlobalSearch me={me} onOpenTicket={open} onGo={go} />}
         <div className="ml-auto flex items-center gap-3 text-sm">
           <span className="hidden text-slate-500 sm:inline">Signed in as</span>
           <b className="hidden sm:inline">{me.name}</b>
           <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">
             {me.group}{me.level === "head" ? " · Head" : ""}
           </span>
-          <Bell notes={notes} onRead={() => api.markRead().then(refreshNotes)}
-            onOpen={open} />
+          {!me.permissions.operationalOnly && <Bell notes={notes} onRead={() => api.markRead().then(refreshNotes)}
+            onOpen={open} />}
         </div>
       </header>
 
@@ -808,7 +817,7 @@ export default function App() {
         )}
         <main className="min-w-0 flex-1 p-4 sm:p-6">
           <ScreenError screen={screen}>
-            {screens[screen] || screens.dashboard}
+            {me.permissions.operationalOnly && !["onboarding", "readiness", "golive", "handover", "operational-db", "detail"].includes(screen) ? screens.onboarding : (screens[screen] || screens.dashboard)}
           </ScreenError>
         </main>
       </div>
