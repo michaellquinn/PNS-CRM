@@ -19,6 +19,20 @@ const ENTRIES = [
   },
   {
     date: "2026-09-14",
+    title: "Fulfillment is priced by PNS, on every tier and at every band",
+    by: "Michael + Claude",
+    changes: [
+      "FIXED — a Standard Fulfillment deal was coming out “priced by Sales, PNS reviews after”. SOF-7001320, PT Catur Sentosa Adiprana, was sitting in the Sales pricing queue at Rp 50.000.000 when Michael found it.",
+      "The routing rule tests the account tier, then the lines that are PNS’s whatever the tier, then the revenue band. Fulfillment was missing from that middle list, so it fell through to the band. That is the wrong SHAPE and not just the wrong tier — a PNS review afterwards assumes Sales could price it in the first place.",
+      "It now sits beside FTL, FTL monthly and Sameday: PNS at every band, strategic or not.",
+      "Existing Fulfillment tickets were re-routed too. The rule is only consulted when something changes, so a ticket already in the Sales queue would have stayed there. Ones at “Pending Sales” moved to “Pending PNS” with it — waiting on Sales to price something Sales does not price is waiting on nobody.",
+      "Deals already at a PNS review gate were left where they are. Sales have priced those and somebody is reading the price; clearing the review flag under them would drop the ticket out of the gate it is in, which is worse than one deal finishing under the old rule. Decided deals were left alone too.",
+      "Complex Logistics is NOT included — it still routes by revenue on a non-managed account. Say so if it should follow.",
+    ],
+    overruled: [],
+  },
+  {
+    date: "2026-09-14",
     title: "Send Charter to PNS & Sales is gone",
     by: "Michael + Claude",
     changes: [

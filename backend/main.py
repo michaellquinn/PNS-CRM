@@ -410,15 +410,20 @@ for _done in ("Lost", "Cancel", "Proposal Accepted / Ready to Ship"):
 def route(acct: str, svc: str, rev: int) -> dict:
     """Who prices it, and whether PNS reviews afterwards (5A responsibility matrix).
 
-    Service is tested before revenue on purpose: FTL monthly and Sameday go to PNS at
-    *every* revenue band. Testing revenue first made that branch unreachable above
-    30 Mio and quietly handed the two most complex products to Sales."""
+    Service is tested before revenue on purpose: some lines go to PNS at *every* revenue
+    band, whatever the account tier. Testing revenue first made that branch unreachable
+    above 30 Mio and quietly handed the most complex products to Sales."""
     if acct in MANAGED_ACCTS:
         return {"resp": "PNS", "review": False}
     # "FTL" is provisional and PNS is who resolves it, so it comes to PNS rather than
     # being priced by Sales against a line nobody has confirmed. Once PNS sets on-call or
     # monthly the routing is re-derived, and an on-call deal under 30 Mio moves to Sales.
-    if svc in ("FTL", "FTL monthly", "Sameday"):
+    #
+    # Fulfillment joined this list on 2026-09-14 (Michael): it is PNS's at every band and
+    # on every account tier, strategic or not. It was falling through to the revenue test
+    # and landing on Sales with a PNS review afterwards -- which is the wrong shape for a
+    # line Sales cannot price in the first place, not merely a tier too low.
+    if svc in ("FTL", "FTL monthly", "Sameday", "Fulfillment"):
         return {"resp": "PNS", "review": False}
     if rev >= 30_000_000:
         return {"resp": "Sales", "review": True}
@@ -1510,7 +1515,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-14.7"
+BUILD = "2026-09-14.8"
 
 
 class Me(BaseModel):

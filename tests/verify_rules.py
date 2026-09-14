@@ -25,14 +25,23 @@ route, guard_for, guard_breached = ns['route'], ns['guard_for'], ns['guard_breac
 print("extracted:", sorted(k for k in ns if not k.startswith('__')))
 
 # ---------------------------------------------------------------- 5A routing truth
-S = ['FTL on-call', 'FTL monthly', 'LTL', 'B2BR', 'Sameday']
+S = ['FTL on-call', 'FTL monthly', 'LTL', 'B2BR', 'Sameday', 'Fulfillment']
+# Lines that are PNS's whatever the tier and whatever the band. Fulfillment joined on
+# 2026-09-14 (Michael): it had been falling through to the revenue test and coming out
+# "priced by Sales, PNS reviews after", which is the wrong shape rather than the wrong
+# tier -- a review afterwards assumes Sales could price it at all.
+#
+# Listed here as well as in route() on purpose. Written as "whatever route() says" this
+# check would agree with any future edit, including one that quietly drops a line back
+# into the revenue band; the point of a truth table is that it disagrees.
+ALWAYS_PNS = ('FTL monthly', 'Sameday', 'Fulfillment')
 fails = []
 for acct in ('Hypercare', 'Strategic', 'Non-Strategic'):
     for band, rev in (('<30', 10_000_000), ('>=30', 50_000_000)):
         for s in S:
             if acct in ('Hypercare', 'Strategic'):
                 exp = ('PNS', False)
-            elif s in ('FTL monthly', 'Sameday'):
+            elif s in ALWAYS_PNS:
                 exp = ('PNS', False)
             elif band == '>=30':
                 exp = ('Sales', True)
@@ -42,7 +51,7 @@ for acct in ('Hypercare', 'Strategic', 'Non-Strategic'):
             got = (r['resp'], r['review'])
             if got != exp:
                 fails.append('ROUTE %s/%s/%s exp=%s got=%s' % (acct, band, s, exp, got))
-print("routing cells checked:", 3 * 2 * 5, "| failures:", len(fails))
+print("routing cells checked:", 3 * 2 * len(S), "| failures:", len(fails))
 
 # ---------------------------------------------------------------- 5A guard truth
 GUARD_TRUTH = {
