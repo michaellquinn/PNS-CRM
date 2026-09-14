@@ -399,6 +399,41 @@ check("isNewIncoming is what reads it",
       "OceanBase disagree about the local timezone, so a date compared in the browser "
       "read an hours-old ticket as arriving tomorrow")
 
+# ------------------------ the onboarding form does not re-ask what the charter answers
+# Michael, 2026-09-14. Two boxes for one answer gets two answers, and then nobody can say
+# which one Ops built the launch against.
+#
+# The rule is CONDITIONAL and that is the whole safety of it: a field locks only where
+# the charter actually has a value. The form refuses to submit while any input is blank,
+# so locking an empty one would leave onboarding with a field nobody can fill and no way
+# forward. Seven of the twenty-five sourced fields were blank on a realistic charter.
+print()
+print("charter answers are shown, not re-asked")
+check("the server sends which keys are fixed", '"locked": locked' in SRC,
+      "the form cannot know on its own which answers the charter holds")
+check("...and the response model declares it", "locked: list[str]" in SRC,
+      "a response_model silently drops what it does not declare, and every input would "
+      "quietly stay editable")
+check("a field locks only where the charter has a value",
+      'if src and str(source.get(src) or "").strip()' in SRC,
+      "locking a blank one dead-ends the submission")
+check("a locked field stops following once Sales submit",
+      'if not (intake and intake.get("submitted_at")):' in SRC,
+      "the answers teams are confirming against must not shift under them")
+
+_oo = io.open(os.path.join(_REPO, "frontend", "src", "screens",
+                           "OperationalOnboarding.jsx"), encoding="utf-8").read()
+check("the form disables them", "const fixed = (data.locked || []).includes(f.key)" in _oo)
+check("...and says where the value comes from",
+      "from the Project Charter" in _oo,
+      "a greyed box with no reason reads as broken")
+
+# Global ID is the shipper ID. Not a guess: the intake's shipperId is itself populated
+# from Sales CRM's global_id, so the two boxes always held one value.
+check("Global ID follows the Shipper ID",
+      'p["global_id"] = p["shipper_id"]' in SRC,
+      "asking twice invites somebody to disagree with themselves")
+
 print()
 if fails:
     print("FAILED %d check(s):" % len(fails))

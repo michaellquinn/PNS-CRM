@@ -1515,7 +1515,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-14.9"
+BUILD = "2026-09-14.10"
 
 
 class Me(BaseModel):
@@ -8996,6 +8996,10 @@ class OperationalDetailResponse(BaseModel):
     ticket_status: str
     fields: list[dict]
     payload: dict
+    # Keys the Project Charter already answers, so the form must not ask again. A
+    # response_model drops anything it does not declare, which is how a new field reaches
+    # the browser as undefined and every input silently stays editable.
+    locked: list[str] = []
     revision: int
     submitted_at: str | None
     actual_golive: str | None
@@ -9087,15 +9091,51 @@ async def operational_detail(ref: str, u: User = Depends(current_user)):
         p["shipper_name"] = t.get("shipper", "")
         p["service"] = t["service_type"]
         p["opportunity_id"] = str(t.get("opportunity_id") or "")
+
+    # Which answers the Project Charter already holds, and which therefore must not be
+    # retyped here (Michael, 2026-09-14). Asking the same question twice gets two
+    # answers, and then nobody can say which one Ops built the launch against.
+    #
+    # Computed from the CHARTER on every read, not from what was saved here, so a locked
+    # field FOLLOWS the charter rather than freezing whatever was in it the first time.
+    #
+    # Locked only where the charter actually has a value. The form refuses to submit
+    # while any input is blank, so locking an empty one would leave onboarding with a
+    # field nobody could fill and no way forward -- the charter is corrected on the
+    # ticket's own Project Charter tab, and this follows it from there.
+    locked = [key for key, _, _, _, _, src in OB_FIELDS
+              if src and str(source.get(src) or "").strip()]
+
+    # Global ID IS the shipper ID (Michael, 2026-09-14), OVERRULING the note that used to
+    # stand here -- "never equate Global ID and shipper ID by guessing". It is not a
+    # guess: the intake's shipperId is itself populated from Sales CRM's global_id field
+    # (see CRM_ACCOUNT_PAYLOAD), so the two boxes were always asking for one value and
+    # inviting somebody to disagree with themselves.
+    if p.get("shipper_id"):
+        p["global_id"] = p["shipper_id"]
+        if "global_id" not in locked:
+            locked.append("global_id")
+    else:
         crm = source.get("_crm") or {}
-        # Never equate Global ID and shipper ID by guessing.
         p["global_id"] = str(source.get("globalId") or crm.get("global_id") or "")
+
+    # A locked field FOLLOWS the charter while the requirements are still a draft. Once
+    # Sales have submitted, it stops following: the answers the teams are confirming
+    # against must not shift under them, and a changed charter is picked up when Sales
+    # resubmit, which is also what re-fingerprints the checks.
+    if not (intake and intake.get("submitted_at")):
+        srcs = {k: sk for k, _, _, _, _, sk in OB_FIELDS}
+        for key in locked:
+            sk = srcs.get(key)
+            if sk and str(source.get(sk) or "").strip():
+                p[key] = str(source.get(sk))
     checks = await q("SELECT * FROM onboarding_checks WHERE ticket_id=%s ORDER BY id", (t["id"],))
     docs = await q("SELECT id,kind,filename,content_type FROM onboarding_documents WHERE ticket_id=%s ORDER BY id", (t["id"],))
     events = await q("SELECT actor,body,at FROM onboarding_events WHERE ticket_id=%s ORDER BY id DESC LIMIT 100", (t["id"],))
     actual = (intake or {}).get("actual_golive")
     return {"ref": ref, "shipper": t["shipper"], "opportunity_name": t.get("opportunity_name") or t["shipper"],
-            "ticket_status": t["status"], "fields": ob_schema(), "payload": p, "revision": (intake or {}).get("revision", 0),
+            "ticket_status": t["status"], "fields": ob_schema(), "payload": p, "locked": locked,
+            "revision": (intake or {}).get("revision", 0),
             "submitted_at": str(intake["submitted_at"]) if intake and intake["submitted_at"] else None,
             "actual_golive": str(actual) if actual else None, "qc_accepted_at": str(intake["qc_accepted_at"]) if intake and intake["qc_accepted_at"] else None,
             "handover_due": bool(actual and ob_now().date() > actual + timedelta(days=7)),

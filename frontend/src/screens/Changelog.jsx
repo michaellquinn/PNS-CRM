@@ -3,6 +3,21 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-09-14",
+    title: "Sales requirements stops re-asking what the Project Charter already answers",
+    by: "Michael + Claude",
+    changes: [
+      "Answers the charter already holds are now shown greyed and cannot be retyped on the onboarding form. Two boxes for one answer gets two answers, and then nobody can say which one Ops built the launch against. Correct it on the ticket’s Project Charter tab and the form follows.",
+      "On a realistic charter that locks 18 of the 49 inputs — go-live date, shipper name and ID, status, product, volume, dimensions, weight, MPS, COD, RDO, SLA, pickup PIC and contact, frequency, both TKBM answers and the destination.",
+      "A field locks ONLY where the charter actually has a value, and that condition is the safety of the whole thing. The form refuses to submit while any input is blank, so locking an empty one would leave onboarding with a field nobody could fill and no way forward. Seven sourced fields were blank on the charter tested and stay editable.",
+      "A locked field follows the charter while the requirements are a draft, then stops once Sales submit — the answers teams are confirming against must not shift under them. A changed charter is picked up when Sales resubmit, which is also what re-fingerprints the checks.",
+      "Global ID now follows the Shipper ID instead of being typed separately.",
+    ],
+    overruled: [
+      "Baskoro, 2026-09-14: “Never equate Global ID and shipper ID by guessing.” What stands instead: they are the same value and Global ID follows. It is not a guess — the intake’s Shipper ID is itself populated from Sales CRM’s global_id field, so the two boxes were always asking for one thing and inviting somebody to disagree with themselves.",
+    ],
+  },
+  {
+    date: "2026-09-14",
     title: "The Existing monitoring records block is off Go Live",
     by: "Michael + Claude",
     changes: [

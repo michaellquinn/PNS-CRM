@@ -131,21 +131,34 @@ export function OnboardingPane({ ticketRef, me, notify }) {
       {!data.eligible && <p className="mt-2 font-medium text-amber-800">Input is available when the opportunity is Ready to Ship.</p>}
     </div>
     <h3 className="mb-3 font-semibold">Sales requirements</h3>
-    <p className="mb-4 text-[12px] text-slate-500">Every input must have a valid answer before submission. Use “Not required” with an explanation where a treatment/handling requirement does not apply; manpower No requires quantity 0. Verify prefilled Procha/CRM values for this launch. Complexity assessment is entered explicitly until its automatic rule is agreed.</p>
+    <p className="mb-4 text-[12px] text-slate-500">Every input must have a valid answer before submission. Use “Not required” with an explanation where a treatment/handling requirement does not apply; manpower No requires quantity 0. Greyed answers come from the Project Charter and are not retyped here — correct them on the ticket’s Project Charter tab and they follow. Complexity assessment is entered explicitly until its automatic rule is agreed.</p>
     {[...new Set(data.fields.map(f => f.section))].map(section => <section key={section} className="mb-5">
       <h4 className="mb-3 border-b pb-2 text-[13px] font-semibold text-slate-700">{section}</h4>
       <div className="grid gap-3 md:grid-cols-2">
-        {data.fields.filter(f => f.section === section).map(f => { const Field = f.type === "packing" ? "div" : "label"; return <Field key={f.key} className={f.type === "textarea" || f.type === "packing" ? "md:col-span-2" : ""}>
-          <span className="mb-1 block text-[12px] text-slate-600">{f.label} *</span>
+        {data.fields.filter(f => f.section === section).map(f => { const Field = f.type === "packing" ? "div" : "label";
+          /* Answers the Project Charter already holds are shown, not asked for again
+             (Michael, 2026-09-14). Two boxes for one answer gets two answers, and then
+             nobody can say which one Ops built the launch against. Correct it on the
+             ticket's Project Charter tab and this follows.
+
+             The server decides which keys these are and only locks one the charter can
+             actually fill -- the form refuses to submit while any input is blank, so a
+             locked empty field would be a dead end with no way forward. */
+          const fixed = (data.locked || []).includes(f.key);
+          const off = !editable || fixed;
+          return <Field key={f.key} className={f.type === "textarea" || f.type === "packing" ? "md:col-span-2" : ""}>
+          <span className="mb-1 block text-[12px] text-slate-600">
+            {f.label} {fixed ? <span className="font-normal text-slate-400">· from the Project Charter</span> : "*"}
+          </span>
           {f.type === "packing" ? <div className="flex flex-wrap gap-3 rounded-lg border p-3">{f.options.map(tag => <label key={tag} className="flex items-center gap-2 text-[13px]">
-            <input type="checkbox" disabled={!editable} checked={(p.packing || []).includes(tag)} onChange={e => {
+            <input type="checkbox" disabled={off} checked={(p.packing || []).includes(tag)} onChange={e => {
               const tags = p.packing || [];
               set("packing", e.target.checked ? tag === "No" ? ["No"] : [...tags.filter(t => t !== "No"), tag] : tags.filter(t => t !== tag));
             }} />{tag} · {data.packing_labels[tag]}
-          </label>)}</div> : f.type === "select" ? <select className={inputCls} disabled={!editable} value={p[f.key] || ""} onChange={e => set(f.key, e.target.value)}>
+          </label>)}</div> : f.type === "select" ? <select className={inputCls} disabled={off} value={p[f.key] || ""} onChange={e => set(f.key, e.target.value)}>
             <option value="">Choose…</option>{f.options.map(v => <option key={v}>{v}</option>)}
-          </select> : f.type === "textarea" ? <textarea className={`${inputCls} min-h-[76px]`} disabled={!editable} value={p[f.key] || ""} onChange={e => set(f.key, e.target.value)} /> :
-          <input className={inputCls} type={f.type} step={f.type === "number" ? "any" : undefined} disabled={!editable || ["opportunity_id", "service"].includes(f.key)} value={p[f.key] ?? ""} onChange={e => set(f.key, e.target.value)} />}
+          </select> : f.type === "textarea" ? <textarea className={`${inputCls} min-h-[76px]`} disabled={off} value={p[f.key] || ""} onChange={e => set(f.key, e.target.value)} /> :
+          <input className={inputCls} type={f.type} step={f.type === "number" ? "any" : undefined} disabled={off || ["opportunity_id", "service"].includes(f.key)} value={p[f.key] ?? ""} onChange={e => set(f.key, e.target.value)} />}
         </Field>; })}
       </div>
     </section>)}
