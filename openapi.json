@@ -1702,7 +1702,7 @@
       "Me": {
         "properties": {
           "build": {
-            "default": "2026-09-14.10",
+            "default": "2026-09-15.1",
             "title": "Build",
             "type": "string"
           },
@@ -3162,6 +3162,41 @@
           "approve"
         ],
         "title": "PspIn",
+        "type": "object"
+      },
+      "PurgeBinIn": {
+        "description": "How many the caller believes are in the bin, from the list they are looking at.",
+        "properties": {
+          "expect": {
+            "title": "Expect",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "expect"
+        ],
+        "title": "PurgeBinIn",
+        "type": "object"
+      },
+      "PurgeBinResult": {
+        "properties": {
+          "purged": {
+            "title": "Purged",
+            "type": "integer"
+          },
+          "refs": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Refs",
+            "type": "array"
+          }
+        },
+        "required": [
+          "purged"
+        ],
+        "title": "PurgeBinResult",
         "type": "object"
       },
       "QueueIn": {
@@ -4758,7 +4793,7 @@
   "info": {
     "description": "Ninja PNS - solutioning and pricing workflow for Ninja Xpress Indonesia. Every route below requires a signed-in session: identity arrives from the platform's auth proxy as an X-Forwarded-Email header the browser cannot set, and the app resolves a role from it. GET /health is the only unauthenticated route. Generated from the app's own route table by tools/gen_openapi.py - do not hand-edit.",
     "title": "Ninja PNS, Solutioning",
-    "version": "2026-09-14.10"
+    "version": "2026-09-15.1"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -6480,6 +6515,45 @@
           }
         },
         "summary": "Values the intake form suggests. `remembered` is built from what people have"
+      }
+    },
+    "/api/recycle-bin/purge": {
+      "post": {
+        "description": "Erase everything in the recycle bin, for good (Michael, 2026-09-15).\n\nThe bin had no empty action -- it was one row at a time -- and the ask was for one\npress instead of N. The DELETE is the same one the single purge runs, per row, so\nthe foreign keys cascade exactly as they do there and the new onboarding tables go\nwith the ticket.\n\n`expect` is a COUNT INTERLOCK, and it is the whole safety of this endpoint. The\ncaller sends how many rows the screen showed them; if the bin now holds a different\nnumber the purge is refused. Otherwise a tab left open since this morning erases\nwhatever landed in the bin since -- and the bulk move sweeps unassigned tickets in,\nso things arrive there that somebody still wants.\n\nEvery ref is audited individually, not just the total: \"purged 12\" names nothing,\nand the audit log is the only remaining record that a ticket ever existed.",
+        "operationId": "purge_bin_api_recycle_bin_purge_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PurgeBinIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PurgeBinResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Erase everything in the recycle bin, for good (Michael, 2026-09-15)."
       }
     },
     "/api/reference/fields": {

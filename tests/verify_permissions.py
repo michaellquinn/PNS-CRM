@@ -245,6 +245,33 @@ for _g, _lvl, _t, _want, _why in [
         fails.append("setSales %s/%s on %s = %s, expected %s"
                      % (_g, _lvl, "own" if _t is _mine else "other", _got, _want))
 
+# ---------------------------------------------------- emptying the recycle bin
+# Michael, 2026-09-15: one press instead of one per row. The interlock is the reason
+# this is safe to exist at all -- the caller sends the count the screen showed them and
+# the server refuses if the bin now holds a different number, so a tab left open since
+# the morning cannot erase what arrived in the meantime. The bulk move sweeps unassigned
+# tickets into the bin, so things do land there that somebody still wants.
+print()
+print("the recycle bin can be emptied, but not by accident")
+import io as _io, os as _os
+_SRC = _io.open(_os.path.join(_os.path.dirname(_os.path.dirname(
+    _os.path.abspath(__file__))), "backend", "main.py"), encoding="utf-8").read()
+for label, ok, hint in [
+    ("the endpoint exists", "/api/recycle-bin/purge" in _SRC, ""),
+    ("it is Admin only", 'require(u, "purgeTicket")' in _SRC, ""),
+    ("it refuses on a count mismatch", "body.expect != len(rows)" in _SRC,
+     "without this a stale screen erases rows it never showed"),
+    ("every ref is audited, not just the total",
+     'await audit(u.email, "purge", "ticket", r["ticket_ref"])' in _SRC,
+     "the audit log is the only record left that a ticket existed"),
+    ("it is not under /api/tickets/",
+     '@app.post("/api/recycle-bin/purge"' in _SRC,
+     "DELETE /api/tickets/{ref} is declared earlier and would swallow the path"),
+]:
+    print(("  ok   " if ok else "  FAIL ") + label)
+    if not ok:
+        fails.append(label + (" - " + hint if hint else ""))
+
 print()
 if fails:
     print("FAILURES:")

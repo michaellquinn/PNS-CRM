@@ -2,6 +2,18 @@ import { Card, Head, Pill } from "../ui";
 
 const ENTRIES = [
   {
+    date: "2026-09-15",
+    title: "Empty the bin, in one press",
+    by: "Michael + Claude",
+    changes: [
+      "NEW — an “Empty the bin” button on the Recycle bin. Admin only, and it only appears when there is something in there. Before this it was one row at a time.",
+      "It sends the count the screen is showing, and the server refuses if the bin now holds a different number. That is the safety of the whole thing: a tab left open since the morning cannot erase what arrived in the bin since — and the bulk move sweeps unassigned tickets in, so things do land there that somebody still wants.",
+      "The confirmation says exactly what goes: the tickets, their history, intake, attached prices and onboarding records, permanently. One row and the whole bin share the same dialog, so neither erasure gets a softer prompt than the other.",
+      "Every reference is written to the audit log individually, not just the total. “Purged 12” names nothing, and once a ticket is gone the audit log is the only record that it ever existed. PNS and the selling teams are told the bin was emptied and by whom.",
+    ],
+    overruled: [],
+  },
+  {
     date: "2026-09-14",
     title: "Sales requirements stops re-asking what the Project Charter already answers",
     by: "Michael + Claude",

@@ -1515,7 +1515,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-14.10"
+BUILD = "2026-09-15.1"
 
 
 class Me(BaseModel):
@@ -7104,6 +7104,56 @@ async def purge(ref: str, u: User = Depends(current_user)):
     await execute("DELETE FROM tickets WHERE id=%s", (t["id"],))
     await audit(u.email, "purge", "ticket", ref)
     return {"ok": True, "ref": ref}
+
+
+class PurgeBinIn(BaseModel):
+    """How many the caller believes are in the bin, from the list they are looking at."""
+    expect: int
+
+
+class PurgeBinResult(BaseModel):
+    purged: int
+    refs: list[str] = []
+
+
+# Deliberately NOT under /api/tickets/: DELETE /api/tickets/{ref} is declared above this
+# and would swallow /api/tickets/purge-all as a ticket called "purge-all".
+@app.post("/api/recycle-bin/purge", response_model=PurgeBinResult)
+async def purge_bin(body: PurgeBinIn, u: User = Depends(current_user)):
+    """Erase everything in the recycle bin, for good (Michael, 2026-09-15).
+
+    The bin had no empty action -- it was one row at a time -- and the ask was for one
+    press instead of N. The DELETE is the same one the single purge runs, per row, so
+    the foreign keys cascade exactly as they do there and the new onboarding tables go
+    with the ticket.
+
+    `expect` is a COUNT INTERLOCK, and it is the whole safety of this endpoint. The
+    caller sends how many rows the screen showed them; if the bin now holds a different
+    number the purge is refused. Otherwise a tab left open since this morning erases
+    whatever landed in the bin since -- and the bulk move sweeps unassigned tickets in,
+    so things arrive there that somebody still wants.
+
+    Every ref is audited individually, not just the total: "purged 12" names nothing,
+    and the audit log is the only remaining record that a ticket ever existed."""
+    require(u, "purgeTicket")
+    rows = await q("SELECT id, ticket_ref FROM tickets WHERE deleted_at IS NOT NULL "
+                   "ORDER BY ticket_ref")
+    if body.expect != len(rows):
+        raise HTTPException(
+            409, f"the recycle bin holds {len(rows)} ticket(s), not {body.expect}. "
+                 f"Reload the screen and look again before erasing anything.")
+    refs = [r["ticket_ref"] for r in rows]
+    for r in rows:
+        await execute("DELETE FROM tickets WHERE id=%s", (r["id"],))
+        await audit(u.email, "purge", "ticket", r["ticket_ref"])
+    if refs:
+        await audit(u.email, "purge_bin", "tickets", "recycle-bin", "count",
+                    None, str(len(refs)))
+        await notify(f"{u.name} emptied the recycle bin: {len(refs)} ticket(s) erased "
+                     f"for good ({', '.join(refs[:10])}"
+                     f"{'…' if len(refs) > 10 else ''}).",
+                     groups=["PNS", *SELLING_GROUPS])
+    return {"purged": len(refs), "refs": refs}
 
 
 class Options(BaseModel):

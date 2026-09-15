@@ -1163,7 +1163,29 @@ export function RecycleBin({ me, notify, onOpen }) {
     <>
       <Shell title="Recycle bin"
         sub="Deleted tickets, kept with their history. Restore one to put it back where it was, or delete it for good."
-        right={<span className="text-[12px] text-slate-500">PNS Head &amp; Admin</span>}
+        right={
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[12px] text-slate-500">PNS Head &amp; Admin</span>
+            {/* One press instead of one per row (Michael, 2026-09-15). Admin only, and
+                it sends the count this screen is showing — the server refuses if the
+                bin has changed since, so a tab left open all morning cannot erase what
+                arrived in the meantime. The bulk move sweeps unassigned tickets in, so
+                things do land here that somebody still wants. */}
+            {me?.permissions.purgeTicket && !!(rows || []).length && (
+              <Btn onClick={() => setAsk({
+                title: `Erase all ${rows.length} ticket(s) in the bin?`,
+                body: `This permanently erases ${rows.length} ticket(s) — their history, `
+                    + `intake, attached prices and onboarding records — and cannot be `
+                    + `undone. Restore anything you still want first. `
+                    + `Every reference is written to the audit log.`,
+                run: () => act(() => api.purgeBin(rows.length),
+                               `Recycle bin emptied — ${rows.length} ticket(s) erased`),
+              })}>
+                Empty the bin
+              </Btn>
+            )}
+          </div>
+        }
         rows={rows} err={err} empty="The bin is empty.">
         {(list) => list.map((t) => (
           <TicketCard key={t.ref} t={t} onOpen={onOpen}>
@@ -1188,7 +1210,11 @@ export function RecycleBin({ me, notify, onOpen }) {
       <Confirm open={!!ask} title={ask?.title} body={ask?.body} confirmLabel="Delete for good"
         onCancel={() => setAsk(null)}
         onConfirm={() => {
-          const ref = ask.ref; setAsk(null);
+          // Two shapes share this dialog: one row carries `ref`, emptying the bin
+          // carries its own `run`. Kept as one Confirm so both erasures read the same
+          // and neither gets a softer prompt than the other.
+          const { ref, run } = ask; setAsk(null);
+          if (run) return run();
           act(() => api.purge(ref), `${ref} permanently deleted`);
         }} />
     </>
