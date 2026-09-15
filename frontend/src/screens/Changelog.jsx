@@ -3,6 +3,16 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-09-15",
+    title: "LTL and B2BR rate cards are called PSP Calculator",
+    by: "Michael + Claude",
+    changes: [
+      "The rate-card link on an LTL or B2BR ticket now reads “PSP Calculator”, on the Pricing tab and on the pricing queues. Both already opened the same web pricing tool — the old names described the published rate sheet behind it, which is not what the link does when you click it.",
+      "B2C is unchanged. It has no tool to open, so its name is shown as plain text and still names the document it prices off. Renaming it would have described a calculator that is not there.",
+    ],
+    overruled: [],
+  },
+  {
+    date: "2026-09-15",
     title: "Empty the bin, in one press",
     by: "Michael + Claude",
     changes: [

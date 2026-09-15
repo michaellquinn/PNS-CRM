@@ -1515,7 +1515,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-15.1"
+BUILD = "2026-09-15.2"
 
 
 class Me(BaseModel):
@@ -7244,9 +7244,15 @@ class TicketDetail(BaseModel):
 # to yet and the name is shown as plain text instead.
 WEB_PRICING_URL = "https://web-pricing.ninjavan.apps.substrait.build"
 RATE_CARDS = {
-    "LTL": {"name": "Published LTL Rates, 1 December 2025 (Commercial Head + PNS only)",
-            "url": WEB_PRICING_URL},
-    "B2BR": {"name": "[ID] Ninja Xpress 2025 Rate Card, B2BR", "url": WEB_PRICING_URL},
+    # LTL and B2BR are named for the TOOL, not the document (Michael, 2026-09-15). Both
+    # already opened the same web pricing tool; the old names described the published
+    # rate sheet behind it, which is not what the link does when you click it.
+    "LTL": {"name": "PSP Calculator", "url": WEB_PRICING_URL},
+    "B2BR": {"name": "PSP Calculator", "url": WEB_PRICING_URL},
+    # B2C still names the DOCUMENT, because it has no tool to open -- url is None and the
+    # name is shown as plain text. It prices off the B2BR card, which is the sheet, not
+    # the calculator, so the wording is left alone rather than swept along with the two
+    # above.
     "B2C": {"name": "[ID] Ninja Xpress 2025 Rate Card, B2BR (B2C prices off this card)",
             "url": None},
     "FTL on-call": {"name": "[ID] Ninja Xpress 2026 Rate Card FTL", "url": None},
