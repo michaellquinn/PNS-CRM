@@ -1515,7 +1515,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-15.3"
+BUILD = "2026-09-15.4"
 
 
 class Me(BaseModel):
@@ -8855,16 +8855,24 @@ OB_FIELDS = [
     ("planned_golive", "Planned go-live date", "date", "A · Basic requirements", [], "golive"),
     ("pickup_at", "First pickup date and time (WIB)", "datetime-local", "A · Basic requirements", [], None),
     ("shipper_name", "Shipper name", "text", "B · Shipper profile", [], "shipper"),
-    ("shipper_id", "Shipper ID", "text", "B · Shipper profile", [], "shipperId"),
-    ("global_id", "Global ID", "text", "B · Shipper profile", [], None),
+    # ONE id (Michael, 2026-09-15). Shipper ID and Global ID were two boxes holding one
+    # value -- the intake's shipperId is itself Sales CRM's global_id -- so Shipper ID is
+    # gone and this is sourced straight from the charter rather than copied across.
+    ("global_id", "Global ID", "text", "B · Shipper profile", [], "shipperId"),
     ("opportunity_id", "Sales CRM opportunity ID", "text", "B · Shipper profile", [], None),
     ("shipper_status", "Shipper status", "select", "B · Shipper profile", ["New", "Existing"], "shipperStatus"),
     ("product_condition", "Ninja product", "select", "B · Shipper profile", ["Dry", "Cold"], None),
     ("product_type", "Product type", "text", "B · Shipper profile", [], "product"),
-    ("product_volume", "Product volume", "number", "B · Shipper profile", [], "volume"),
-    ("volume_unit", "Volume unit", "select", "B · Shipper profile", ["CBM", "tons"], None),
+    # The volume of the FIRST PICKUP, which is not the deal's monthly volume the charter
+    # carries -- so it is asked for here and not prefilled (Michael, 2026-09-15).
+    ("product_volume", "First pickup volume", "number", "B · Shipper profile", [], None),
+    ("volume_unit", "Volume unit", "select", "B · Shipper profile", ["CBM", "tons", "Kg"], None),
     ("dimensions", "Product dimensions (include units)", "text", "B · Shipper profile", [], "dim"),
-    ("weight", "Product weight (include units)", "text", "B · Shipper profile", [], "wt"),
+    ("weight", "Est. Weight Per Koli", "text", "B · Shipper profile", [], "wt"),
+    # Read from the ACCOUNT, not typed (Michael, 2026-09-15): it is the watched-group
+    # classification the whole app already routes on, so asking for it again invites a
+    # second opinion about a fact the ticket already holds. Filled and locked in the
+    # detail endpoint from acct_type and must_win.
     ("complexity_tier", "Complexity tier / operational assessment", "text", "B · Shipper profile", [], None),
     ("service", "Ninja service", "text", "C · Service and documents", [], None),
     ("delivery_mode", "Shipment mode", "select", "C · Service and documents", ["Port to Port", "Port to Door", "Door to Port", "Door to Door"], None),
@@ -8875,12 +8883,15 @@ OB_FIELDS = [
     ("pod_treatment", "POD treatment details", "textarea", "C · Service and documents", [], None),
     ("surat_jalan_treatment", "Other Surat Jalan treatment details", "textarea", "C · Service and documents", [], None),
     ("packing", "Packing tags", "packing", "C · Service and documents", list(OB_PACKING), None),
-    ("handling", "Handling request", "textarea", "C · Service and documents", [], "handling"),
+    ("handling", "Handling request", "textarea", "C · Service and documents", [], None),
     ("sla", "SLA (include unit and scope)", "text", "C · Service and documents", [], "sla"),
-    ("oc_by", "Order creation by", "select", "C · Service and documents", ["SSM", "Shipper"], None),
+    ("oc_by", "Order creation by", "select", "C · Service and documents", ["SSM", "Shipper", "DE", "Sales"], None),
     ("api_required", "API required", "select", "C · Service and documents", ["Yes", "No"], None),
-    ("pickup_pic", "Pickup PIC", "text", "D · Pickup", [], "pickPic"),
-    ("pickup_contact", "Pickup PIC contact", "text", "D · Pickup", [], "pickContact"),
+    # Written for this launch, and first in the section: the address is what the fleet
+    # reads before anything else about the pickup (Michael, 2026-09-15).
+    ("pickup_address", "Pickup Address", "textarea", "D · Pickup", [], None),
+    ("pickup_pic", "Shipper Pickup PIC", "text", "D · Pickup", [], "pickPic"),
+    ("pickup_contact", "Shipper Pickup PIC contact", "text", "D · Pickup", [], "pickContact"),
     ("pickup_frequency", "Shipment frequency", "text", "D · Pickup", [], "freq"),
     ("pickup_vehicle", "Pickup vehicle requirement", "text", "D · Pickup", [], "truck"),
     ("pickup_function", "Pickup responsibility", "select", "D · Pickup", OB_FUNCTIONS, None),
@@ -8893,7 +8904,7 @@ OB_FIELDS = [
     ("implan_count", "Implan quantity (0 if No)", "number", "D · Pickup", [], None),
     ("delivery_to", "Delivery to", "select", "E · Delivery", ["End customer", "Reseller", "GT", "MT"], "destType"),
     ("delivery_vehicle", "Delivery vehicle requirement", "text", "E · Delivery", [], "truck"),
-    ("destination", "Destination point", "textarea", "E · Delivery", [], "dest"),
+    ("destination", "Destination Address", "textarea", "E · Delivery", [], None),
     ("delivery_function", "Delivery responsibility", "select", "E · Delivery", OB_FUNCTIONS, None),
     ("delivery_time", "Delivery time", "time", "E · Delivery", [], None),
     ("delivery_wait", "Delivery waiting time (include units)", "text", "E · Delivery", [], "delWait"),
@@ -8952,9 +8963,12 @@ def ob_validate(p, t, documents):
         raise HTTPException(400, "No packing cannot be combined with packing tags")
     if p["service"] != t["service_type"] or p["opportunity_id"] != str(t.get("opportunity_id") or ""):
         raise HTTPException(400, "Service and opportunity ID must match the linked Sales CRM opportunity")
-    if len(p["global_id"]) > 64 or len(p["shipper_id"]) > 64:
-        raise HTTPException(400, "Shipper and Global IDs must be at most 64 characters")
-    one_shipper_id(p["shipper_id"])
+    if len(p["global_id"]) > 64:
+        raise HTTPException(400, "The Global ID must be at most 64 characters")
+    # Still exactly one id in the field. Everything downstream -- the pickup, the
+    # monitoring, QC's own system -- keys on it, and "123, 456" reads to all of them as
+    # one shipper with a very odd name.
+    one_shipper_id(p["global_id"])
     try:
         pickup = datetime.fromisoformat(p["pickup_at"])
         planned = date.fromisoformat(p["planned_golive"])
@@ -8975,14 +8989,14 @@ def ob_validate(p, t, documents):
         if not 0 < float(p["product_volume"]) < 1e12:
             raise ValueError()
     except ValueError:
-        raise HTTPException(400, "Product volume must be positive")
+        raise HTTPException(400, "First pickup volume must be positive")
     return pickup
 
 
 def ob_check_specs(p):
     specs = []
     def add(key, label, owner, fields):
-        values = {k: p.get(k) for k in fields + ["pickup_at", "planned_golive", "service", "shipper_id", "global_id"]}
+        values = {k: p.get(k) for k in fields + ["pickup_at", "planned_golive", "service", "global_id"]}
         fingerprint = hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()
         specs.append({"check_key": key, "label": label, "owner_group": owner, "fingerprint": fingerprint})
     for tag in p.get("packing", []):
@@ -8992,7 +9006,7 @@ def ob_check_specs(p):
         owner = p.get(leg + "_function")
         if owner in OB_FUNCTIONS:
             add(leg + ":fleet", leg.title() + " fleet readiness", owner,
-                [leg + "_function", leg + "_vehicle", leg + "_time", leg + "_wait", leg + "_driver", "product_volume", "volume_unit", "dimensions", "weight", "destination", "product_condition", "pickup_pic", "pickup_contact", "pickup_frequency", "delivery_to", "delivery_mode", "handling", "sla", "implan", "implan_count", "mps", "cod", "oc_by", "api_required"])
+                [leg + "_function", leg + "_vehicle", leg + "_time", leg + "_wait", leg + "_driver", "product_volume", "volume_unit", "dimensions", "weight", "destination", "pickup_address", "product_condition", "pickup_pic", "pickup_contact", "pickup_frequency", "delivery_to", "delivery_mode", "handling", "sla", "implan", "implan_count", "mps", "cod", "oc_by", "api_required"])
             add(leg + ":documents", leg.title() + " RDO / POD / Surat Jalan", owner,
                 [leg + "_function", "rdo", "rdo_treatment", "pod_treatment", "surat_jalan_treatment"])
         if p.get(leg + "_tkbm") == "Yes":
@@ -9165,18 +9179,22 @@ async def operational_detail(ref: str, u: User = Depends(current_user)):
     locked = [key for key, _, _, _, _, src in OB_FIELDS
               if src and str(source.get(src) or "").strip()]
 
-    # Global ID IS the shipper ID (Michael, 2026-09-14), OVERRULING the note that used to
-    # stand here -- "never equate Global ID and shipper ID by guessing". It is not a
-    # guess: the intake's shipperId is itself populated from Sales CRM's global_id field
-    # (see CRM_ACCOUNT_PAYLOAD), so the two boxes were always asking for one value and
-    # inviting somebody to disagree with themselves.
-    if p.get("shipper_id"):
-        p["global_id"] = p["shipper_id"]
-        if "global_id" not in locked:
-            locked.append("global_id")
-    else:
+    # The Shipper ID field is gone (Michael, 2026-09-15) -- it and Global ID were two
+    # boxes holding one value, because the intake's shipperId is itself Sales CRM's
+    # global_id. Global ID now takes that source directly, so it prefills and locks
+    # through the ordinary charter path above rather than being copied across.
+    if not str(p.get("global_id") or "").strip():
         crm = source.get("_crm") or {}
         p["global_id"] = str(source.get("globalId") or crm.get("global_id") or "")
+
+    # Complexity is the account's watched-group classification, not an opinion typed
+    # here (Michael, 2026-09-15). Must Win is per-DEAL and can sit on an otherwise
+    # Standard account, so it is named alongside the tier rather than instead of it.
+    tier = t.get("acct_type") or "Standard"
+    p["complexity_tier"] = (f"{tier} · Must Win" if t.get("must_win") else
+                            tier if tier in MANAGED_ACCTS else f"{tier} (non-strategic)")
+    if "complexity_tier" not in locked:
+        locked.append("complexity_tier")
 
     # A locked field FOLLOWS the charter while the requirements are still a draft. Once
     # Sales have submitted, it stops following: the answers the teams are confirming

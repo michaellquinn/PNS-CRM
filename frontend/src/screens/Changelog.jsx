@@ -3,6 +3,23 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-09-15",
+    title: "Eleven changes to the Sales requirements form",
+    by: "Michael + Claude",
+    changes: [
+      "Shipper ID is GONE. It and Global ID were two boxes holding one value — the charter’s Shipper ID is itself Sales CRM’s global_id — so Global ID now takes that source directly and is the one id on the form. The one-id-per-field rule moved with it: “123, 456” is still refused, because the pickup, the monitoring and QC’s own system all key on a single value.",
+      "Complexity tier is now read from the ACCOUNT and locked — Hypercare, Strategic, Must Win or non-strategic. The ticket already holds that classification and the whole app routes on it, so asking for it again only invited a second opinion. Must Win is named beside the tier rather than instead of it, because it is per-deal and can sit on an otherwise Standard account.",
+      "Product volume is now FIRST PICKUP VOLUME and is typed here rather than pulled from the charter — the first pickup is not the deal’s monthly volume.",
+      "Volume unit adds Kg. Product weight is now Est. Weight Per Koli.",
+      "Handling request is editable again: it is written for this launch, not copied from the charter.",
+      "Order creation by adds DE and Sales.",
+      "Pickup PIC and its contact are now Shipper Pickup PIC and Shipper Pickup PIC contact.",
+      "NEW — Pickup Address, written by hand and placed FIRST in the pickup section, because the address is what the fleet reads before anything else. Destination point becomes Destination Address and is written here too, on the same footing.",
+      "Both addresses feed the fleet readiness fingerprint, so changing one re-asks the team that already confirmed against the old address.",
+    ],
+    overruled: [],
+  },
+  {
+    date: "2026-09-15",
     title: "The rate card is called PSP Calculator on LTL, B2BR and B2C",
     by: "Michael + Claude",
     changes: [

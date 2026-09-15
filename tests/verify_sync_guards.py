@@ -428,11 +428,26 @@ check("...and says where the value comes from",
       "from the Project Charter" in _oo,
       "a greyed box with no reason reads as broken")
 
-# Global ID is the shipper ID. Not a guess: the intake's shipperId is itself populated
-# from Sales CRM's global_id, so the two boxes always held one value.
-check("Global ID follows the Shipper ID",
-      'p["global_id"] = p["shipper_id"]' in SRC,
-      "asking twice invites somebody to disagree with themselves")
+# ONE id on the form (Michael, 2026-09-15). Shipper ID and Global ID were two boxes
+# holding one value -- the intake's shipperId is itself Sales CRM's global_id -- so the
+# Shipper ID field is gone and Global ID takes that source directly.
+check("the form asks for one id, not two",
+      '("global_id", "Global ID", "text", "B · Shipper profile", [], "shipperId")' in SRC,
+      "Global ID must carry the charter source now that Shipper ID has gone")
+check("...and no Shipper ID field remains",
+      '("shipper_id", "Shipper ID", "text"' not in SRC,
+      "two boxes for one value invites somebody to disagree with themselves")
+check("the one-id-per-field rule still applies to it",
+      'one_shipper_id(p["global_id"])' in SRC,
+      "the pickup, the monitoring and QC's system all key on this single value")
+
+# The complexity tier is the account's classification, not an opinion typed on the form.
+check("complexity is read from the account",
+      'p["complexity_tier"] = (f"{tier} · Must Win"' in SRC,
+      "the ticket already holds this; asking again invites a second opinion")
+check("...and Must Win is named beside the tier, not instead of it",
+      't.get("must_win")' in SRC,
+      "Must Win is per-deal and can sit on an otherwise Standard account")
 
 print()
 if fails:
