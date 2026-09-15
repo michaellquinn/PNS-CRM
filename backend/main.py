@@ -1515,7 +1515,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-15.2"
+BUILD = "2026-09-15.3"
 
 
 class Me(BaseModel):
@@ -7249,12 +7249,15 @@ RATE_CARDS = {
     # rate sheet behind it, which is not what the link does when you click it.
     "LTL": {"name": "PSP Calculator", "url": WEB_PRICING_URL},
     "B2BR": {"name": "PSP Calculator", "url": WEB_PRICING_URL},
-    # B2C still names the DOCUMENT, because it has no tool to open -- url is None and the
-    # name is shown as plain text. It prices off the B2BR card, which is the sheet, not
-    # the calculator, so the wording is left alone rather than swept along with the two
-    # above.
-    "B2C": {"name": "[ID] Ninja Xpress 2025 Rate Card, B2BR (B2C prices off this card)",
-            "url": None},
+    # B2C joins them (Michael, 2026-09-15). It prices off the B2BR card and the
+    # calculator is the same tool, so the same name is the honest one.
+    #
+    # It gets the LINK as well as the name, which Michael did not ask for in so many
+    # words. A name with no url renders as plain text, so "PSP Calculator" alone would
+    # have named a tool and then refused to open it -- worse than the document name it
+    # replaced. If B2C should not reach the calculator, drop the url and the name has to
+    # go back to naming the sheet.
+    "B2C": {"name": "PSP Calculator", "url": WEB_PRICING_URL},
     "FTL on-call": {"name": "[ID] Ninja Xpress 2026 Rate Card FTL", "url": None},
     "FTL monthly": {"name": "FTL monthly, PNS costing (no published card)", "url": None},
     "Sameday": {"name": "Sameday calculator, Regular Rp 20.000 / 5kg, Premium Rp 35.000 / 5kg",
