@@ -1929,7 +1929,7 @@ async def list_tickets(
         args.append("yes")
     if acct_type:
         # The tier (Strategic/Hypercare/Standard) — imported from the Sales CRM
-        # account group's customer_success_manager field, correctable in-app.
+        # account group's Account Indicator field, correctable in-app.
         marks = ",".join(["%s"] * len(acct_type.split(",")))
         sql += f" AND s.acct_type IN ({marks})"; args += acct_type.split(",")
     if owner:
@@ -2381,6 +2381,7 @@ def merge_crm_payload(current: dict, o: dict, account: dict | None) -> dict:
                 if _first(v) not in (None, "", [], {})}
     if account:
         snapshot["account.name"] = account.get("name")
+        snapshot["account.account_indicator"] = account_indicator(account)
         snapshot["account.customer_success_manager"] = account.get("customer_success_manager")
     # Underscore-prefixed so nothing that walks the intake (the charter, the edit diff,
     # the remembered-values list) picks it up as a field somebody typed.
@@ -2655,9 +2656,11 @@ def _crm_shipper_name(o: dict, account: dict | None = None) -> str:
 def tier_from_csm(raw) -> str | None:
     """Read Hypercare/Strategic out of Account.customer_success_manager.
 
-    The field is named for a person and is being used for three different things: the
-    account tier, legacy Salesforce identifiers from before the in-house migration, and
-    junk like '-'. Only the tier words count; a Salesforce id is not an unknown tier."""
+    The OLD source, kept only as a fallback while Sales CRM moves the tier to Account
+    Indicator (Michael, 2026-09-16). The field is named for a person and was being used
+    for three different things: the account tier, legacy Salesforce identifiers from
+    before the in-house migration, and junk like '-'. Only the tier words count; a
+    Salesforce id is not an unknown tier."""
     s = str(raw or "").strip()
     if not s or re.fullmatch(r"[0-9A-Za-z]{15,18}", s):
         return None
@@ -2666,6 +2669,44 @@ def tier_from_csm(raw) -> str | None:
     if "Strategic" in s:
         return "Strategic"
     return None
+
+
+# Account Indicator is where Sales CRM now tags the account tier (Michael, 2026-09-16),
+# replacing customer_success_manager. The API spelling has not been seen on a live record
+# yet, so the likely snake/camel/custom-field forms are all tried - an absent key costs
+# nothing. It may come back as a bare value or a multi-select list.
+ACCOUNT_INDICATOR_FIELDS = ("account_indicator", "accountIndicator", "account_indicator__c",
+                            "account_indicators")
+
+
+def account_indicator(a: dict | None) -> str:
+    """The Account Indicator text as sent, lists joined, or '' when the account has none."""
+    for key in ACCOUNT_INDICATOR_FIELDS:
+        v = (a or {}).get(key)
+        if isinstance(v, (list, tuple)):
+            v = ", ".join(str(x) for x in v if str(x or "").strip())
+        v = str(v or "").strip()
+        if v:
+            return v
+    return ""
+
+
+def account_tier(a: dict | None) -> str | None:
+    """Hypercare/Strategic for ONE account record, or None when it states no tier.
+
+    Account Indicator decides whenever it is filled in, including when it says something
+    that is not a tier - that is a real answer, and the old field must not overrule it.
+    Only an account whose indicator is still blank falls back to customer_success_manager,
+    so accounts Sales has not re-tagged yet do not drop to Standard on the day of the
+    switch. Must Win is not read here: it is per OPPORTUNITY (read_must_win)."""
+    ind = account_indicator(a).casefold()
+    if ind:
+        if "hypercare" in ind:
+            return "Hypercare"
+        if "strategic" in ind:
+            return "Strategic"
+        return None
+    return tier_from_csm((a or {}).get("customer_success_manager"))
 
 
 # How many times one read is attempted before it is reported as failed, and the
@@ -2809,7 +2850,7 @@ class SalesCrm:
         a = account
         depth = max_depth
         while a and depth > 0:
-            t = tier_from_csm(a.get("customer_success_manager"))
+            t = account_tier(a)
             if t:
                 return t
             pid = str(a.get("parent_account_id") or "")

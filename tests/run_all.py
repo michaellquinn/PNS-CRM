@@ -91,6 +91,11 @@ Each suite exists because something was actually wrong:
                      reserves time to USE what it fetched, and that a queued id is never
                      the thing dropped.
 
+  verify_account_indicator Sales CRM moved the Hypercare/Strategic tag from
+                     customer_success_manager to Account Indicator. Pins the new field
+                     deciding, the old one only as a fallback, and Must Win staying on
+                     the opportunity.
+
   verify_transitions POST /status took whatever string it was handed, so a status the
                      running code cannot act on could be written straight onto a ticket.
                      Also pins that a "*" row does not let a Lost deal be walked
@@ -107,7 +112,8 @@ SUITES = ["verify_rules.py", "verify_assign.py", "verify_workload.py", "verify_a
           "verify_transitions.py", "verify_sync_guards.py", "verify_names.py",
           "verify_service_line.py", "verify_stages.py", "verify_threads.py",
           "verify_onboarding.py", "verify_crm_retry.py", "verify_import_queue.py",
-          "verify_sync_budget.py", "verify_operational_onboarding.py"]
+          "verify_sync_budget.py", "verify_operational_onboarding.py",
+          "verify_account_indicator.py"]
 
 # Suites that EXECUTE backend/main.py rather than reading it need the backend's own
 # dependencies installed. Most suites here deliberately parse the AST instead, precisely
