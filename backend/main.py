@@ -2380,9 +2380,15 @@ def merge_crm_payload(current: dict, o: dict, account: dict | None) -> dict:
     snapshot = {k: _first(v) for k, v in (o or {}).items()
                 if _first(v) not in (None, "", [], {})}
     if account:
-        snapshot["account.name"] = account.get("name")
-        snapshot["account.account_indicator"] = account_indicator(account)
-        snapshot["account.customer_success_manager"] = account.get("customer_success_manager")
+        # Every Account field, not a chosen few. Keeping only the fields we already read
+        # meant a renamed field was invisible exactly when it mattered: when Sales CRM
+        # moved the tier to Account Indicator, the API spelling could not be confirmed
+        # from a ticket because a wrong guess saved nothing (Michael, 2026-09-16).
+        for k, v in account.items():
+            if isinstance(v, (list, tuple)):
+                v = ", ".join(str(x) for x in v if str(x or "").strip())
+            if not isinstance(v, dict) and v not in (None, ""):
+                snapshot[f"account.{k}"] = v
     # Underscore-prefixed so nothing that walks the intake (the charter, the edit diff,
     # the remembered-values list) picks it up as a field somebody typed.
     merged["_crm"] = {k: str(v)[:500] for k, v in snapshot.items() if v not in (None, "")}
