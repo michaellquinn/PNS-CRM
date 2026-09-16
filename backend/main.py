@@ -1516,7 +1516,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-16.1"
+BUILD = "2026-09-16.2"
 
 
 class Me(BaseModel):
@@ -4767,6 +4767,13 @@ async def create_ticket(body: NewTicket, u: User = Depends(current_user)):
     require(u, "createTicket")
     if body.service not in SERVICES:
         raise HTTPException(400, f"service must be one of {SERVICES}")
+    billing_treatment = str((body.payload or {}).get("billingTreatment") or "").strip()
+    if billing_treatment not in BILLING_TREATMENTS:
+        raise HTTPException(
+            400,
+            "billing weight treatment is required and must be one of "
+            + ", ".join(BILLING_TREATMENTS),
+        )
 
     sh = await q("SELECT id, acct_type FROM shippers WHERE name=%s", (body.shipper,), one=True)
     if sh:

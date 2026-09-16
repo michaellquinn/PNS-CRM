@@ -3,6 +3,16 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-09-16",
+    title: "Billing treatment is collected when the request is raised",
+    by: "Michael + Codex",
+    changes: [
+      "The Billing weight treatment dropdown now appears directly on New Request → 4 · Ninja’s service, where Sales first fills the Project Charter information. It defaults to Standard and offers Actual weight, Shipper weight and Custom rounding.",
+      "The first release exposed the field only after a ticket existed, inside Edit input. That was too late for the form where Sales is expected to provide the answer, so the server now also requires a valid choice when a manual request is submitted.",
+    ],
+    overruled: [],
+  },
+  {
+    date: "2026-09-16",
     title: "Billing weight treatment belongs on the Project Charter",
     by: "Michael + Codex",
     changes: [

@@ -113,6 +113,21 @@ print("\n--- sample plain text (first 18 lines) ---")
 for line in text.splitlines()[:18]:
     print("   " + line)
 
+print("\n=== new-request billing treatment")
+forms_src = open(os.path.join(_REPO, "frontend", "src", "screens", "Forms.jsx"),
+                 encoding="utf-8").read()
+form_checks = [
+    ("field is visible on New Request", 'label="Billing weight treatment"' in forms_src),
+    ("default is Standard", 'billingTreatment: "Standard"' in forms_src),
+    ("all four choices are present", all(
+        f"<option>{choice}</option>" in forms_src
+        for choice in ("Standard", "Actual weight", "Shipper weight", "Custom rounding"))),
+]
+for desc, ok in form_checks:
+    if not ok:
+        fails.append("new request: " + desc)
+    print("   %-42s %s" % (desc, "ok" if ok else "<-- FAILED"))
+
 print()
 # ------------------------------------------------- the brief belongs to Sales
 # FIELD_RULES has always said so: brief is ("Sales", "asked", "It is the first thing PNS

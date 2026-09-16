@@ -32,7 +32,8 @@ export function NewRequest({ me, notify, onCreated }) {
     opportunity_id: "",
     service: "LTL", acct_type: "Standard", region: "GJ", revenue: "48000000",
     project: "One time project", contract: "Short (<= 1 year)",
-    sla: "Standard", mps: "Yes", rdo: "Yes", cod: "No", tkbmO: "No", tkbmD: "No",
+    sla: "Standard", billingTreatment: "Standard", mps: "Yes", rdo: "Yes",
+    cod: "No", tkbmO: "No", tkbmD: "No",
     ins: "No", pallet: "Non palletized", commodity: "FMCG", destType: "GT",
   });
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
@@ -252,6 +253,16 @@ export function NewRequest({ me, notify, onCreated }) {
         <Section label="4 · Ninja's service">
           <Field label="SLA" required>
             <select className={inputCls} value={f.sla} onChange={set("sla")}><option>Standard</option><option>Custom</option></select>
+          </Field>
+          <Field label="Billing weight treatment" required
+            hint="For Custom rounding, explain the rounding rule in Notes.">
+            <select className={inputCls} value={f.billingTreatment}
+              onChange={set("billingTreatment")}>
+              <option>Standard</option>
+              <option>Actual weight</option>
+              <option>Shipper weight</option>
+              <option>Custom rounding</option>
+            </select>
           </Field>
           <Field label="MPS" required>
             <select className={inputCls} value={f.mps} onChange={set("mps")}><option>Yes</option><option>No</option></select>
