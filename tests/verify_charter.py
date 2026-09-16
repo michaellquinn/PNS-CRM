@@ -84,7 +84,8 @@ t = {"ticket_ref": "SOF-1001302", "shipper": "PT Paskomnas <Niaga> & Utama",
      "region": "GJ", "status": "Proposal Submitted", "submitted_on": "2026-08-04",
      "sales_name": "Sandrina", "owner_name": "Annisa"}
 inp = {"brief": "line one\nline two", "pickup": "Cianjur", "pickWait": "",
-       "delWait": "1", "volume": "6000", "sla": "Custom", "cod": "No"}
+       "delWait": "1", "volume": "6000", "sla": "Custom", "cod": "No",
+       "billingTreatment": "Actual weight"}
 html, text = ns['render_charter'](t, inp, [("Pricing", "Sameday calculator")])
 
 checks = [
@@ -95,6 +96,8 @@ checks = [
     ("1 hour is singular", re.search(r"Delivery waiting time\s*:\s*1 hour\b", text) is not None),
     ("revenue formatted id-ID", "Rp 10.000.000" in text),
     ("extras appended", "Sameday calculator" in html and "Sameday calculator" in text),
+    ("billing treatment is on charter", re.search(
+        r"Billing weight treatment\s*:\s*Actual weight", text) is not None),
     ("empty field shows em dash in html", "&mdash;" in html),
     ("all three sections present", all(s in text for s, _ in
                                        [(x[0].upper(), None) for x in ns['CHARTER_SECTIONS']])),

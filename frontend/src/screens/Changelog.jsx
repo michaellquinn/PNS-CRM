@@ -2,6 +2,17 @@ import { Card, Head, Pill } from "../ui";
 
 const ENTRIES = [
   {
+    date: "2026-09-16",
+    title: "Billing weight treatment belongs on the Project Charter",
+    by: "Michael + Codex",
+    changes: [
+      "NEW — Billing weight treatment is an editable Project Charter dropdown under Ninja’s service: Standard, Actual weight, Shipper weight or Custom rounding.",
+      "Sales CRM’s existing Billing weight logic remains visible as the raw reference. The Project Charter choice is entered separately, so a charter decision is not silently changed by a later CRM refresh.",
+      "The server accepts only those four choices. When Custom rounding is selected, the rounding rule should be written in Notes.",
+    ],
+    overruled: [],
+  },
+  {
     date: "2026-09-15",
     title: "Eleven changes to the Sales requirements form",
     by: "Michael + Claude",

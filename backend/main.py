@@ -110,6 +110,7 @@ VENDOR_SERVICES = ("FTL", "FTL on-call", "FTL monthly")
 # ordinary ones, so it lives on the ticket (tickets.must_win) and never on the shipper.
 # Everything with no tag at all is Standard.
 ACCT_TYPES = ["Hypercare", "Strategic", "Standard"]
+BILLING_TREATMENTS = ["Standard", "Actual weight", "Shipper weight", "Custom rounding"]
 MANAGED_ACCTS = ("Hypercare", "Strategic")
 
 
@@ -1515,7 +1516,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-15.4"
+BUILD = "2026-09-16.1"
 
 
 class Me(BaseModel):
@@ -5212,6 +5213,13 @@ async def edit_input(ref: str, body: InputPatch, u: User = Depends(current_user)
 
     changes = []
     if body.payload is not None:
+        billing_treatment = str(body.payload.get("billingTreatment") or "").strip()
+        if billing_treatment and billing_treatment not in BILLING_TREATMENTS:
+            raise HTTPException(
+                400,
+                "billing weight treatment must be one of "
+                + ", ".join(BILLING_TREATMENTS),
+            )
         row = await q("SELECT payload FROM ticket_input WHERE ticket_id=%s", (t["id"],), one=True)
         current = {}
         if row and row["payload"]:
@@ -5634,7 +5642,8 @@ CHARTER_SECTIONS = [
     ("3 Â· Ninja's service", [
         ("pickSlot", "Pickup time"), ("pickWait", "Pickup waiting time"),
         ("delSlot", "Delivery time"), ("delWait", "Delivery waiting time"),
-        ("destType", "Delivery destination type"), ("sla", "SLA"), ("mps", "MPS"),
+        ("destType", "Delivery destination type"), ("sla", "SLA"),
+        ("billingTreatment", "Billing weight treatment"), ("mps", "MPS"),
         ("rdo", "RDO"), ("cod", "COD"), ("tkbmO", "TKBM origin"), ("tkbmD", "TKBM destination"),
         ("ins", "Insurance"), ("truck", "Vehicle request"),
         ("handling", "Custom handling request"), ("notes", "Notes"),
@@ -5697,6 +5706,8 @@ FIELD_RULES = {
     "delWait":        ("Sales", "optional", "Blank means the driver does not wait."),
     "destType":       ("Sales", "asked", ""),
     "sla":            ("Sales", "asked", ""),
+    "billingTreatment": ("Sales", "asked", "Custom rounding should be explained in "
+                                             "the Notes field."),
     "mps":            ("Sales", "asked", ""),
     "rdo":            ("Sales", "asked", ""),
     "rdoNotes":       ("Sales", "optional", "Only when RDO is Yes. PNS cannot price an "

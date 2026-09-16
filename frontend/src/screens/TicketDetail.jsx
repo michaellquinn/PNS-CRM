@@ -31,7 +31,8 @@ const SECTIONS = [
   ["3 · Ninja's service", [
     ["pickSlot", "Pickup time"], ["pickWait", "Pickup waiting time"],
     ["delSlot", "Delivery time"], ["delWait", "Delivery waiting time"],
-    ["destType", "Delivery destination type"], ["sla", "SLA"], ["mps", "MPS"],
+    ["destType", "Delivery destination type"], ["sla", "SLA"],
+    ["billingTreatment", "Billing weight treatment"], ["mps", "MPS"],
     ["rdo", "RDO"], ["rdoNotes", "RDO details from Sales"],
     ["cod", "COD"], ["tkbmO", "TKBM origin"], ["tkbmD", "TKBM destination"],
     ["ins", "Insurance"], ["truck", "Vehicle request"],
@@ -51,6 +52,9 @@ const EDITABLE = SECTIONS.flatMap(([, fields]) => fields);
 const LONG = ["brief", "handling", "notes", "rdoNotes", "invAddr", "pickup", "dest"];
 const YESNO = ["mps", "rdo", "cod", "tkbmO", "tkbmD", "ins"];
 const HOURS = ["pickWait", "delWait"];
+const SELECT_OPTIONS = {
+  billingTreatment: ["Standard", "Actual weight", "Shipper weight", "Custom rounding"],
+};
 
 // Waiting time is the one field where blank is an answer, not a gap: "None" means the
 // driver does not wait, which is a costed fact. Everything else shows an em dash.
@@ -619,6 +623,12 @@ function CommercialTicketDetail({ ticketRef: initialRef, me, notify, onBack,
                             onChange={(e) => setDraft({ ...draft, [k]: e.target.value })}>
                             <option>Yes</option><option>No</option>
                           </select>
+                        ) : SELECT_OPTIONS[k] ? (
+                          <select className={`${inputCls} max-w-[240px]`} value={draft[k] || ""}
+                            onChange={(e) => setDraft({ ...draft, [k]: e.target.value })}>
+                            <option value="">Choose billing treatment…</option>
+                            {SELECT_OPTIONS[k].map((option) => <option key={option}>{option}</option>)}
+                          </select>
                         ) : remembered[k] ? (
                           <Combo value={draft[k]} options={remembered[k]}
                             placeholder="Type anything; past answers are suggested"
@@ -764,6 +774,12 @@ function CommercialTicketDetail({ ticketRef: initialRef, me, notify, onBack,
                           <select className={`${inputCls} max-w-[140px]`} value={draft[k] || "No"}
                             onChange={(e) => setDraft({ ...draft, [k]: e.target.value })}>
                             <option>Yes</option><option>No</option>
+                          </select>
+                        ) : SELECT_OPTIONS[k] ? (
+                          <select className={`${inputCls} max-w-[240px]`} value={draft[k] || ""}
+                            onChange={(e) => setDraft({ ...draft, [k]: e.target.value })}>
+                            <option value="">Choose billing treatment…</option>
+                            {SELECT_OPTIONS[k].map((option) => <option key={option}>{option}</option>)}
                           </select>
                         ) : remembered[k] ? (
                           <Combo value={draft[k]} options={remembered[k]}
