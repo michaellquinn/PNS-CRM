@@ -3474,6 +3474,7 @@ async def salescrm_account_raw(account_id: str, u: User = Depends(current_user))
     aid = re.sub(r"\D", "", account_id or "")
     if not aid:
         raise HTTPException(400, "Give a numeric Sales CRM account id")
+    import httpx
     async with httpx.AsyncClient(timeout=12,
                                  headers={"X-API-Key": SALESCRM_API_KEY}) as client:
         crm = SalesCrm(client)
