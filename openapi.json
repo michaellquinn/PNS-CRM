@@ -1702,7 +1702,7 @@
       "Me": {
         "properties": {
           "build": {
-            "default": "2026-09-17.1",
+            "default": "2026-09-17.2",
             "title": "Build",
             "type": "string"
           },
@@ -3022,6 +3022,17 @@
             ],
             "title": "Margin Pct"
           },
+          "price_category": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Category"
+          },
           "price_file": {
             "title": "Price File",
             "type": "string"
@@ -3134,6 +3145,17 @@
               }
             ],
             "title": "Note"
+          },
+          "price_category": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Category"
           },
           "price_file": {
             "anyOf": [
@@ -4090,6 +4112,17 @@
             ],
             "title": "Parent Account Id"
           },
+          "price_category": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Category"
+          },
           "price_file": {
             "anyOf": [
               {
@@ -4793,7 +4826,7 @@
   "info": {
     "description": "Ninja PNS - solutioning and pricing workflow for Ninja Xpress Indonesia. Every route below requires a signed-in session: identity arrives from the platform's auth proxy as an X-Forwarded-Email header the browser cannot set, and the app resolves a role from it. GET /health is the only unauthenticated route. Generated from the app's own route table by tools/gen_openapi.py - do not hand-edit.",
     "title": "Ninja PNS, Solutioning",
-    "version": "2026-09-17.1"
+    "version": "2026-09-17.2"
   },
   "openapi": "3.1.0",
   "paths": {

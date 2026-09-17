@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, BOTTOM_MARGIN, LIVE_STATUSES, PENDING, SEND_BACK_STATUSES,
+import { api, BOTTOM_MARGIN, PRICE_CATEGORIES, categoryLabel, LIVE_STATUSES, PENDING, SEND_BACK_STATUSES,
          REQUIREMENT_STATUS, PICKABLE_LOSS_REASONS, SELLING_GROUPS, SERVICES,
          FTL, WATCHED_GROUPS, NEW_TICKET_DAYS, arrivedAgo, groupFilter, groupTone,
          isNewIncoming, isPnsWork, mayGoToPsp, rp } from "../api";
@@ -264,11 +264,22 @@ function RateCard({ service }) {
  * State is local and seeded from the ticket, so opening the form shows what is currently
  * attached rather than a blank box that looks like nothing has been priced.
  */
+/** Category 1/2/3 picker, shared by the pricing form and the PSP review. */
+function CategorySelect({ value, onChange, blankLabel = "Price category (required)" }) {
+  return (
+    <select className={inputCls} value={value} onChange={(e) => onChange(e.target.value)}>
+      <option value="">{blankLabel}</option>
+      {PRICE_CATEGORIES.map((c) => (
+        <option key={c.id} value={c.id}>{c.label} — {c.hint}</option>
+      ))}
+    </select>
+  );
+}
+
 export function PriceForm({ t, me, notify, onDone, compact = false }) {
   const [link, setLink] = useState(t.price_url || "");
   const [label, setLabel] = useState(t.price_file || "");
-  const [margin, setMargin] = useState(t.margin ?? "");
-  const [disc, setDisc] = useState(t.discount_pct ?? "");
+  const [cat, setCat] = useState(t.price_category ? String(t.price_category) : "");
   const [below, setBelow] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -276,15 +287,14 @@ export function PriceForm({ t, me, notify, onDone, compact = false }) {
     const url = link.trim();
     if (url && !/^https?:\/\//i.test(url))
       return notify("The link must start with http:// or https://");
-    const num = (v) => (v === "" || v == null ? null : Number(v));
+    if (!cat) return notify("Choose the price category first");
     setBusy(true);
     try {
       await api.price(t.ref, {
         // A bare link with no label still needs something to show in lists.
         price_file: label.trim() || "Pricing spreadsheet",
         price_url: url || null,
-        margin_pct: num(margin),
-        discount_pct: num(disc),
+        price_category: Number(cat),
         below_bottom: !!below,
       });
       notify("Price updated");
@@ -314,23 +324,11 @@ export function PriceForm({ t, me, notify, onDone, compact = false }) {
         and cannot grant access. Keep cost and margin workings out of any sheet a
         shipper or Commercial will open.
       </p>
-      {/* The 5A tier ceiling is checked against these. Leaving one blank is not a
-          breach, since a standard rate card has nothing to declare, but then
-          nothing is checked either. */}
-      <div className="mb-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-        <input className={inputCls} type="number" step="0.1" min="0" max="100"
-          placeholder="Margin % (leave blank if standard)"
-          value={margin} onChange={(e) => setMargin(e.target.value)} />
-        <input className={inputCls} type="number" step="0.1" min="0" max="100"
-          placeholder="Discount % (leave blank if none)"
-          value={disc} onChange={(e) => setDisc(e.target.value)} />
+      {/* Category replaces the margin % and discount % boxes (Michael, 2026-09-17).
+          It is a tag: the approval chain does not read it. */}
+      <div className="mb-3">
+        <CategorySelect value={cat} onChange={setCat} />
       </div>
-      {BOTTOM_MARGIN[t.service] != null && (
-        <p className="mb-2 text-[11px] text-slate-400">
-          {t.service} floor is {BOTTOM_MARGIN[t.service]}%, so a margin of{" "}
-          {Math.max(0, BOTTOM_MARGIN[t.service] - 1)}% would be below it.
-        </p>
-      )}
       <div className="flex flex-wrap items-center gap-2">
         {BOTTOM_MARGIN[t.service] != null && (
           <label className="flex items-center gap-2 rounded-lg bg-amber-50 px-3 py-1.5 text-[12.5px] font-medium text-amber-800">
@@ -340,7 +338,7 @@ export function PriceForm({ t, me, notify, onDone, compact = false }) {
           </label>
         )}
         <Btn kind="primary" className="ml-auto"
-          disabled={busy || !(link.trim() || label.trim())}
+          disabled={busy || !cat || !(link.trim() || label.trim())}
           onClick={submit}>
           {t.price_file || t.price_url ? "Update price" : "Attach price"}
         </Btn>
@@ -740,8 +738,8 @@ export function ToReview({ me, onOpen, notify }) {
               : <Pill key="g" tone="bg-violet-50 text-violet-700">Sales priced it — check the number</Pill>,
           ]}>
           {(t.price_file || t.price_url) && <p className="mb-2 text-[13px]"><PriceChip file={t.price_file} url={t.price_url} /></p>}
-          {!head && t.margin != null && (
-            <p className="mb-3 text-[13px]">Margin submitted: <b className="font-mono">{t.margin}%</b></p>
+          {t.price_category && (
+            <p className="mb-3 text-[13px]">Price category: <b>{categoryLabel(t.price_category)}</b></p>
           )}
           <RateCard service={t.service} />
           <div className="flex flex-wrap items-center gap-2">
@@ -818,8 +816,7 @@ export function PspPending({ me, onOpen, notify }) {
   const [note, setNote] = useState({});
   const [link, setLink] = useState({});
   const [file, setFile] = useState({});
-  const [margin, setMargin] = useState({});
-  const [disc, setDisc] = useState({});
+  const [cat, setCat] = useState({});
   const [list, f, set, clear, patch] = useFilter(rows, {}, "psp");
   const act = async (fn) => { try { await fn(); notify("Done"); await reload(); } catch (e) { notify(e.message); } };
 
@@ -833,11 +830,9 @@ export function PspPending({ me, onOpen, notify }) {
       notify("The link must start with http:// or https://");
       return null;
     }
-    const num = (v) => (v === "" || v == null ? null : Number(v));
     const out = {};
     if (url) { out.price_url = url; out.price_file = (file[ref] || "").trim() || "Pricing spreadsheet"; }
-    if (margin[ref] !== undefined && margin[ref] !== "") out.margin_pct = num(margin[ref]);
-    if (disc[ref] !== undefined && disc[ref] !== "") out.discount_pct = num(disc[ref]);
+    if (cat[ref]) out.price_category = Number(cat[ref]);
     return out;
   };
 
@@ -867,8 +862,8 @@ export function PspPending({ me, onOpen, notify }) {
         <TicketCard key={t.ref} t={t} onOpen={onOpen}
 >
           {(t.price_file || t.price_url) && <p className="mb-2 text-[13px]"><PriceChip file={t.price_file} url={t.price_url} /></p>}
-          {t.margin != null && (
-            <p className="mb-3 text-[13px]">Margin: <b className="font-mono">{t.margin}%</b></p>
+          {t.price_category && (
+            <p className="mb-3 text-[13px]">Price category: <b>{categoryLabel(t.price_category)}</b></p>
           )}
           {view === "decided" ? (
             <div className="flex flex-wrap items-center gap-2">
@@ -895,13 +890,9 @@ export function PspPending({ me, onOpen, notify }) {
                 <input className={inputCls} placeholder="Label (optional)"
                   value={file[t.ref] ?? ""} onChange={(e) => setFile({ ...file, [t.ref]: e.target.value })} />
               </div>
-              <div className="mb-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                <input className={inputCls} type="number" step="0.1" min="0" max="100"
-                  placeholder="Margin % (leave blank to keep as-is)"
-                  value={margin[t.ref] ?? ""} onChange={(e) => setMargin({ ...margin, [t.ref]: e.target.value })} />
-                <input className={inputCls} type="number" step="0.1" min="0" max="100"
-                  placeholder="Discount % (leave blank to keep as-is)"
-                  value={disc[t.ref] ?? ""} onChange={(e) => setDisc({ ...disc, [t.ref]: e.target.value })} />
+              <div className="mb-3">
+                <CategorySelect value={cat[t.ref] ?? ""} blankLabel="Keep the current category"
+                  onChange={(v) => setCat({ ...cat, [t.ref]: v })} />
               </div>
               <p className="mb-3 text-[11px] text-slate-400">
                 Only fill these in if you're entering or correcting the figure yourself —

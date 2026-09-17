@@ -174,7 +174,6 @@ export default function Dashboard({ me, onOpen }) {
   // triaging work, and a margin figure sitting in a list invites screenshots. It stays
   // on the ticket's Pricing tab, still behind seeMargin. The CSV keeps it for the roles
   // allowed to see it, because that is an export someone asked for by name.
-  const canSeeMargin = me.permissions.seeMargin;
 
   // key is what the row is sorted by; label is the header. Order matches how the team
   // reads a row: identify it, then when, then who and what, then where it stands.
@@ -266,7 +265,7 @@ export default function Dashboard({ me, onOpen }) {
     const head = ["Ticket", "CRM ID", "First submitted", "Opportunity", "Shipper", "Account type", "Region",
                   "Service", "Revenue", "Status", "Sales CRM stage", "Priced by",
                   "PNS review", "Days in status", "SLA target",
-                  ...(canSeeMargin ? ["Margin %"] : []), "PNS PIC", "Sales PIC"];
+                  "Price category", "PNS PIC", "Sales PIC"];
     const esc = (v) => {
       const s = v == null ? "" : String(v);
       return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
@@ -275,7 +274,7 @@ export default function Dashboard({ me, onOpen }) {
       t.ref, t.opportunity_id || "", t.submitted_on, dealName(t), t.shipper, t.acct_type, t.region,
       t.service, t.revenue, t.status, t.stage || "", t.priced_by,
       t.needs_review ? "yes" : "no", t.sla_elapsed, t.sla_target,
-      ...(canSeeMargin ? [t.margin ?? ""] : []), t.owner || "", t.sales || "",
+      t.price_category ? `Category ${t.price_category}` : "", t.owner || "", t.sales || "",
     ].map(esc).join(",")));
     const url = URL.createObjectURL(
       new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv;charset=utf-8;" }));

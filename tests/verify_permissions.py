@@ -296,6 +296,13 @@ for label, ok, hint in [
     ("no screen offers an account type picker",
      "<option>Strategic</option>" not in _FE("screens/Forms.jsx")
      and "<option>Strategic</option>" not in _FE("screens/TicketDetail.jsx"), ""),
+    ("a price cannot be attached without a category (1, 2 or 3)",
+     'Choose the price category (1, 2 or 3) before attaching' in _SRC
+     and "PRICE_CATEGORIES = {" in _SRC, "Michael, 2026-09-17"),
+    ("the pricing forms no longer ask for margin or discount",
+     "Margin % (" not in _FE("screens/Queues.jsx") and "Discount % (" not in _FE("screens/Queues.jsx"), ""),
+    ("the category is not sent to roles that cannot see the price",
+     'price_category=(t.get("price_category") if sees_price else None)' in _SRC, "Ops and QC"),
     ("the New Request form has no Must Win checkbox",
      'label="Must Win"' not in _FE("screens/Forms.jsx"), ""),
 ]:

@@ -3,6 +3,21 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-09-17",
+    title: "Prices are tagged Category 1, 2 or 3 instead of margin and discount",
+    by: "Michael + Claude",
+    changes: [
+      "Pricing - PNS, Pricing - Sales, the ticket's Pricing tab and the PSP review no longer ask for Margin % and Discount %. They ask for the price category instead, for every service: Category 1 = discount up to 40%; Category 2 = discount above 40% with margin still 20% or more; Category 3 = margin below 20% (the floor is 10% for B2BR and 5% for LTL).",
+      "A price cannot be attached without a category. PSP can re-tag the category when deciding.",
+      "The category shows as a Cat 1 / Cat 2 / Cat 3 tag on every ticket card, on the Pricing tab, in the sign-off draft and in the dashboard CSV. Only roles that can see the price get it — Ops and QC do not.",
+      "It is a TAG ONLY. The approval chain is unchanged: watched groups still go to the Head of PNS first, manual-review bands and Sameday still reach PSP, and the Below bottom rate checkbox still sends LTL and B2BR to the floor route.",
+      "Margin and discount figures entered before today are kept in the database, not deleted.",
+    ],
+    overruled: [
+      "Margin % and Discount % typed at price attach (5A ceiling check): with no figure entered, the automatic check of a margin below the revenue-band floor, and of a Sameday discount above 20%, no longer fires. Below bottom rate (LTL, B2BR) and the rule-based PSP routes still apply.",
+    ],
+  },
+  {
+    date: "2026-09-17",
     title: "Must Win and the account tier are set in Sales CRM only",
     by: "Michael + Claude",
     changes: [

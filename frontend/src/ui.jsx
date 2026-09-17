@@ -307,6 +307,13 @@ export function TicketCard({ t, badges = [], children, onOpen }) {
             {/* One of the three watched groups. Must Win is per-deal, so it can appear
                 on an otherwise Standard account and must be visible at a glance. */}
             {t.must_win && <Pill tone="bg-orange-100 text-orange-800">Must Win</Pill>}
+            {/* Price category tag (Michael, 2026-09-17). Only sent to roles that see
+                the price, so Ops and QC never get it. */}
+            {t.price_category && (
+              <Pill tone={t.price_category === 3 ? "bg-rose-50 text-rose-700"
+                : t.price_category === 2 ? "bg-amber-50 text-amber-800"
+                : "bg-sky-50 text-sky-800"}>Cat {t.price_category}</Pill>
+            )}
             {/* On a synced loss our own reason is the generic "Closed in Sales CRM",
                 which explains nothing. Sales CRM's own reason is shown instead wherever
                 the ticket appears (Baskoro, 2026-08-18).

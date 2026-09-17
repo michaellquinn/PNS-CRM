@@ -352,6 +352,15 @@ export const rp = (n) => "Rp " + Number(n || 0).toLocaleString("id-ID");
 // the server rejects the flag for anything else regardless of what the UI shows.
 export const BOTTOM_MARGIN = { LTL: 5, B2BR: 10 };
 
+// Mirrors backend PRICE_CATEGORIES (Michael, 2026-09-17). Replaces the margin % and
+// discount % boxes on every pricing form. A tag only — no approval reads it.
+export const PRICE_CATEGORIES = [
+  { id: 1, label: "Category 1", hint: "Discount up to 40%" },
+  { id: 2, label: "Category 2", hint: "Discount above 40%, margin still 20% or more" },
+  { id: 3, label: "Category 3", hint: "Margin below 20% (floor 10% B2BR, 5% LTL)" },
+];
+export const categoryLabel = (n) => PRICE_CATEGORIES.find((c) => c.id === Number(n))?.label;
+
 // Mirrors backend may_go_to_psp(). PSP is discretionary-only for a watched account
 // (Hypercare, Strategic or Must Win) or a ticket the PNS Head opened on Alex's exception —
 // everything else reaches PSP only by rule (a manual-review band, Sameday >20%

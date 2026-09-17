@@ -175,6 +175,23 @@ SYNC_OWNER_EMAIL = os.getenv("SYNC_OWNER_EMAIL", "baskoro.nugroho@ninjavan.co").
 # for every service from the 5A tables. Both run: the guard catches a breach the pricer
 # did not declare, the checkbox catches one the numbers do not show.
 BOTTOM_MARGIN = {"LTL": 5.0, "B2BR": 10.0}
+# The price is TAGGED with a category instead of carrying a margin % and a discount %
+# (Michael, 2026-09-17). A tag, nothing more: no approval, gate or queue reads it, and
+# the approval chain is exactly what it was. Every service picks one.
+PRICE_CATEGORIES = {
+    1: "Category 1 — discount up to 40%",
+    2: "Category 2 — discount above 40%, margin still 20% or more",
+    3: "Category 3 — margin below 20% (floor 10% B2BR, 5% LTL)",
+}
+
+
+def clean_price_category(v) -> int | None:
+    if v is None:
+        return None
+    if v not in PRICE_CATEGORIES:
+        raise HTTPException(400, "price category must be 1, 2 or 3")
+    return int(v)
+
 LOSS_REASONS = ["pricing", "shipper", "solution", "ops", "no_vendor", "billing", "pns",
                 # Set by the Sales CRM sync when the opportunity is Closed-Lost there.
                 "salescrm"]
@@ -1516,7 +1533,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-17.1"
+BUILD = "2026-09-17.2"
 
 
 class Me(BaseModel):
@@ -1554,6 +1571,7 @@ class Ticket(BaseModel):
     sla_elapsed: int
     sla_target: int
     margin: float | None = None   # omitted for roles without seeMargin
+    price_category: int | None = None   # 1, 2 or 3 — a tag; omitted without seePrice
     price_file: str | None = None
     price_url: str | None = None
     # WHETHER it has been priced, which is not the same fact as what the price is. Sent
@@ -1758,6 +1776,7 @@ def shape(t: dict, u: User) -> Ticket:
         sla_elapsed=sla_days_elapsed(t), sla_target=int(t["sla_days"]),
         price_file=(t.get("price_file") if sees_price else None),
         price_url=(t.get("price_url") if sees_price else None),
+        price_category=(t.get("price_category") if sees_price else None),
         priced=bool(t.get("price_file") or t.get("price_url")),
         open_questions=int(t.get("open_q") or 0),
         psp_assignee=t.get("psp_assignee"), psp_ready=bool(t.get("psp_ready")),
@@ -1822,7 +1841,7 @@ async def list_tickets(
     onboarding: str | None = None,
 ):
     sql = ("SELECT t.*, s.name AS shipper, s.acct_type, s.account_id, s.account_name, "
-           "s.parent_account_id, p.margin_pct, p.price_file, p.price_url, "
+           "s.parent_account_id, p.margin_pct, p.price_category, p.price_file, p.price_url, "
            "(SELECT COUNT(*) FROM ticket_comments c WHERE c.ticket_id=t.id "
            "AND c.is_question=1 AND c.resolved_at IS NULL) AS open_q, "
            "(SELECT a.decision FROM approvals a WHERE a.ticket_id=t.id AND a.kind='psp' "
@@ -2031,7 +2050,7 @@ async def accounts(u: User = Depends(current_user),
     an ordinary ticket or change who prices it."""
     rows = await q(
         "SELECT t.*, s.name AS shipper, s.acct_type, s.account_id, s.account_name, "
-        "s.parent_account_id, p.margin_pct, p.price_file, p.price_url, "
+        "s.parent_account_id, p.margin_pct, p.price_category, p.price_file, p.price_url, "
         "(SELECT COUNT(*) FROM ticket_comments c WHERE c.ticket_id=t.id "
         "AND c.is_question=1 AND c.resolved_at IS NULL) AS open_q, "
         "TIMESTAMPDIFF(DAY, t.status_since, NOW()) AS sla_days_db, "
@@ -4945,8 +4964,11 @@ class PriceIn(BaseModel):
     price_file: str                      # human label, e.g. "Rate card - Sinar Kencana v2"
     price_url: str | None = None         # link to the spreadsheet holding the actual price
     price_size: int | None = None
-    margin_pct: float | None = None      # checked against the 5A ceiling for the tier
-    discount_pct: float | None = None    # the lever Sameday is capped on, not margin
+    # Retired from the form (Michael, 2026-09-17) in favour of price_category. Still
+    # accepted, so an old open tab does not fail, and still checked if a client sends it.
+    margin_pct: float | None = None
+    discount_pct: float | None = None
+    price_category: int | None = None    # 1, 2 or 3 — a tag, see PRICE_CATEGORIES
     below_bottom: bool = False           # manual, LTL and B2BR only, checked server-side
     # Escalating to PSP is a standalone button (POST .../status), not a price-attach
     # field, so it shows up on PSP's queue the moment it's clicked rather than only
@@ -5000,16 +5022,22 @@ async def submit_price(ref: str, body: PriceIn, u: User = Depends(current_user))
     if not attach_price(u, t):
         raise HTTPException(403, f"{t['resp']} owes the price on {ref}")
     url = clean_url(body.price_url)
+    category = clean_price_category(body.price_category)
+    if category is None:
+        raise HTTPException(400, "Choose the price category (1, 2 or 3) before attaching "
+                                 "the price")
 
     await execute(
         "INSERT INTO pricing (ticket_id, price_file, price_url, price_size, margin_pct, "
-        "discount_pct, priced_by, priced_at) VALUES (%s,%s,%s,%s,%s,%s,%s,NOW()) "
+        "discount_pct, price_category, priced_by, priced_at) "
+        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,NOW()) "
         "ON DUPLICATE KEY UPDATE "
         "price_file=VALUES(price_file), price_url=VALUES(price_url), "
         "price_size=VALUES(price_size), margin_pct=VALUES(margin_pct), "
-        "discount_pct=VALUES(discount_pct), priced_by=VALUES(priced_by), priced_at=NOW()",
+        "discount_pct=VALUES(discount_pct), price_category=VALUES(price_category), "
+        "priced_by=VALUES(priced_by), priced_at=NOW()",
         (t["id"], body.price_file, url, body.price_size, body.margin_pct,
-         body.discount_pct, u.name))
+         body.discount_pct, category, u.name))
     # A fresh price starts a fresh cycle, so any earlier PSP clearance no longer applies.
     await execute("UPDATE tickets SET psp_ready=0 WHERE id=%s", (t["id"],))
 
@@ -6864,7 +6892,7 @@ async def signoff_draft(ref: str, u: User = Depends(current_user)):
     p = {}
     if row and row["payload"]:
         p = row["payload"] if isinstance(row["payload"], dict) else json.loads(row["payload"])
-    pr = await q("SELECT price_url, margin_pct, discount_pct FROM pricing WHERE ticket_id=%s",
+    pr = await q("SELECT price_url, margin_pct, discount_pct, price_category FROM pricing WHERE ticket_id=%s",
                  (t["id"],), one=True) or {}
 
     def line(label, value):
@@ -6891,6 +6919,7 @@ async def signoff_draft(ref: str, u: User = Depends(current_user)):
             line("Target go-live", p.get("golive")),
             line("Margin", f"{pr.get('margin_pct')}%" if pr.get("margin_pct") is not None else None),
             line("Discount", f"{pr.get('discount_pct')}%" if pr.get("discount_pct") is not None else None),
+            line("Price category", PRICE_CATEGORIES.get(pr.get("price_category"))),
             line("Pricing sheet", pr.get("price_url")),
         ]),
         "",
@@ -6919,6 +6948,7 @@ class PspIn(BaseModel):
     price_url: str | None = None
     margin_pct: float | None = None
     discount_pct: float | None = None
+    price_category: int | None = None
 
 
 @app.post("/api/tickets/{ref}/psp", response_model=Ok)
@@ -6940,17 +6970,25 @@ async def psp_decide(ref: str, body: PspIn, u: User = Depends(current_user)):
     else:
         require(u, "pspDecide")
 
+    psp_category = clean_price_category(body.price_category)
+    if psp_category is not None:
+        # PSP may re-tag the category on its own, without re-attaching a sheet.
+        await execute("UPDATE pricing SET price_category=%s WHERE ticket_id=%s",
+                      (psp_category, t["id"]))
     if body.price_file or body.price_url:
         url = clean_url(body.price_url)
         await execute(
             "INSERT INTO pricing (ticket_id, price_file, price_url, margin_pct, "
-            "discount_pct, priced_by, priced_at) VALUES (%s,%s,%s,%s,%s,%s,NOW()) "
+            "discount_pct, price_category, priced_by, priced_at) "
+            "VALUES (%s,%s,%s,%s,%s,%s,%s,NOW()) "
             "ON DUPLICATE KEY UPDATE "
             "price_file=VALUES(price_file), price_url=VALUES(price_url), "
-            "margin_pct=VALUES(margin_pct), discount_pct=VALUES(discount_pct), "
+            "margin_pct=COALESCE(VALUES(margin_pct), margin_pct), "
+            "discount_pct=COALESCE(VALUES(discount_pct), discount_pct), "
+            "price_category=COALESCE(VALUES(price_category), price_category), "
             "priced_by=VALUES(priced_by), priced_at=NOW()",
             (t["id"], body.price_file or "Pricing spreadsheet", url, body.margin_pct,
-             body.discount_pct, u.name))
+             body.discount_pct, psp_category, u.name))
         # get_ticket() does not join pricing, so there is no prior value here to log
         # without a second query; the approvals row inserted below already carries
         # PSP's note as the record of why the figure changed.
@@ -7461,7 +7499,7 @@ async def list_deleted(u: User = Depends(current_user)):
     """The recycle bin. Admin only, deleted tickets keep their history."""
     require(u, "restoreTicket")
     rows = await q(
-        "SELECT t.*, s.name AS shipper, s.acct_type, p.margin_pct, p.price_file, p.price_url, "
+        "SELECT t.*, s.name AS shipper, s.acct_type, p.margin_pct, p.price_category, p.price_file, p.price_url, "
            "(SELECT COUNT(*) FROM ticket_comments c WHERE c.ticket_id=t.id "
            "AND c.is_question=1 AND c.resolved_at IS NULL) AS open_q, "
            "(SELECT a.decision FROM approvals a WHERE a.ticket_id=t.id AND a.kind='psp' "
@@ -7477,7 +7515,7 @@ async def list_deleted(u: User = Depends(current_user)):
 async def ticket_detail(ref: str, u: User = Depends(current_user)):
     """Everything one ticket knows about itself, filtered by what the caller may see."""
     t = await q("SELECT t.*, s.name AS shipper, s.acct_type, s.account_id, s.account_name, "
-                "s.parent_account_id, p.margin_pct, p.cost, "
+                "s.parent_account_id, p.margin_pct, p.price_category, p.cost, "
                 "p.price_file, p.price_url, TIMESTAMPDIFF(DAY, t.status_since, NOW()) AS sla_days_db, "
                 "(SELECT COUNT(*) FROM ticket_comments c WHERE c.ticket_id=t.id "
                 "AND c.is_question=1 AND c.resolved_at IS NULL) AS open_q, "

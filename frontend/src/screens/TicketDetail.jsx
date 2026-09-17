@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, SELLING_GROUPS, SERVICES, rp } from "../api";
+import { api, SELLING_GROUPS, SERVICES, categoryLabel, rp } from "../api";
 import { charterHtml, charterText, copyRich } from "../charter";
 import Discussion from "./Discussion";
 import { PriceForm } from "./Queues";
@@ -840,13 +840,17 @@ function CommercialTicketDetail({ ticketRef: initialRef, me, notify, onBack,
                     Update the price
                   </p>
                   <PriceForm t={{ ...t, price_file: d.price_file, price_url: d.price_url,
-                                  margin: d.margin, discount_pct: d.discount_pct }}
+                                  price_category: t.price_category }}
                     me={me} notify={notify} onDone={async () => { await load(); }} compact />
                 </div>
               )}
+              {p.seePrice && (
+                <Row label="Price category">
+                  {t.price_category ? <b>{categoryLabel(t.price_category)}</b> : "—"}
+                </Row>
+              )}
               {p.seeMargin ? (
                 <>
-                  <Row label="Margin">{d.margin == null ? "—" : <b className="font-mono">{d.margin}%</b>}</Row>
                   <Row label="Product bottom margin">
                     {d.bottom_margin == null
                       ? <span className="text-amber-700">not yet defined for {t.service}</span>
