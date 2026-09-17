@@ -3,6 +3,20 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-09-17",
+    title: "Price categories have their own meaning for FTL and Sameday",
+    by: "Michael + Claude",
+    changes: [
+      "FTL (on-call, monthly and the provisional line) is judged on margin: Category 1 = margin 15% or more; Category 2 = margin 10% up to under 15%; Category 3 = margin below 10%.",
+      "Sameday is judged on discount: Category 1 = normal rate with no discount; Category 2 = a discount under 20%, such as 10%; Category 3 = a discount of 20% or more.",
+      "Every other service keeps the general rule: Category 1 = discount up to 40%; Category 2 = discount above 40% with margin still 20% or more; Category 3 = margin below 20% (floor 10% B2BR, 5% LTL).",
+      "The pricing dropdown shows the definitions for that ticket's service. Still a tag only — approvals do not read it.",
+    ],
+    overruled: [
+      "One set of category definitions for every service (earlier today): FTL and Sameday now have their own.",
+    ],
+  },
+  {
+    date: "2026-09-17",
     title: "Prices are tagged Category 1, 2 or 3 instead of margin and discount",
     by: "Michael + Claude",
     changes: [

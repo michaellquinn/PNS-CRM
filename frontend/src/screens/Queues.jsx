@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, BOTTOM_MARGIN, PRICE_CATEGORIES, categoryLabel, LIVE_STATUSES, PENDING, SEND_BACK_STATUSES,
+import { api, BOTTOM_MARGIN, priceCategoriesFor, categoryLabel, LIVE_STATUSES, PENDING, SEND_BACK_STATUSES,
          REQUIREMENT_STATUS, PICKABLE_LOSS_REASONS, SELLING_GROUPS, SERVICES,
          FTL, WATCHED_GROUPS, NEW_TICKET_DAYS, arrivedAgo, groupFilter, groupTone,
          isNewIncoming, isPnsWork, mayGoToPsp, rp } from "../api";
@@ -265,11 +265,11 @@ function RateCard({ service }) {
  * attached rather than a blank box that looks like nothing has been priced.
  */
 /** Category 1/2/3 picker, shared by the pricing form and the PSP review. */
-function CategorySelect({ value, onChange, blankLabel = "Price category (required)" }) {
+function CategorySelect({ service, value, onChange, blankLabel = "Price category (required)" }) {
   return (
     <select className={inputCls} value={value} onChange={(e) => onChange(e.target.value)}>
       <option value="">{blankLabel}</option>
-      {PRICE_CATEGORIES.map((c) => (
+      {priceCategoriesFor(service).map((c) => (
         <option key={c.id} value={c.id}>{c.label} — {c.hint}</option>
       ))}
     </select>
@@ -327,7 +327,7 @@ export function PriceForm({ t, me, notify, onDone, compact = false }) {
       {/* Category replaces the margin % and discount % boxes (Michael, 2026-09-17).
           It is a tag: the approval chain does not read it. */}
       <div className="mb-3">
-        <CategorySelect value={cat} onChange={setCat} />
+        <CategorySelect service={t.service} value={cat} onChange={setCat} />
       </div>
       <div className="flex flex-wrap items-center gap-2">
         {BOTTOM_MARGIN[t.service] != null && (
@@ -739,7 +739,7 @@ export function ToReview({ me, onOpen, notify }) {
           ]}>
           {(t.price_file || t.price_url) && <p className="mb-2 text-[13px]"><PriceChip file={t.price_file} url={t.price_url} /></p>}
           {t.price_category && (
-            <p className="mb-3 text-[13px]">Price category: <b>{categoryLabel(t.price_category)}</b></p>
+            <p className="mb-3 text-[13px]">Price category: <b>{categoryLabel(t.price_category, t.service)}</b></p>
           )}
           <RateCard service={t.service} />
           <div className="flex flex-wrap items-center gap-2">
@@ -863,7 +863,7 @@ export function PspPending({ me, onOpen, notify }) {
 >
           {(t.price_file || t.price_url) && <p className="mb-2 text-[13px]"><PriceChip file={t.price_file} url={t.price_url} /></p>}
           {t.price_category && (
-            <p className="mb-3 text-[13px]">Price category: <b>{categoryLabel(t.price_category)}</b></p>
+            <p className="mb-3 text-[13px]">Price category: <b>{categoryLabel(t.price_category, t.service)}</b></p>
           )}
           {view === "decided" ? (
             <div className="flex flex-wrap items-center gap-2">
@@ -891,7 +891,7 @@ export function PspPending({ me, onOpen, notify }) {
                   value={file[t.ref] ?? ""} onChange={(e) => setFile({ ...file, [t.ref]: e.target.value })} />
               </div>
               <div className="mb-3">
-                <CategorySelect value={cat[t.ref] ?? ""} blankLabel="Keep the current category"
+                <CategorySelect service={t.service} value={cat[t.ref] ?? ""} blankLabel="Keep the current category"
                   onChange={(v) => setCat({ ...cat, [t.ref]: v })} />
               </div>
               <p className="mb-3 text-[11px] text-slate-400">

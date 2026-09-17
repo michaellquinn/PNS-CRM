@@ -177,12 +177,32 @@ SYNC_OWNER_EMAIL = os.getenv("SYNC_OWNER_EMAIL", "baskoro.nugroho@ninjavan.co").
 BOTTOM_MARGIN = {"LTL": 5.0, "B2BR": 10.0}
 # The price is TAGGED with a category instead of carrying a margin % and a discount %
 # (Michael, 2026-09-17). A tag, nothing more: no approval, gate or queue reads it, and
-# the approval chain is exactly what it was. Every service picks one.
+# the approval chain is exactly what it was. Every service picks one, and what each
+# number MEANS depends on the service: FTL is judged on margin and Sameday on discount
+# (Michael, 2026-09-17), everything else on the general discount/margin rule.
 PRICE_CATEGORIES = {
     1: "Category 1 — discount up to 40%",
     2: "Category 2 — discount above 40%, margin still 20% or more",
     3: "Category 3 — margin below 20% (floor 10% B2BR, 5% LTL)",
 }
+FTL_PRICE_CATEGORIES = {
+    1: "Category 1 — margin 15% or more",
+    2: "Category 2 — margin 10% up to under 15%",
+    3: "Category 3 — margin below 10%",
+}
+SAMEDAY_PRICE_CATEGORIES = {
+    1: "Category 1 — normal rate, no discount",
+    2: "Category 2 — discount under 20% (e.g. 10%)",
+    3: "Category 3 — discount 20% or more",
+}
+
+
+def price_categories_for(service: str | None) -> dict:
+    if service in ("FTL", "FTL on-call", "FTL monthly"):
+        return FTL_PRICE_CATEGORIES
+    if service == "Sameday":
+        return SAMEDAY_PRICE_CATEGORIES
+    return PRICE_CATEGORIES
 
 
 def clean_price_category(v) -> int | None:
@@ -1533,7 +1553,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-17.2"
+BUILD = "2026-09-17.3"
 
 
 class Me(BaseModel):
@@ -6919,7 +6939,8 @@ async def signoff_draft(ref: str, u: User = Depends(current_user)):
             line("Target go-live", p.get("golive")),
             line("Margin", f"{pr.get('margin_pct')}%" if pr.get("margin_pct") is not None else None),
             line("Discount", f"{pr.get('discount_pct')}%" if pr.get("discount_pct") is not None else None),
-            line("Price category", PRICE_CATEGORIES.get(pr.get("price_category"))),
+            line("Price category",
+                 price_categories_for(t["service_type"]).get(pr.get("price_category"))),
             line("Pricing sheet", pr.get("price_url")),
         ]),
         "",

@@ -846,7 +846,7 @@ function CommercialTicketDetail({ ticketRef: initialRef, me, notify, onBack,
               )}
               {p.seePrice && (
                 <Row label="Price category">
-                  {t.price_category ? <b>{categoryLabel(t.price_category)}</b> : "—"}
+                  {t.price_category ? <b>{categoryLabel(t.price_category, t.service)}</b> : "—"}
                 </Row>
               )}
               {p.seeMargin ? (

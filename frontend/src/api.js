@@ -352,14 +352,31 @@ export const rp = (n) => "Rp " + Number(n || 0).toLocaleString("id-ID");
 // the server rejects the flag for anything else regardless of what the UI shows.
 export const BOTTOM_MARGIN = { LTL: 5, B2BR: 10 };
 
-// Mirrors backend PRICE_CATEGORIES (Michael, 2026-09-17). Replaces the margin % and
-// discount % boxes on every pricing form. A tag only — no approval reads it.
-export const PRICE_CATEGORIES = [
+// Mirrors backend price_categories_for() (Michael, 2026-09-17). Replaces the margin %
+// and discount % boxes on every pricing form. A tag only — no approval reads it. The
+// number is the same everywhere; what it means depends on the service.
+const GENERAL_CATEGORIES = [
   { id: 1, label: "Category 1", hint: "Discount up to 40%" },
   { id: 2, label: "Category 2", hint: "Discount above 40%, margin still 20% or more" },
   { id: 3, label: "Category 3", hint: "Margin below 20% (floor 10% B2BR, 5% LTL)" },
 ];
-export const categoryLabel = (n) => PRICE_CATEGORIES.find((c) => c.id === Number(n))?.label;
+const FTL_CATEGORIES = [
+  { id: 1, label: "Category 1", hint: "Margin 15% or more" },
+  { id: 2, label: "Category 2", hint: "Margin 10% up to under 15%" },
+  { id: 3, label: "Category 3", hint: "Margin below 10%" },
+];
+const SAMEDAY_CATEGORIES = [
+  { id: 1, label: "Category 1", hint: "Normal rate, no discount" },
+  { id: 2, label: "Category 2", hint: "Discount under 20% (e.g. 10%)" },
+  { id: 3, label: "Category 3", hint: "Discount 20% or more" },
+];
+export const priceCategoriesFor = (service) =>
+  ["FTL", "FTL on-call", "FTL monthly"].includes(service) ? FTL_CATEGORIES
+    : service === "Sameday" ? SAMEDAY_CATEGORIES : GENERAL_CATEGORIES;
+export const categoryLabel = (n, service) => {
+  const c = priceCategoriesFor(service).find((x) => x.id === Number(n));
+  return c && `${c.label} — ${c.hint}`;
+};
 
 // Mirrors backend may_go_to_psp(). PSP is discretionary-only for a watched account
 // (Hypercare, Strategic or Must Win) or a ticket the PNS Head opened on Alex's exception —
