@@ -1516,7 +1516,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-16.2"
+BUILD = "2026-09-17.1"
 
 
 class Me(BaseModel):
@@ -4858,6 +4858,13 @@ async def create_ticket(body: NewTicket, u: User = Depends(current_user)):
     if body.must_win:
         raise HTTPException(400, "Must Win is set in Sales CRM (Lead Source Detail), not "
                                  "here. Tag the opportunity there and the sync brings it in.")
+    # Same rule for the account tier: a request raised here cannot call its own shipper
+    # Hypercare or Strategic. A new shipper starts Standard; a known one keeps the tier the
+    # sync gave it.
+    if (body.acct_type or "Standard") != "Standard":
+        raise HTTPException(400, "Account type is set in Sales CRM (Account Indicators), "
+                                 "not here. A new request starts Standard; the sync brings "
+                                 "in the real tier.")
     if body.service not in SERVICES:
         raise HTTPException(400, f"service must be one of {SERVICES}")
     billing_treatment = str((body.payload or {}).get("billingTreatment") or "").strip()
@@ -4874,8 +4881,8 @@ async def create_ticket(body: NewTicket, u: User = Depends(current_user)):
     else:
         shipper_id = await execute(
             "INSERT INTO shippers (name, acct_type, region) VALUES (%s,%s,%s)",
-            (body.shipper, body.acct_type, body.region))
-        acct = body.acct_type
+            (body.shipper, "Standard", body.region))
+        acct = "Standard"
 
     r = route(acct, body.service, body.revenue)
     oid = (body.opportunity_id or "").strip() or None
@@ -5303,9 +5310,14 @@ async def edit_input(ref: str, body: InputPatch, u: User = Depends(current_user)
     revenue = t["potential_rev"] if body.revenue is None else int(body.revenue)
     if revenue < 0:
         raise HTTPException(400, "potential revenue cannot be negative")
-    acct = body.acct_type or t["acct_type"]
-    if acct not in ACCT_TYPES:
-        raise HTTPException(400, f"account type must be one of {ACCT_TYPES}")
+    # The account tier is Sales CRM's alone (Michael, 2026-09-17): Hypercare and Strategic
+    # come from Account Indicators via the sync, and nobody sets them here - not Sales,
+    # not the Commercial Head, not Admin. Sending the value it already has is harmless.
+    if body.acct_type and body.acct_type != t["acct_type"]:
+        raise HTTPException(403, "Account type is set in Sales CRM (Account Indicators), "
+                                 "not in the PNS CRM. Change it on the account there; the "
+                                 "sync brings it in.")
+    acct = t["acct_type"]
 
     routing_changed = (acct != t["acct_type"] or int(revenue) != int(t["potential_rev"]))
     if routing_changed:
@@ -5353,10 +5365,6 @@ async def edit_input(ref: str, body: InputPatch, u: User = Depends(current_user)
         changes.append(f"service {t['service_type']} to {service}")
     if int(revenue) != int(t["potential_rev"]):
         changes.append(f"revenue Rp {int(t['potential_rev']):,} to Rp {int(revenue):,}")
-    if acct != t["acct_type"]:
-        changes.append(f"account type {t['acct_type']} to {acct}")
-        await execute("UPDATE shippers SET acct_type=%s, status_changed_by=%s, "
-                      "status_changed_at=NOW() WHERE id=%s", (acct, u.name, t["shipper_id"]))
 
     if not changes:
         return {"ok": True, "ref": ref, "status": t["status"]}

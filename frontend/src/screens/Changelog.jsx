@@ -2,6 +2,22 @@ import { Card, Head, Pill } from "../ui";
 
 const ENTRIES = [
   {
+    date: "2026-09-17",
+    title: "Must Win and the account tier are set in Sales CRM only",
+    by: "Michael + Claude",
+    changes: [
+      "The account tier is read from Sales CRM's Account Indicators (API field account_indicators), on the account or its parent group. An account showing both Hypercare and Strategic reads as Hypercare. Customer Success Manager is read only while an account's indicators are blank, so Sales can delete that field: all 46 linked accounts were checked against Sales CRM and none changes tier without it.",
+      "Must Win can no longer be ticked in this app. The ticket shows it read-only, New Request no longer offers it, and the server refuses it. It comes only from the opportunity's Lead Source Detail in Sales CRM.",
+      "Account type can no longer be chosen or edited in this app, by anyone. New Request starts every new shipper Standard, the ticket shows the tier read-only, and the server refuses a change. Hypercare and Strategic arrive with the sync.",
+      "A ticket's Sales CRM record now keeps every Account field Sales CRM sends, and admins have a read-only lookup of a raw Sales CRM account (/api/salescrm/account/{id}) for checking field names against real data.",
+    ],
+    overruled: [
+      "Must Win settable by hand on the ticket and on New Request (introduced with Must Win itself): Sales could put their own deal in a watched group. Sales CRM's Lead Source Detail is now the only source.",
+      "Account type chosen on New Request and corrected on the ticket by the Commercial Head (editAcctOrRev): the tier is Sales CRM's alone. editAcctOrRev still governs potential revenue.",
+      "Account tier read from Customer Success Manager (Sales CRM is deleting that field): Account Indicators replaces it.",
+    ],
+  },
+  {
     date: "2026-09-16",
     title: "Billing treatment is collected when the request is raised",
     by: "Michael + Codex",

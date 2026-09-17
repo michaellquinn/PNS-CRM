@@ -566,18 +566,13 @@ function CommercialTicketDetail({ ticketRef: initialRef, me, notify, onBack,
                     A text node has no identity for React to reconcile against; an element
                     does. Wrapping it is the fix, and it is why this must not be
                     "simplified" back. */}
+                {/* Read-only for everyone: the tier comes from Sales CRM's Account
+                    Indicators via the sync (Michael, 2026-09-17). */}
                 <Row label="Account type">
-                  {draft && p.editAcctOrRev ? (
-                    <select className={`${inputCls} max-w-[240px]`} value={draft.__acct}
-                      onChange={(e) => setDraft({ ...draft, __acct: e.target.value })}>
-                      <option>Standard</option><option>Strategic</option><option>Hypercare</option>
-                    </select>
-                  ) : (
-                    <span>
-                      <span>{t.acct_type}</span>
-                      {!p.editAcctOrRev && <span className="ml-2 text-[11px] text-slate-400">🔒 Sales Head only</span>}
-                    </span>
-                  )}
+                  <span>
+                    <span>{t.acct_type}</span>
+                    <span className="ml-2 text-[11px] text-slate-400">🔒 from Sales CRM</span>
+                  </span>
                 </Row>
                 <Row label="Potential revenue">
                   {draft && p.editAcctOrRev ? (
@@ -718,18 +713,13 @@ function CommercialTicketDetail({ ticketRef: initialRef, me, notify, onBack,
                     A text node has no identity for React to reconcile against; an element
                     does. Wrapping it is the fix, and it is why this must not be
                     "simplified" back. */}
+                {/* Read-only for everyone: the tier comes from Sales CRM's Account
+                    Indicators via the sync (Michael, 2026-09-17). */}
                 <Row label="Account type">
-                  {draft && p.editAcctOrRev ? (
-                    <select className={`${inputCls} max-w-[240px]`} value={draft.__acct}
-                      onChange={(e) => setDraft({ ...draft, __acct: e.target.value })}>
-                      <option>Standard</option><option>Strategic</option><option>Hypercare</option>
-                    </select>
-                  ) : (
-                    <span>
-                      <span>{t.acct_type}</span>
-                      {!p.editAcctOrRev && <span className="ml-2 text-[11px] text-slate-400">🔒 Sales Head only</span>}
-                    </span>
-                  )}
+                  <span>
+                    <span>{t.acct_type}</span>
+                    <span className="ml-2 text-[11px] text-slate-400">🔒 from Sales CRM</span>
+                  </span>
                 </Row>
                 <Row label="Potential revenue">
                   {draft && p.editAcctOrRev ? (

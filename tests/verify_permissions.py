@@ -279,8 +279,8 @@ _FE = lambda rel: open(os.path.join(os.path.dirname(os.path.dirname(os.path.absp
 _mw_start = _SRC.index("async def set_must_win(")
 _mw_body = _SRC[_mw_start:_SRC.index("class CrmIdIn", _mw_start)]
 _ct_start = _SRC.index("async def create_ticket(")
-_ct_body = _SRC[_ct_start:_ct_start + 1200]
-print("Must Win is Sales CRM only:")
+_ct_body = _SRC[_ct_start:_ct_start + 2400]
+print("Must Win and the account tier are Sales CRM only:")
 for label, ok, hint in [
     ("POST /must-win refuses", "raise HTTPException(403" in _mw_body
      and "UPDATE tickets" not in _mw_body, "the hand override is back"),
@@ -288,6 +288,14 @@ for label, ok, hint in [
      "if body.must_win:" in _ct_body and "raise HTTPException(400" in _ct_body, ""),
     ("the ticket screen has no Must Win control", "setMustWin" not in _FE("screens/TicketDetail.jsx")
      and "setMustWin" not in _FE("api.js"), ""),
+    ("a new request cannot set its account type", 'if (body.acct_type or "Standard") != "Standard":' in _ct_body
+     and '(body.shipper, "Standard", body.region)' in _SRC, "the tier comes from Account Indicators"),
+    ("editing a ticket cannot change its account type",
+     'if body.acct_type and body.acct_type != t["acct_type"]:' in _SRC
+     and '(acct, u.name, t["shipper_id"])' not in _SRC, ""),
+    ("no screen offers an account type picker",
+     "<option>Strategic</option>" not in _FE("screens/Forms.jsx")
+     and "<option>Strategic</option>" not in _FE("screens/TicketDetail.jsx"), ""),
     ("the New Request form has no Must Win checkbox",
      'label="Must Win"' not in _FE("screens/Forms.jsx"), ""),
 ]:

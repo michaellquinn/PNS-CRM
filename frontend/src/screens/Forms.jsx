@@ -62,10 +62,10 @@ export function NewRequest({ me, notify, onCreated }) {
     if (!f.brief?.trim()) return notify("Brief summary is required");
     setBusy(true);
     try {
-      const { shipper, brief, service, acct_type, region, revenue, opportunity_id,
+      const { shipper, brief, service, acct_type: _acct, region, revenue, opportunity_id,
               must_win: _mw, ...payload } = f;
       const r = await api.createTicket({
-        shipper: shipper.trim(), brief: brief.trim(), service, acct_type, region,
+        shipper: shipper.trim(), brief: brief.trim(), service, acct_type: "Standard", region,
         revenue: rev, sales_email: me.email, must_win: false,
         opportunity_id: (opportunity_id || "").trim() || null,
         payload: { ...payload, shipper: shipper.trim(), brief: brief.trim() },
@@ -122,10 +122,13 @@ export function NewRequest({ me, notify, onCreated }) {
               <option>New shipper</option><option>Existing shipper</option>
             </select>
           </Field>
-          <Field label="Account type" required hint="Later changes are Commercial Head only">
-            <select className={inputCls} value={f.acct_type} onChange={set("acct_type")}>
-              <option>Hypercare</option><option>Strategic</option><option>Standard</option>
-            </select>
+          {/* Not chosen here (Michael, 2026-09-17): Hypercare and Strategic come only from
+              Sales CRM's Account Indicators, via the sync. A request raised here starts
+              Standard; an existing shipper keeps the tier the sync gave it. */}
+          <Field label="Account type" hint="Set in Sales CRM (Account Indicators) and synced — not chosen here">
+            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[13px] text-slate-500">
+              🔒 From Sales CRM
+            </div>
           </Field>
           <Field label="Project type" required>
             <select className={inputCls} value={f.project} onChange={set("project")}>
