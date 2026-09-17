@@ -272,6 +272,29 @@ for label, ok, hint in [
     if not ok:
         fails.append(label + (" - " + hint if hint else ""))
 
+# Must Win is set in Sales CRM only (Michael, 2026-09-17). Sales were able to raise their
+# own request as Must Win, and anyone with editInput could tick it on a ticket.
+_FE = lambda rel: open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                    "frontend", "src", *rel.split("/")), encoding="utf-8").read()
+_mw_start = _SRC.index("async def set_must_win(")
+_mw_body = _SRC[_mw_start:_SRC.index("class CrmIdIn", _mw_start)]
+_ct_start = _SRC.index("async def create_ticket(")
+_ct_body = _SRC[_ct_start:_ct_start + 1200]
+print("Must Win is Sales CRM only:")
+for label, ok, hint in [
+    ("POST /must-win refuses", "raise HTTPException(403" in _mw_body
+     and "UPDATE tickets" not in _mw_body, "the hand override is back"),
+    ("a new request cannot declare itself Must Win",
+     "if body.must_win:" in _ct_body and "raise HTTPException(400" in _ct_body, ""),
+    ("the ticket screen has no Must Win control", "setMustWin" not in _FE("screens/TicketDetail.jsx")
+     and "setMustWin" not in _FE("api.js"), ""),
+    ("the New Request form has no Must Win checkbox",
+     'label="Must Win"' not in _FE("screens/Forms.jsx"), ""),
+]:
+    print(("  ok   " if ok else "  FAIL ") + label)
+    if not ok:
+        fails.append(label + (" - " + hint if hint else ""))
+
 print()
 if fails:
     print("FAILURES:")

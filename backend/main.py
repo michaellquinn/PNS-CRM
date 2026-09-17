@@ -4851,6 +4851,13 @@ async def workload(u: User = Depends(current_user)):
 @app.post("/api/tickets", status_code=201, response_model=Ok)
 async def create_ticket(body: NewTicket, u: User = Depends(current_user)):
     require(u, "createTicket")
+    # Must Win is decided in Sales CRM and nowhere else (Michael, 2026-09-17). A request
+    # raised here used to be able to declare itself Must Win, which put a Sales-raised
+    # deal into a watched group - PNS review, the C-level gate - on nobody's say-so but
+    # its own. The sync sets it from Lead Source Detail once the opportunity is linked.
+    if body.must_win:
+        raise HTTPException(400, "Must Win is set in Sales CRM (Lead Source Detail), not "
+                                 "here. Tag the opportunity there and the sync brings it in.")
     if body.service not in SERVICES:
         raise HTTPException(400, f"service must be one of {SERVICES}")
     billing_treatment = str((body.payload or {}).get("billingTreatment") or "").strip()
@@ -5031,8 +5038,8 @@ async def submit_price(ref: str, body: PriceIn, u: User = Depends(current_user))
     if (body.below_bottom or breach) and not big_group(t):
         raise HTTPException(
             409, f"{ref} is a Standard deal, so it cannot go below the floor "
-                 f"({g['why']}). Reprice it within the ceiling, or ask the Head of PNS "
-                 f"to tag the deal Must Win if it genuinely warrants the exception.")
+                 f"({g['why']}). Reprice it within the ceiling, or have Sales tag "
+                 f"the deal Must Win in Sales CRM if it genuinely warrants the exception.")
 
 
     # The Head of PNS finalises the solution before anyone else is asked to approve it.
@@ -5555,25 +5562,15 @@ class MustWinIn(BaseModel):
 
 @app.post("/api/tickets/{ref}/must-win", response_model=Ok)
 async def set_must_win(ref: str, body: MustWinIn, u: User = Depends(current_user)):
-    """Tag or untag this deal as Must Win.
+    """Retired: Must Win can no longer be set or cleared in this app.
 
-    Sales CRM carries this as the Lead Source Detail value "Must Win", and the sync reads
-    it, so this is the manual override for a deal Sales has not tagged there yet — or has
-    tagged wrongly. A later sync will overwrite it if Sales CRM has an opinion, which is
-    correct: Sales CRM is the record. Must Win is per-deal and never touches the account
-    or its sibling opportunities."""
-    require(u, "editInput")
-    t = await get_ticket(ref)
-    await execute("UPDATE tickets SET must_win=%s WHERE id=%s", (int(body.must_win), t["id"]))
-    await log_note(t["id"], t["status"], u.name,
-                   "tagged Must Win" if body.must_win else "Must Win tag removed")
-    await audit(u.email, "must_win", "ticket", ref, "must_win",
-                bool(t.get("must_win")), body.must_win)
-    if body.must_win:
-        await notify(f"{ref}, {t['shipper']} tagged MUST WIN by {u.name} — it now needs "
-                     f"PNS review even if Sales priced it",
-                     groups=["PNS"], ticket_ref=ref)
-    return {"ok": True, "ref": ref, "status": t["status"]}
+    It is set only in Sales CRM, as the Lead Source Detail value "Must Win", and the sync
+    copies it here (Michael, 2026-09-17). The hand override let anyone with editInput -
+    Sales included - put a deal into a watched group, and the sync then disagreed with it
+    every five minutes. Kept as a route so an old open tab gets a reason, not a 404."""
+    raise HTTPException(403, "Must Win is set in Sales CRM (Lead Source Detail), not in "
+                             "the PNS CRM. Change it on the opportunity; the sync brings "
+                             "it in within minutes.")
 
 
 class CrmIdIn(BaseModel):
@@ -5845,7 +5842,7 @@ TICKET_FIELDS = [
     ("acct_type", "Account type", "Sales CRM account group", "asked",
      "Hypercare and Strategic put the deal in a watched group and route it to PNS. It is "
      "resolved from the account group on every sync and overwrites what is held here."),
-    ("must_win", "Must Win", "Sales CRM Lead Source Detail, settable here", "optional",
+    ("must_win", "Must Win", "Sales CRM Lead Source Detail only", "optional",
      "Puts this one deal in a watched group."),
     ("region", "Region", "Sales", "asked", "Used by the meeting screens to run by region."),
     ("sales_name", "Sales PIC", "Sales", "asked",
@@ -5871,7 +5868,7 @@ HARD_GATES = [
      "Complete section 4 on the Input tab."),
     ("A Standard deal priced below its floor",
      "Attaching the price is refused outright — a Standard deal can never be below floor.",
-     "Reprice within the ceiling, or ask the Head of PNS to tag the deal Must Win."),
+     "Reprice within the ceiling, or have Sales tag the deal Must Win in Sales CRM."),
 ]
 
 

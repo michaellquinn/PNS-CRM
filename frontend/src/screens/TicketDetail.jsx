@@ -297,19 +297,13 @@ function CommercialTicketDetail({ ticketRef: initialRef, me, notify, onBack,
               )}
               <div className="mt-1 flex flex-wrap items-center gap-2 text-[11.5px] text-slate-500">
                 <span>Stage {t.stage || "—"}</span>
-                {/* Set by hand: Sales CRM has no Must Win field today, so there is
-                    nothing to sync. The sync is careful not to clear this, and will
-                    start honouring it automatically once the field exists there. */}
-                {p.editInput ? (
-                  <label className="flex items-center gap-1.5 rounded-md bg-orange-50 px-2 py-0.5 font-medium text-orange-800">
-                    <input type="checkbox" checked={!!t.must_win} disabled={busy}
-                      onChange={(e) => run(() => api.setMustWin(ref, e.target.checked),
-                        e.target.checked ? `${ref} tagged Must Win` : "Must Win removed")} />
-                    Must Win
-                  </label>
-                ) : (
-                  <span>Must Win {t.must_win ? "yes" : "no"}</span>
-                )}
+                {/* Read-only: Must Win is set in Sales CRM (Lead Source Detail) and
+                    synced here. It cannot be changed in this app (Michael, 2026-09-17). */}
+                <span className={`rounded-md px-2 py-0.5 font-medium ${t.must_win
+                  ? "bg-orange-50 text-orange-800" : "bg-slate-50 text-slate-500"}`}
+                  title="Set in Sales CRM (Lead Source Detail); change it on the opportunity">
+                  Must Win {t.must_win ? "yes" : "no"} &middot; from Sales CRM
+                </span>
               </div>
             </div>
             <div>

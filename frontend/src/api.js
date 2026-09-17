@@ -96,8 +96,6 @@ export const api = {
   // remembered, so the sync and the intake edit stop re-deriving resp for this ticket.
   setPricedBy: (ref, resp, reason) =>
     call(`/tickets/${ref}/priced-by`, { method: "POST", body: JSON.stringify({ resp, reason }) }),
-  setMustWin: (ref, must_win) =>
-    call(`/tickets/${ref}/must-win`, { method: "POST", body: JSON.stringify({ must_win }) }),
   setCrmId: (ref, opportunity_id) =>
     call(`/tickets/${ref}/crm-id`, { method: "POST", body: JSON.stringify({ opportunity_id }) }),
   reopen: (ref, status) => call(`/tickets/${ref}/reopen`, { method: "POST", body: JSON.stringify({ status }) }),

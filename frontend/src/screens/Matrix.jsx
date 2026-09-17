@@ -44,7 +44,7 @@ const APPROVAL = [
   // so a below-floor price has no gate of its own here -- it is refused outright on a
   // Standard deal, and on a watched one it rides the normal chain.
   ["Margin below the tier floor, Standard deal",
-   "Refused. Reprice, or tag the deal Must Win.", "—"],
+   "Refused. Reprice, or tag the deal Must Win in Sales CRM.", "—"],
   ["Margin below the tier floor, watched group",
    "PSP on the margin, then the Head of PNS finalises.", "Pending Review - PSP"],
   ["Sales Head acknowledges a below-bottom price",

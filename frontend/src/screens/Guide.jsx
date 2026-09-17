@@ -58,7 +58,7 @@ const TASKS = [
     who: "PSP on the margin; the Head of Sales in SALES CRM, not here",
     go: "psp-pending",
     steps: [
-      "First: a Standard deal can never be below the floor. Attaching one is refused outright, with the two real options — reprice inside the ceiling, or ask the Head of PNS to tag the deal Must Win if it genuinely warrants the exception.",
+      "First: a Standard deal can never be below the floor. Attaching one is refused outright, with the two real options — reprice inside the ceiling, or have Sales tag the deal Must Win in Sales CRM (Lead Source Detail) if it genuinely warrants the exception.",
       "On a watched group (Hypercare, Strategic, Must Win), PSP rules on whether the margin is survivable, then the Head of PNS finalises the solution, then C-level sign it.",
       "The commercial concession itself — whether Sales will wear the discount — is the Head of Sales's call, and they make it in SALES CRM (Baskoro, 2026-08-14). This app no longer holds a queue for it, because a gate nobody opens just leaves the ticket waiting.",
       "Where PSP does not take the ticket at all (a Must Win on a Standard account with no exception recorded), the Head of PNS is the remaining gate here.",

@@ -8094,7 +8094,7 @@
     },
     "/api/tickets/{ref}/must-win": {
       "post": {
-        "description": "Tag or untag this deal as Must Win.\n\nSales CRM carries this as the Lead Source Detail value \"Must Win\", and the sync reads\nit, so this is the manual override for a deal Sales has not tagged there yet — or has\ntagged wrongly. A later sync will overwrite it if Sales CRM has an opinion, which is\ncorrect: Sales CRM is the record. Must Win is per-deal and never touches the account\nor its sibling opportunities.",
+        "description": "Retired: Must Win can no longer be set or cleared in this app.\n\nIt is set only in Sales CRM, as the Lead Source Detail value \"Must Win\", and the sync\ncopies it here (Michael, 2026-09-17). The hand override let anyone with editInput -\nSales included - put a deal into a watched group, and the sync then disagreed with it\nevery five minutes. Kept as a route so an old open tab gets a reason, not a 404.",
         "operationId": "set_must_win_api_tickets__ref__must_win_post",
         "parameters": [
           {
@@ -8139,7 +8139,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Tag or untag this deal as Must Win."
+        "summary": "Retired: Must Win can no longer be set or cleared in this app."
       }
     },
     "/api/tickets/{ref}/onboarding": {
