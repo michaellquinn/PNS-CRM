@@ -26,7 +26,7 @@ t = dict(id=1, ticket_ref="SOF-1", shipper="PT Test", service_type="FTL", opport
          sales_email=sales.email, potential_rev=999999, deleted_at=None)
 p = {key: options[0] if options else "Operational detail" for key, _, _, _, options, _ in m.OB_FIELDS}
 p.update(packing=["PCK", "PCK Kayu"], pickup_at="2026-09-21T10:00", planned_golive="2026-09-21",
-         pickup_time="10:00", delivery_time="16:00", service="FTL", opportunity_id="123", global_id="G-1",
+         pickup_time="09-12", delivery_time="16-18", service="FTL", opportunity_id="123", global_id="G-1",
          shipper_id="8001", pickup_function="4W", delivery_function="2W", product_volume="20",
          pickup_tkbm="Yes", pickup_tkbm_count="2", delivery_tkbm="No", delivery_tkbm_count="0",
          implan="No", implan_count="0", rdo="No", rdo_treatment="Not required: shipper does not use RDO",
@@ -53,6 +53,13 @@ assert m.ob_validate(p, t, docs) == datetime(2026, 9, 21, 10)
 # Free-text detail is optional and uploads are no longer required (Michael, 2026-09-17).
 assert m.ob_validate({**p, "pod_treatment": "", "handling": "", "pickup_driver": ""}, t, docs)
 assert m.ob_validate(p, t, [])
+# Hour ranges (Michael, 2026-09-17): the first pickup must fall inside the pickup window.
+rejected(lambda: m.ob_validate({**p, "pickup_time": "11-14"}, t, docs), 400)
+rejected(lambda: m.ob_validate({**p, "delivery_time": "18-16"}, t, docs), 400)
+rejected(lambda: m.ob_validate({**p, "delivery_time": "16:00"}, t, docs), 400)
+# A No switch sets its quantity to 0 automatically.
+assert m.ob_zero_counts({"pickup_tkbm": "No", "pickup_tkbm_count": "", "implan": "Yes", "implan_count": "3"}) == \
+    {"pickup_tkbm": "No", "pickup_tkbm_count": "0", "implan": "Yes", "implan_count": "3"}
 # A field that follows the charter blocks submission when blank, and says where to fix it.
 try:
     m.ob_validate({**p, "mps": ""}, t, docs)
@@ -66,7 +73,7 @@ assert "sla" not in {k for k, *_ in m.OB_FIELDS}
 assert set(m.OB_FOLLOW_CHARTER) == {"product_type", "delivery_mode", "mps", "rdo", "pickup_frequency"}
 assert m.ob_source_value({"commodity": "", "product": "Snacks"}, ("commodity", "product")) == "Snacks"
 assert all(f["section"] != "D · Pickup" for f in m.ob_schema())
-rejected(lambda: m.ob_validate({**p, "pickup_at": "2026-09-20T23:00", "pickup_time": "23:00", "planned_golive": "2026-09-20"}, t, docs), 400)
+rejected(lambda: m.ob_validate({**p, "pickup_at": "2026-09-20T23:00", "pickup_time": "23-24", "planned_golive": "2026-09-20"}, t, docs), 400)
 assert m.ob_deadline(NOW, p["pickup_at"]) == datetime(2026, 9, 21, 10)
 assert m.ob_deadline(datetime(2026, 9, 19), p["pickup_at"]) == datetime(2026, 9, 20, 20)
 assert "revenue" not in m.ob_payload({**p, "revenue": "999", "_crm": {"price": 999}})

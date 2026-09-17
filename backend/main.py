@@ -1553,7 +1553,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-17.5"
+BUILD = "2026-09-17.6"
 
 
 class Me(BaseModel):
@@ -9070,22 +9070,23 @@ OB_FIELDS = [
     # its own.
     ("pickup_vehicle", "Pick Up vehicle requirement", "text", "D · First Pick Up", [], None),
     ("pickup_function", "Pickup responsibility", "select", "D · First Pick Up", OB_FUNCTIONS, None),
-    ("pickup_time", "Pickup time", "time", "D · First Pick Up", [], None),
+    # A window in whole hours, "08-12" (Michael, 2026-09-17): minutes were false precision.
+    ("pickup_time", "Pickup time (hour range)", "hour_range", "D · First Pick Up", [], None),
     ("pickup_wait", "Pickup waiting time (include units)", "text", "D · First Pick Up", [], "pickWait"),
     ("pickup_driver", "Specific pickup driver requirement", "text", "D · First Pick Up", [], None),
     ("pickup_tkbm", "Pickup TKBM", "select", "D · First Pick Up", ["Yes", "No"], "tkbmO"),
-    ("pickup_tkbm_count", "Pickup TKBM quantity (0 if No)", "number", "D · First Pick Up", [], None),
+    ("pickup_tkbm_count", "Pickup TKBM quantity", "number", "D · First Pick Up", [], None),
     ("implan", "Implan", "select", "D · First Pick Up", ["Yes", "No"], None),
-    ("implan_count", "Implan quantity (0 if No)", "number", "D · First Pick Up", [], None),
+    ("implan_count", "Implan quantity", "number", "D · First Pick Up", [], None),
     ("delivery_to", "Delivery to", "select", "E · Delivery", ["End customer", "Reseller", "GT", "MT"], "destType"),
     ("delivery_vehicle", "Delivery vehicle requirement", "text", "E · Delivery", [], "truck"),
     ("destination", "Destination Address", "textarea", "E · Delivery", [], None),
     ("delivery_function", "Delivery responsibility", "select", "E · Delivery", OB_FUNCTIONS, None),
-    ("delivery_time", "Delivery time", "time", "E · Delivery", [], None),
+    ("delivery_time", "Delivery time (hour range)", "hour_range", "E · Delivery", [], None),
     ("delivery_wait", "Delivery waiting time (include units)", "text", "E · Delivery", [], "delWait"),
     ("delivery_driver", "Specific delivery driver requirement", "text", "E · Delivery", [], None),
     ("delivery_tkbm", "Delivery TKBM", "select", "E · Delivery", ["Yes", "No"], "tkbmD"),
-    ("delivery_tkbm_count", "Delivery TKBM quantity (0 if No)", "number", "E · Delivery", [], None),
+    ("delivery_tkbm_count", "Delivery TKBM quantity", "number", "E · Delivery", [], None),
 ]
 
 
@@ -9097,6 +9098,29 @@ OB_FOLLOW_CHARTER = ("product_type", "delivery_mode", "mps", "rdo", "pickup_freq
 # block a launch when there is not (Michael, 2026-09-17).
 OB_OPTIONAL = ("rdo_treatment", "pod_treatment", "surat_jalan_treatment", "handling",
                "pickup_driver", "delivery_driver")
+
+
+# A quantity whose switch says No is 0, set here rather than typed (Michael, 2026-09-17).
+OB_COUNTS = (("pickup_tkbm", "pickup_tkbm_count"), ("delivery_tkbm", "delivery_tkbm_count"),
+             ("implan", "implan_count"))
+
+
+def ob_zero_counts(p: dict) -> dict:
+    for switch, count in OB_COUNTS:
+        if p.get(switch) == "No":
+            p[count] = "0"
+    return p
+
+
+def ob_hour_range(raw) -> tuple[int, int]:
+    """'08-12' -> (8, 12). Whole hours, start before end, end at most 24."""
+    m = re.fullmatch(r"\s*(\d{1,2})\s*-\s*(\d{1,2})\s*", str(raw or ""))
+    if not m:
+        raise ValueError("not an hour range")
+    start, end = int(m.group(1)), int(m.group(2))
+    if not 0 <= start < end <= 24:
+        raise ValueError("hour range out of order")
+    return start, end
 
 
 def ob_source_value(source: dict, src) -> str:
@@ -9168,17 +9192,20 @@ def ob_validate(p, t, documents):
     try:
         pickup = datetime.fromisoformat(p["pickup_at"])
         planned = date.fromisoformat(p["planned_golive"])
-        datetime.strptime(p["pickup_time"], "%H:%M")
-        datetime.strptime(p["delivery_time"], "%H:%M")
     except ValueError:
-        raise HTTPException(400, "Provide valid planned go-live, pickup date/time and operational times")
+        raise HTTPException(400, "Provide valid planned go-live and first pickup date/time")
+    try:
+        pick_from, pick_to = ob_hour_range(p["pickup_time"])
+        ob_hour_range(p["delivery_time"])
+    except ValueError:
+        raise HTTPException(400, "Pickup and delivery time must be an hour range, start before end")
     if pickup.tzinfo or pickup <= ob_now() or planned > pickup.date():
         raise HTTPException(400, "First pickup must be in the future (WIB), with planned go-live on or before it")
-    if p["pickup_time"] != pickup.strftime("%H:%M"):
-        raise HTTPException(400, "Pickup time must match the first pickup time")
+    if not pick_from <= pickup.hour < pick_to:
+        raise HTTPException(400, "The first pickup time must fall inside the pickup hour range")
     if ob_now() > datetime.combine(pickup.date() - timedelta(days=1), datetime.min.time()).replace(hour=20):
         raise HTTPException(400, "Sales requirements must be submitted by D-1 20:00 WIB; reschedule pickup")
-    for switch, count in [("pickup_tkbm", "pickup_tkbm_count"), ("delivery_tkbm", "delivery_tkbm_count"), ("implan", "implan_count")]:
+    for switch, count in OB_COUNTS:
         if not p[count].isdigit() or (p[switch] == "Yes" and int(p[count]) < 1) or (p[switch] == "No" and int(p[count]) != 0):
             raise HTTPException(400, f"{count}: use a positive integer for Yes, 0 for No")
     try:
@@ -9446,6 +9473,7 @@ async def operational_save(ref: str, body: OperationalSave, u: User = Depends(cu
     srcs = {k: sk for k, _, _, _, _, sk in OB_FIELDS}
     for key in OB_FOLLOW_CHARTER:
         p[key] = ob_source_value(source, srcs[key])
+    ob_zero_counts(p)
     docs = await q("SELECT id,kind FROM onboarding_documents WHERE ticket_id=%s", (t["id"],))
     if body.submit:
         ob_validate(p, t, docs)

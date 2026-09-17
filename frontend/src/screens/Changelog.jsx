@@ -3,6 +3,18 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-09-17",
+    title: "Onboarding times are hour ranges, and No quantities fill themselves",
+    by: "Michael + Claude",
+    changes: [
+      "Pickup time and Delivery time are a range in whole hours — From 09:00 to 12:00 — with no minutes. The first pickup time must fall inside the pickup range.",
+      "Pickup TKBM, Delivery TKBM and Implan quantities are set to 0 automatically when the answer is No, and the box is locked. Switching back to Yes clears it for a real number. The server applies the same rule on save.",
+    ],
+    overruled: [
+      "Pickup and delivery time as a single HH:MM, with pickup time required to equal the first pickup time exactly: a window matches how the fleet schedules.",
+    ],
+  },
+  {
+    date: "2026-09-17",
     title: "Onboarding follows the Project Charter and asks for less",
     by: "Michael + Claude",
     changes: [

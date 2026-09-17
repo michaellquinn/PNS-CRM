@@ -116,7 +116,16 @@ export function OnboardingPane({ ticketRef, me, notify }) {
   if (err) return <Empty>{err}</Empty>;
   if (!data) return <p>Loading onboarding…</p>;
   const editable = data.can_edit && data.eligible && !data.actual_golive;
-  const set = (key, value) => setP(prev => ({ ...prev, [key]: value }));
+  // A No switch sets its quantity to 0; switching back to Yes clears it for a real
+  // number (Michael, 2026-09-17). The server does the same, so the page cannot disagree.
+  const COUNT_OF = { pickup_tkbm: "pickup_tkbm_count", delivery_tkbm: "delivery_tkbm_count", implan: "implan_count" };
+  const SWITCH_OF = Object.fromEntries(Object.entries(COUNT_OF).map(([s, c]) => [c, s]));
+  const set = (key, value) => setP(prev => {
+    const next = { ...prev, [key]: value };
+    if (COUNT_OF[key]) next[COUNT_OF[key]] = value === "No" ? "0" : prev[COUNT_OF[key]] === "0" ? "" : prev[COUNT_OF[key]];
+    return next;
+  });
+  const HOURS = Array.from({ length: 25 }, (_, h) => String(h).padStart(2, "0"));
   const save = (submit) => run(() => api.operationalSave(ticketRef, { payload: p, revision: data.revision, submit, documents_reviewed: reviewed }), submit ? "Submitted · operational database updated · team confirmations requested" : "Draft saved");
   const upload = (kind, file) => {
     if (!file) return;
@@ -145,7 +154,11 @@ export function OnboardingPane({ ticketRef, me, notify }) {
              actually fill -- the form refuses to submit while any input is blank, so a
              locked empty field would be a dead end with no way forward. */
           const fixed = (data.locked || []).includes(f.key);
-          const off = !editable || fixed;
+          const autoZero = SWITCH_OF[f.key] && p[SWITCH_OF[f.key]] === "No";
+          const off = !editable || fixed || autoZero;
+          // Split on the dash even when only one side is picked yet, or choosing "From" first
+          // would blank both boxes. A pre-range "10:00" has no dash and shows empty.
+          const [hFrom = "", hTo = ""] = String(p[f.key] || "").includes("-") ? String(p[f.key]).split("-") : [];
           return <Field key={f.key} className={f.type === "textarea" || f.type === "packing" ? "md:col-span-2" : ""}>
           <span className="mb-1 block text-[12px] text-slate-600">
             {f.label} {fixed
@@ -160,7 +173,15 @@ export function OnboardingPane({ ticketRef, me, notify }) {
             }} />{tag} · {data.packing_labels[tag]}
           </label>)}</div> : f.type === "select" ? <select className={inputCls} disabled={off} value={p[f.key] || ""} onChange={e => set(f.key, e.target.value)}>
             <option value="">Choose…</option>{f.options.map(v => <option key={v}>{v}</option>)}
-          </select> : f.type === "textarea" ? <textarea className={`${inputCls} min-h-[76px]`} disabled={off} value={p[f.key] || ""} onChange={e => set(f.key, e.target.value)} /> :
+          </select> : f.type === "hour_range" ? <div className="flex items-center gap-2">
+            <select className={inputCls} disabled={off} value={hFrom} onChange={e => set(f.key, `${e.target.value}-${hTo || ""}`)}>
+              <option value="">From</option>{HOURS.slice(0, 24).map(h => <option key={h} value={h}>{h}:00</option>)}
+            </select>
+            <span className="text-slate-400">to</span>
+            <select className={inputCls} disabled={off} value={hTo} onChange={e => set(f.key, `${hFrom || ""}-${e.target.value}`)}>
+              <option value="">To</option>{HOURS.slice(1).map(h => <option key={h} value={h}>{h}:00</option>)}
+            </select>
+          </div> : f.type === "textarea" ? <textarea className={`${inputCls} min-h-[76px]`} disabled={off} value={p[f.key] || ""} onChange={e => set(f.key, e.target.value)} /> :
           <input className={inputCls} type={f.type} step={f.type === "number" ? "any" : undefined} disabled={off || ["opportunity_id", "service"].includes(f.key)} value={p[f.key] ?? ""} onChange={e => set(f.key, e.target.value)} />}
         </Field>; })}
       </div>
