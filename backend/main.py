@@ -3461,6 +3461,29 @@ async def auto_sync_status(u: User = Depends(current_user)):
     return _auto_sync
 
 
+@app.get("/api/salescrm/account/{account_id}")
+async def salescrm_account_raw(account_id: str, u: User = Depends(current_user)):
+    """One Sales CRM Account exactly as the API sends it, plus the tier this app reads.
+
+    Read-only. Added to confirm field names against real data rather than guessing them
+    (Michael, 2026-09-16): Sales CRM moved the tier to "Account Indicators", and a wrong
+    guess at its API spelling fails silently - every account just reads as untagged."""
+    require(u, "syncSalesCrm")
+    if not SALESCRM_API_KEY:
+        raise HTTPException(400, "SALESCRM_API_KEY is not set")
+    aid = re.sub(r"\D", "", account_id or "")
+    if not aid:
+        raise HTTPException(400, "Give a numeric Sales CRM account id")
+    async with httpx.AsyncClient(timeout=12,
+                                 headers={"X-API-Key": SALESCRM_API_KEY}) as client:
+        crm = SalesCrm(client)
+        a = await crm.account(aid)
+        if not a:
+            raise HTTPException(404, crm.account_error(aid) or "No such account")
+        return {"account": a, "indicator_read": account_indicator(a),
+                "own_tier": account_tier(a), "tier_with_parents": await crm.tier_for(a)}
+
+
 @app.post("/api/sync/salescrm")
 async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
     """Pull new Sales CRM opportunities and raise the matching solutioning tickets.

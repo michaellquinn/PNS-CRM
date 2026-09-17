@@ -6674,6 +6674,44 @@
         "summary": "The owning team acknowledge one specific requirement."
       }
     },
+    "/api/salescrm/account/{account_id}": {
+      "get": {
+        "description": "One Sales CRM Account exactly as the API sends it, plus the tier this app reads.\n\nRead-only. Added to confirm field names against real data rather than guessing them\n(Michael, 2026-09-16): Sales CRM moved the tier to \"Account Indicators\", and a wrong\nguess at its API spelling fails silently - every account just reads as untagged.",
+        "operationId": "salescrm_account_raw_api_salescrm_account__account_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "account_id",
+            "required": true,
+            "schema": {
+              "title": "Account Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "One Sales CRM Account exactly as the API sends it, plus the tier this app reads."
+      }
+    },
     "/api/salescrm/ignored": {
       "get": {
         "description": "Opportunities the sync should never import.\n\nDeliberately Admin-only and out of the main nav: it makes deals silently not appear,\nwhich is a thing to do rarely and on purpose.",
