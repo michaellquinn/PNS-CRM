@@ -3477,11 +3477,26 @@ async def salescrm_account_raw(account_id: str, u: User = Depends(current_user))
     async with httpx.AsyncClient(timeout=12,
                                  headers={"X-API-Key": SALESCRM_API_KEY}) as client:
         crm = SalesCrm(client)
-        a = await crm.account(aid)
+        try:
+            a = await crm.account(aid)
+        except HTTPException:
+            raise
+        except Exception as e:                                   # noqa: BLE001
+            # Named, not a bare 500: this endpoint exists to diagnose Sales CRM.
+            why = getattr(getattr(e, "response", None), "status_code", None)
+            raise HTTPException(502, f"Sales CRM read failed: HTTP {why}" if why
+                                else f"Sales CRM read failed: {type(e).__name__}: {e}"[:300])
         if not a:
             raise HTTPException(404, crm.account_error(aid) or "No such account")
-        return {"account": a, "indicator_read": account_indicator(a),
-                "own_tier": account_tier(a), "tier_with_parents": await crm.tier_for(a)}
+        try:
+            with_parents = await crm.tier_for(a)
+        except Exception as e:                                   # noqa: BLE001
+            with_parents = f"parent read failed: {type(e).__name__}"
+        from fastapi.responses import JSONResponse
+        return JSONResponse(json.loads(json.dumps(
+            {"account": a, "indicator_read": account_indicator(a),
+             "own_tier": account_tier(a), "tier_with_parents": with_parents},
+            default=str)))
 
 
 @app.post("/api/sync/salescrm")
