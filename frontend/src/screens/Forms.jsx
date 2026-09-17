@@ -281,6 +281,13 @@ export function NewRequest({ me, notify, onCreated }) {
           <Field label="Insurance" required>
             <select className={inputCls} value={f.ins} onChange={set("ins")}><option>No</option><option>Yes</option></select>
           </Field>
+          <Field label="Shipment mode" hint="Onboarding reads this from the charter">
+            <select className={inputCls} value={f.shipMode || ""} onChange={set("shipMode")}>
+              <option value="">Choose…</option>
+              <option>Port to Port</option><option>Port to Door</option>
+              <option>Door to Port</option><option>Door to Door</option>
+            </select>
+          </Field>
           <Field label="Custom handling request" span>
             <textarea className={`${inputCls} min-h-[60px]`} value={f.handling || ""} onChange={set("handling")} />
           </Field>

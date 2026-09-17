@@ -3,6 +3,24 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-09-17",
+    title: "Onboarding follows the Project Charter and asks for less",
+    by: "Michael + Claude",
+    changes: [
+      "Product type, Shipment mode, MPS, RDO and Shipment frequency now always FOLLOW the Project Charter. They are read-only on the onboarding form, the server writes the charter's answer on every save, and a blank one blocks submission with “fill it on the Project Charter”. Product type reads the charter's Product, then Specific product.",
+      "NEW — Shipment mode on the Project Charter (Ninja's service) and on New Request: Port to Port, Port to Door, Door to Port or Door to Door.",
+      "SLA is removed from the onboarding form.",
+      "D · Pickup is now D · First Pick Up.",
+      "Pick Up vehicle requirement is its own answer. It used to copy the charter's single vehicle request, which is the delivery vehicle.",
+      "Optional now: RDO, POD and Surat Jalan treatment details, Handling request, and the specific pickup/delivery driver requirements. Everything else is still needed to submit.",
+      "Operational uploads are optional. The product photo attached to the ticket is shown and used; upload one only if there is none. All pickup points is removed.",
+    ],
+    overruled: [
+      "Every onboarding input required, with product photo and all pickup points uploads required (Baskoro, operational onboarding): the free-text details and the uploads are optional now.",
+      "Pickup vehicle requirement copied from the charter's vehicle request: it is asked for separately.",
+    ],
+  },
+  {
+    date: "2026-09-17",
     title: "Price categories have their own meaning for FTL and Sameday",
     by: "Michael + Claude",
     changes: [

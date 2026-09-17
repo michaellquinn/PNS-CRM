@@ -50,9 +50,22 @@ async def denied(call, code):
         raise AssertionError("Expected request rejection")
 
 assert m.ob_validate(p, t, docs) == datetime(2026, 9, 21, 10)
-rejected(lambda: m.ob_validate({**p, "pod_treatment": ""}, t, docs), 400)
+# Free-text detail is optional and uploads are no longer required (Michael, 2026-09-17).
+assert m.ob_validate({**p, "pod_treatment": "", "handling": "", "pickup_driver": ""}, t, docs)
+assert m.ob_validate(p, t, [])
+# A field that follows the charter blocks submission when blank, and says where to fix it.
+try:
+    m.ob_validate({**p, "mps": ""}, t, docs)
+except m.HTTPException as e:
+    assert e.status_code == 400 and "Project Charter" in e.detail, e.detail
+else:
+    raise AssertionError("blank MPS must block submission")
+rejected(lambda: m.ob_validate({**p, "pickup_address": ""}, t, docs), 400)
 rejected(lambda: m.ob_validate({**p, "packing": ["No", "PCK"]}, t, docs), 400)
-rejected(lambda: m.ob_validate(p, t, []), 400)
+assert "sla" not in {k for k, *_ in m.OB_FIELDS}
+assert set(m.OB_FOLLOW_CHARTER) == {"product_type", "delivery_mode", "mps", "rdo", "pickup_frequency"}
+assert m.ob_source_value({"commodity": "", "product": "Snacks"}, ("commodity", "product")) == "Snacks"
+assert all(f["section"] != "D · Pickup" for f in m.ob_schema())
 rejected(lambda: m.ob_validate({**p, "pickup_at": "2026-09-20T23:00", "pickup_time": "23:00", "planned_golive": "2026-09-20"}, t, docs), 400)
 assert m.ob_deadline(NOW, p["pickup_at"]) == datetime(2026, 9, 21, 10)
 assert m.ob_deadline(datetime(2026, 9, 19), p["pickup_at"]) == datetime(2026, 9, 20, 20)
@@ -132,7 +145,11 @@ async def main():
     async def ticket(ref): return dict(t)
     async def query(sql, args=(), one=False):
         if "onboarding_documents" in sql: return docs
-        if "ticket_input" in sql: return {"payload": json.dumps({"revenue": "SECRET_REVENUE", "_crm": {"price": "SECRET_PRICE"}})}
+        if "ticket_input" in sql: return {"payload": json.dumps({"revenue": "SECRET_REVENUE", "_crm": {"price": "SECRET_PRICE"},
+                                                                  # The charter answers onboarding follows.
+                                                                  "commodity": p["product_type"], "shipMode": p["delivery_mode"],
+                                                                  "mps": p["mps"], "rdo": p["rdo"], "freq": p["pickup_frequency"]})}
+        if "ticket_files" in sql: return []
         if "onboarding_intake" in sql and one: return dict(payload=json.dumps({**p, "revenue": "SECRET_REVENUE"}), released_payload=json.dumps(p), revision=1, submitted_at=NOW, actual_golive=None, qc_accepted_at=None)
         return None if one else []
     async def notice(*args, **kwargs): pass

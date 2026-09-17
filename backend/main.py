@@ -1553,7 +1553,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-17.4"
+BUILD = "2026-09-17.5"
 
 
 class Me(BaseModel):
@@ -5792,6 +5792,7 @@ CHARTER_SECTIONS = [
         ("billingTreatment", "Billing weight treatment"), ("mps", "MPS"),
         ("rdo", "RDO"), ("cod", "COD"), ("tkbmO", "TKBM origin"), ("tkbmD", "TKBM destination"),
         ("ins", "Insurance"), ("truck", "Vehicle request"),
+        ("shipMode", "Shipment mode"),
         ("handling", "Custom handling request"), ("notes", "Notes"),
     ]),
     # Solutioning vs onboarding, split on Baskoro's call (2026-08-11): sections 1-3 are
@@ -5863,6 +5864,8 @@ FIELD_RULES = {
     "tkbmD":          ("Sales", "asked", ""),
     "ins":            ("Sales", "asked", ""),
     "truck":          ("Sales", "optional", ""),
+    "shipMode":       ("Sales", "optional", "Port to Port, Port to Door, Door to Port or "
+                                            "Door to Door. Onboarding reads it from here."),
     "handling":       ("Sales", "optional", ""),
     "notes":          ("Sales", "optional", ""),
     # 4 · Kick-off
@@ -9030,7 +9033,9 @@ OB_FIELDS = [
     ("opportunity_id", "Sales CRM opportunity ID", "text", "B · Shipper profile", [], None),
     ("shipper_status", "Shipper status", "select", "B · Shipper profile", ["New", "Existing"], "shipperStatus"),
     ("product_condition", "Ninja product", "select", "B · Shipper profile", ["Dry", "Cold"], None),
-    ("product_type", "Product type", "text", "B · Shipper profile", [], "product"),
+    # Product information on the charter: the Product (commodity) first, the specific
+    # product if that is all Sales gave (Michael, 2026-09-17).
+    ("product_type", "Product type", "text", "B · Shipper profile", [], ("commodity", "product")),
     # The volume of the FIRST PICKUP, which is not the deal's monthly volume the charter
     # carries -- so it is asked for here and not prefilled (Michael, 2026-09-15).
     ("product_volume", "First pickup volume", "number", "B · Shipper profile", [], None),
@@ -9043,7 +9048,7 @@ OB_FIELDS = [
     # detail endpoint from acct_type and must_win.
     ("complexity_tier", "Complexity tier / operational assessment", "text", "B · Shipper profile", [], None),
     ("service", "Ninja service", "text", "C · Service and documents", [], None),
-    ("delivery_mode", "Shipment mode", "select", "C · Service and documents", ["Port to Port", "Port to Door", "Door to Port", "Door to Door"], None),
+    ("delivery_mode", "Shipment mode", "select", "C · Service and documents", ["Port to Port", "Port to Door", "Door to Port", "Door to Door"], "shipMode"),
     ("mps", "MPS", "select", "C · Service and documents", ["Yes", "No"], "mps"),
     ("cod", "COD", "select", "C · Service and documents", ["Yes", "No"], "cod"),
     ("rdo", "RDO", "select", "C · Service and documents", ["Yes", "No"], "rdo"),
@@ -9052,24 +9057,26 @@ OB_FIELDS = [
     ("surat_jalan_treatment", "Other Surat Jalan treatment details", "textarea", "C · Service and documents", [], None),
     ("packing", "Packing tags", "packing", "C · Service and documents", list(OB_PACKING), None),
     ("handling", "Handling request", "textarea", "C · Service and documents", [], None),
-    ("sla", "SLA (include unit and scope)", "text", "C · Service and documents", [], "sla"),
     ("oc_by", "Order creation by", "select", "C · Service and documents", ["SSM", "Shipper", "DE", "Sales"], None),
     ("api_required", "API required", "select", "C · Service and documents", ["Yes", "No"], None),
     # Written for this launch, and first in the section: the address is what the fleet
     # reads before anything else about the pickup (Michael, 2026-09-15).
-    ("pickup_address", "Pickup Address", "textarea", "D · Pickup", [], None),
-    ("pickup_pic", "Shipper Pickup PIC", "text", "D · Pickup", [], "pickPic"),
-    ("pickup_contact", "Shipper Pickup PIC contact", "text", "D · Pickup", [], "pickContact"),
-    ("pickup_frequency", "Shipment frequency", "text", "D · Pickup", [], "freq"),
-    ("pickup_vehicle", "Pickup vehicle requirement", "text", "D · Pickup", [], "truck"),
-    ("pickup_function", "Pickup responsibility", "select", "D · Pickup", OB_FUNCTIONS, None),
-    ("pickup_time", "Pickup time", "time", "D · Pickup", [], None),
-    ("pickup_wait", "Pickup waiting time (include units)", "text", "D · Pickup", [], "pickWait"),
-    ("pickup_driver", "Specific pickup driver requirement", "text", "D · Pickup", [], None),
-    ("pickup_tkbm", "Pickup TKBM", "select", "D · Pickup", ["Yes", "No"], "tkbmO"),
-    ("pickup_tkbm_count", "Pickup TKBM quantity (0 if No)", "number", "D · Pickup", [], None),
-    ("implan", "Implan", "select", "D · Pickup", ["Yes", "No"], None),
-    ("implan_count", "Implan quantity (0 if No)", "number", "D · Pickup", [], None),
+    ("pickup_address", "Pickup Address", "textarea", "D · First Pick Up", [], None),
+    ("pickup_pic", "Shipper Pickup PIC", "text", "D · First Pick Up", [], "pickPic"),
+    ("pickup_contact", "Shipper Pickup PIC contact", "text", "D · First Pick Up", [], "pickContact"),
+    ("pickup_frequency", "Shipment frequency", "text", "D · First Pick Up", [], "freq"),
+    # Its own answer (Michael, 2026-09-17). It used to copy the charter's single vehicle
+    # request, which is the DELIVERY vehicle, so the pickup never had a requirement of
+    # its own.
+    ("pickup_vehicle", "Pick Up vehicle requirement", "text", "D · First Pick Up", [], None),
+    ("pickup_function", "Pickup responsibility", "select", "D · First Pick Up", OB_FUNCTIONS, None),
+    ("pickup_time", "Pickup time", "time", "D · First Pick Up", [], None),
+    ("pickup_wait", "Pickup waiting time (include units)", "text", "D · First Pick Up", [], "pickWait"),
+    ("pickup_driver", "Specific pickup driver requirement", "text", "D · First Pick Up", [], None),
+    ("pickup_tkbm", "Pickup TKBM", "select", "D · First Pick Up", ["Yes", "No"], "tkbmO"),
+    ("pickup_tkbm_count", "Pickup TKBM quantity (0 if No)", "number", "D · First Pick Up", [], None),
+    ("implan", "Implan", "select", "D · First Pick Up", ["Yes", "No"], None),
+    ("implan_count", "Implan quantity (0 if No)", "number", "D · First Pick Up", [], None),
     ("delivery_to", "Delivery to", "select", "E · Delivery", ["End customer", "Reseller", "GT", "MT"], "destType"),
     ("delivery_vehicle", "Delivery vehicle requirement", "text", "E · Delivery", [], "truck"),
     ("destination", "Destination Address", "textarea", "E · Delivery", [], None),
@@ -9080,6 +9087,25 @@ OB_FIELDS = [
     ("delivery_tkbm", "Delivery TKBM", "select", "E · Delivery", ["Yes", "No"], "tkbmD"),
     ("delivery_tkbm_count", "Delivery TKBM quantity (0 if No)", "number", "E · Delivery", [], None),
 ]
+
+
+# These FOLLOW the Project Charter and are never typed here (Michael, 2026-09-17): locked
+# even when the charter is blank, written from the charter on every save, and a blank
+# one blocks submission with a pointer to the charter rather than a box to fill.
+OB_FOLLOW_CHARTER = ("product_type", "delivery_mode", "mps", "rdo", "pickup_frequency")
+# Free-text detail that is useful when there is something to say and not a reason to
+# block a launch when there is not (Michael, 2026-09-17).
+OB_OPTIONAL = ("rdo_treatment", "pod_treatment", "surat_jalan_treatment", "handling",
+               "pickup_driver", "delivery_driver")
+
+
+def ob_source_value(source: dict, src) -> str:
+    """The charter's answer for one onboarding field: the first non-blank of its keys."""
+    for key in (src if isinstance(src, tuple) else (src,) if src else ()):
+        v = str(source.get(key) or "").strip()
+        if v:
+            return v
+    return ""
 
 
 def ob_now():
@@ -9095,7 +9121,8 @@ def ob_serial(row):
 
 
 def ob_schema():
-    return [{"key": k, "label": label, "type": typ, "section": section, "options": options}
+    return [{"key": k, "label": label, "type": typ, "section": section, "options": options,
+             "required": k not in OB_OPTIONAL, "follows_charter": k in OB_FOLLOW_CHARTER}
             for k, label, typ, section, options, _ in OB_FIELDS]
 
 
@@ -9118,14 +9145,15 @@ def ob_payload(raw):
 
 
 def ob_validate(p, t, documents):
-    missing = [label for key, label, _, _, _, _ in OB_FIELDS if not p.get(key)]
-    for kind, label in [("product_photo", "Product photo"), ("pickup_points", "All pickup points upload")]:
-        if not any(d["kind"] == kind for d in documents):
-            missing.append(label)
+    # Uploads are no longer required (Michael, 2026-09-17): the product photo comes from
+    # the ticket's own attachments where Sales added one, and "all pickup points" is gone.
+    missing = [label + (" (fill it on the Project Charter)" if key in OB_FOLLOW_CHARTER else "")
+               for key, label, _, _, _, _ in OB_FIELDS
+               if key not in OB_OPTIONAL and not p.get(key)]
     if missing:
         raise HTTPException(400, "Complete all requirements: " + ", ".join(missing))
     for key, label, typ, _, options, _ in OB_FIELDS:
-        if typ == "select" and p[key] not in options:
+        if typ == "select" and (p[key] or key not in OB_OPTIONAL) and p[key] not in options:
             raise HTTPException(400, f"Choose a valid {label}")
     if "No" in p["packing"] and len(p["packing"]) != 1:
         raise HTTPException(400, "No packing cannot be combined with packing tags")
@@ -9174,7 +9202,7 @@ def ob_check_specs(p):
         owner = p.get(leg + "_function")
         if owner in OB_FUNCTIONS:
             add(leg + ":fleet", leg.title() + " fleet readiness", owner,
-                [leg + "_function", leg + "_vehicle", leg + "_time", leg + "_wait", leg + "_driver", "product_volume", "volume_unit", "dimensions", "weight", "destination", "pickup_address", "product_condition", "pickup_pic", "pickup_contact", "pickup_frequency", "delivery_to", "delivery_mode", "handling", "sla", "implan", "implan_count", "mps", "cod", "oc_by", "api_required"])
+                [leg + "_function", leg + "_vehicle", leg + "_time", leg + "_wait", leg + "_driver", "product_volume", "volume_unit", "dimensions", "weight", "destination", "pickup_address", "product_condition", "pickup_pic", "pickup_contact", "pickup_frequency", "delivery_to", "delivery_mode", "handling", "implan", "implan_count", "mps", "cod", "oc_by", "api_required"])
             add(leg + ":documents", leg.title() + " RDO / POD / Surat Jalan", owner,
                 [leg + "_function", "rdo", "rdo_treatment", "pod_treatment", "surat_jalan_treatment"])
         if p.get(leg + "_tkbm") == "Yes":
@@ -9241,6 +9269,7 @@ class OperationalDetailResponse(BaseModel):
     # response_model drops anything it does not declare, which is how a new field reaches
     # the browser as undefined and every input silently stays editable.
     locked: list[str] = []
+    charter_photos: list[dict] = []   # goods photos attached to the ticket
     revision: int
     submitted_at: str | None
     actual_golive: str | None
@@ -9326,9 +9355,9 @@ async def operational_detail(ref: str, u: User = Depends(current_user)):
     p = ob_payload(ob_json((intake or {}).get("released_payload" if u.group in OPERATIONAL_GROUPS else "payload")))
     if not intake:
         for key, _, _, _, options, source_key in OB_FIELDS:
-            value = source.get(source_key) if source_key else None
-            if value is not None and (not options or value in options):
-                p[key] = str(value)
+            value = ob_source_value(source, source_key)
+            if value and (not options or value in options):
+                p[key] = value
         p["shipper_name"] = t.get("shipper", "")
         p["service"] = t["service_type"]
         p["opportunity_id"] = str(t.get("opportunity_id") or "")
@@ -9345,7 +9374,7 @@ async def operational_detail(ref: str, u: User = Depends(current_user)):
     # field nobody could fill and no way forward -- the charter is corrected on the
     # ticket's own Project Charter tab, and this follows it from there.
     locked = [key for key, _, _, _, _, src in OB_FIELDS
-              if src and str(source.get(src) or "").strip()]
+              if key in OB_FOLLOW_CHARTER or ob_source_value(source, src)]
 
     # The Shipper ID field is gone (Michael, 2026-09-15) -- it and Global ID were two
     # boxes holding one value, because the intake's shipperId is itself Sales CRM's
@@ -9371,15 +9400,21 @@ async def operational_detail(ref: str, u: User = Depends(current_user)):
     if not (intake and intake.get("submitted_at")):
         srcs = {k: sk for k, _, _, _, _, sk in OB_FIELDS}
         for key in locked:
-            sk = srcs.get(key)
-            if sk and str(source.get(sk) or "").strip():
-                p[key] = str(source.get(sk))
+            v = ob_source_value(source, srcs.get(key))
+            if v or key in OB_FOLLOW_CHARTER:
+                p[key] = v
+    # The product photo Sales attached to the ticket, offered here instead of a second
+    # upload (Michael, 2026-09-17). Photos only: the ticket's documents can carry rate
+    # cards, and this pane is read by Ops and QC.
+    photos = await q("SELECT id, filename FROM ticket_files WHERE ticket_id=%s "
+                     "AND kind='goods_photo' ORDER BY id", (t["id"],))
     checks = await q("SELECT * FROM onboarding_checks WHERE ticket_id=%s ORDER BY id", (t["id"],))
     docs = await q("SELECT id,kind,filename,content_type FROM onboarding_documents WHERE ticket_id=%s ORDER BY id", (t["id"],))
     events = await q("SELECT actor,body,at FROM onboarding_events WHERE ticket_id=%s ORDER BY id DESC LIMIT 100", (t["id"],))
     actual = (intake or {}).get("actual_golive")
     return {"ref": ref, "shipper": t["shipper"], "opportunity_name": t.get("opportunity_name") or t["shipper"],
             "ticket_status": t["status"], "fields": ob_schema(), "payload": p, "locked": locked,
+            "charter_photos": [{"id": r["id"], "filename": r["filename"]} for r in photos],
             "revision": (intake or {}).get("revision", 0),
             "submitted_at": str(intake["submitted_at"]) if intake and intake["submitted_at"] else None,
             "actual_golive": str(actual) if actual else None, "qc_accepted_at": str(intake["qc_accepted_at"]) if intake and intake["qc_accepted_at"] else None,
@@ -9404,6 +9439,13 @@ async def operational_save(ref: str, body: OperationalSave, u: User = Depends(cu
     if t["status"] != "Proposal Accepted / Ready to Ship":
         raise HTTPException(409, "Onboarding is available after the opportunity is Ready to Ship")
     p = ob_payload(body.payload)
+    # The charter's answers win over whatever the page sent, so "follows the charter" is
+    # true on the server and not just a disabled input.
+    inp = await q("SELECT payload FROM ticket_input WHERE ticket_id=%s", (t["id"],), one=True)
+    source = ob_json((inp or {}).get("payload"))
+    srcs = {k: sk for k, _, _, _, _, sk in OB_FIELDS}
+    for key in OB_FOLLOW_CHARTER:
+        p[key] = ob_source_value(source, srcs[key])
     docs = await q("SELECT id,kind FROM onboarding_documents WHERE ticket_id=%s", (t["id"],))
     if body.submit:
         ob_validate(p, t, docs)
@@ -9471,8 +9513,8 @@ async def operational_upload(ref: str, file: UploadFile = FastFile(...), kind: s
     """Upload operational product photos or pickup points before Sales publishes this launch."""
     t = await get_ticket(ref)
     require(u, "editOnboarding", t)
-    if kind not in ("product_photo", "pickup_points"):
-        raise HTTPException(400, "Upload a product photo or pickup points")
+    if kind != "product_photo":
+        raise HTTPException(400, "Only a product photo can be uploaded here")
     data, ctype = await read_upload(file)
     if kind == "product_photo" and ctype not in INLINE_TYPES:
         raise HTTPException(400, "Product photo must be an image")
@@ -9495,6 +9537,25 @@ async def operational_document(fid: int, u: User = Depends(current_user)):
         raise HTTPException(404, "Document not found")
     if u.group in OPERATIONAL_GROUPS and not r["submitted_at"]:
         raise HTTPException(403, "Document not yet released")
+    return file_response(r)
+
+
+@app.get("/api/onboarding-v2/tickets/{ref}/charter-photos/{fid}")
+async def operational_charter_photo(ref: str, fid: int, u: User = Depends(current_user)):
+    """A goods photo attached to the ticket, shown on the onboarding form.
+
+    Only kind goods_photo, and only for this ticket: the ticket's other files can be
+    commercial. Operational readers see it once Sales has submitted, like any upload."""
+    t = await get_ticket(ref)
+    if u.group in OPERATIONAL_GROUPS:
+        intake = await q("SELECT submitted_at FROM onboarding_intake WHERE ticket_id=%s",
+                         (t["id"],), one=True)
+        if not (intake or {}).get("submitted_at"):
+            raise HTTPException(403, "Not yet released")
+    r = await q("SELECT filename, content_type, data FROM ticket_files WHERE id=%s "
+                "AND ticket_id=%s AND kind='goods_photo'", (fid, t["id"]), one=True)
+    if not r:
+        raise HTTPException(404, "Photo not found")
     return file_response(r)
 
 

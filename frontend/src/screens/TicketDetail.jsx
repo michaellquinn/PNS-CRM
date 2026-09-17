@@ -35,7 +35,7 @@ const SECTIONS = [
     ["billingTreatment", "Billing weight treatment"], ["mps", "MPS"],
     ["rdo", "RDO"], ["rdoNotes", "RDO details from Sales"],
     ["cod", "COD"], ["tkbmO", "TKBM origin"], ["tkbmD", "TKBM destination"],
-    ["ins", "Insurance"], ["truck", "Vehicle request"],
+    ["ins", "Insurance"], ["truck", "Vehicle request"], ["shipMode", "Shipment mode"],
     ["handling", "Custom handling request"], ["notes", "Notes"],
   ]],
   // Sections 1-3 are the Project Charter — solutioning. Section 4 is Kick-Off data —
@@ -54,6 +54,8 @@ const YESNO = ["mps", "rdo", "cod", "tkbmO", "tkbmD", "ins"];
 const HOURS = ["pickWait", "delWait"];
 const SELECT_OPTIONS = {
   billingTreatment: ["Standard", "Actual weight", "Shipper weight", "Custom rounding"],
+  // Onboarding reads its Shipment mode from here (Michael, 2026-09-17).
+  shipMode: ["Port to Port", "Port to Door", "Door to Port", "Door to Door"],
 };
 
 // Waiting time is the one field where blank is an answer, not a gap: "None" means the

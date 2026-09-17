@@ -415,8 +415,14 @@ check("...and the response model declares it", "locked: list[str]" in SRC,
       "a response_model silently drops what it does not declare, and every input would "
       "quietly stay editable")
 check("a field locks only where the charter has a value",
-      'if src and str(source.get(src) or "").strip()' in SRC,
+      'if key in OB_FOLLOW_CHARTER or ob_source_value(source, src)]' in SRC,
       "locking a blank one dead-ends the submission")
+# ...except the five that ALWAYS follow the charter (Michael, 2026-09-17). Those lock
+# blank too, which is only safe because a blank one names the charter as where to fix it
+# -- without that message it is exactly the dead end the rule above exists to prevent.
+check("a blank always-charter field points to the Project Charter",
+      '" (fill it on the Project Charter)" if key in OB_FOLLOW_CHARTER' in SRC,
+      "a locked blank field with no pointer dead-ends the submission")
 check("a locked field stops following once Sales submit",
       'if not (intake and intake.get("submitted_at")):' in SRC,
       "the answers teams are confirming against must not shift under them")

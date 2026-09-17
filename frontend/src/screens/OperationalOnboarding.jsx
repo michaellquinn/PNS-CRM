@@ -131,7 +131,7 @@ export function OnboardingPane({ ticketRef, me, notify }) {
       {!data.eligible && <p className="mt-2 font-medium text-amber-800">Input is available when the opportunity is Ready to Ship.</p>}
     </div>
     <h3 className="mb-3 font-semibold">Sales requirements</h3>
-    <p className="mb-4 text-[12px] text-slate-500">Every input must have a valid answer before submission. Use “Not required” with an explanation where a treatment/handling requirement does not apply; manpower No requires quantity 0. Greyed answers come from the Project Charter and are not retyped here — correct them on the ticket’s Project Charter tab and they follow. Complexity assessment is entered explicitly until its automatic rule is agreed.</p>
+    <p className="mb-4 text-[12px] text-slate-500">Inputs marked * are needed to submit; the treatment details, handling request and driver requirements are optional. Manpower No requires quantity 0. Greyed answers come from the Project Charter and are not retyped here — correct them on the ticket’s Project Charter tab and they follow. Product type, shipment mode, MPS, RDO and shipment frequency always follow the charter: if one is blank, fill it there first.</p>
     {[...new Set(data.fields.map(f => f.section))].map(section => <section key={section} className="mb-5">
       <h4 className="mb-3 border-b pb-2 text-[13px] font-semibold text-slate-700">{section}</h4>
       <div className="grid gap-3 md:grid-cols-2">
@@ -148,7 +148,10 @@ export function OnboardingPane({ ticketRef, me, notify }) {
           const off = !editable || fixed;
           return <Field key={f.key} className={f.type === "textarea" || f.type === "packing" ? "md:col-span-2" : ""}>
           <span className="mb-1 block text-[12px] text-slate-600">
-            {f.label} {fixed ? <span className="font-normal text-slate-400">· from the Project Charter</span> : "*"}
+            {f.label} {fixed
+              ? <span className={`font-normal ${f.follows_charter && !p[f.key] ? "text-amber-700" : "text-slate-400"}`}>
+                  · {f.follows_charter && !p[f.key] ? "blank — fill it on the Project Charter" : "from the Project Charter"}</span>
+              : f.required ? "*" : <span className="font-normal text-slate-400">· optional</span>}
           </span>
           {f.type === "packing" ? <div className="flex flex-wrap gap-3 rounded-lg border p-3">{f.options.map(tag => <label key={tag} className="flex items-center gap-2 text-[13px]">
             <input type="checkbox" disabled={off} checked={(p.packing || []).includes(tag)} onChange={e => {
@@ -163,9 +166,15 @@ export function OnboardingPane({ ticketRef, me, notify }) {
       </div>
     </section>)}
     <section className="mb-5 rounded-xl border p-4">
-      <h4 className="mb-2 font-semibold text-[13px]">Operational uploads *</h4>
-      <p className="mb-3 text-[12px] text-slate-500">Product photo and all pickup points are required. Only upload operational material without pricing/revenue or commercial documents (5 MB per file).</p>
-      {[['product_photo','Product photo'],['pickup_points','All pickup points']].map(([kind,label]) => <div key={kind} className="mb-3">
+      <h4 className="mb-2 font-semibold text-[13px]">Operational uploads</h4>
+      <p className="mb-3 text-[12px] text-slate-500">Optional. The product photo Sales attached to the ticket is used here; upload one only if there is none. Only operational material — no pricing/revenue or commercial documents (5 MB per file).</p>
+      {/* Photos attached to the ticket itself (Michael, 2026-09-17), so Sales does not
+          upload the same picture twice. "All pickup points" is gone. */}
+      {!!(data.charter_photos || []).length && <div className="mb-3">
+        <b className="text-[12px]">Product photo from the ticket</b>
+        {data.charter_photos.map(ph => <a key={ph.id} className="ml-3 text-[12px] text-sky-700 underline" href={`/api/onboarding-v2/tickets/${ticketRef}/charter-photos/${ph.id}`} target="_blank" rel="noreferrer">{ph.filename}</a>)}
+      </div>}
+      {[['product_photo', (data.charter_photos || []).length ? 'Another product photo' : 'Product photo']].map(([kind,label]) => <div key={kind} className="mb-3">
         <b className="text-[12px]">{label}</b>
         {data.documents.filter(d => d.kind === kind).map(d => <a key={d.id} className="ml-3 text-[12px] text-sky-700 underline" href={`/api/onboarding-v2/documents/${d.id}`} target="_blank" rel="noreferrer">{d.filename}</a>)}
         {editable && !data.submitted_at && <input className="mt-1 block text-[12px]" type="file" accept={kind === "product_photo" ? "image/*" : undefined} onChange={e => upload(kind,e.target.files[0])} />}
