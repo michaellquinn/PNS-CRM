@@ -192,8 +192,8 @@ FTL_PRICE_CATEGORIES = {
 }
 SAMEDAY_PRICE_CATEGORIES = {
     1: "Category 1 — normal rate, no discount",
-    2: "Category 2 — discount under 20% (e.g. 10%)",
-    3: "Category 3 — discount 20% or more",
+    2: "Category 2 — discount up to 10%",
+    3: "Category 3 — discount more than 10%",
 }
 
 
@@ -1553,7 +1553,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-17.3"
+BUILD = "2026-09-17.4"
 
 
 class Me(BaseModel):

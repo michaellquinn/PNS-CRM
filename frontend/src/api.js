@@ -367,8 +367,8 @@ const FTL_CATEGORIES = [
 ];
 const SAMEDAY_CATEGORIES = [
   { id: 1, label: "Category 1", hint: "Normal rate, no discount" },
-  { id: 2, label: "Category 2", hint: "Discount under 20% (e.g. 10%)" },
-  { id: 3, label: "Category 3", hint: "Discount 20% or more" },
+  { id: 2, label: "Category 2", hint: "Discount up to 10%" },
+  { id: 3, label: "Category 3", hint: "Discount more than 10%" },
 ];
 export const priceCategoriesFor = (service) =>
   ["FTL", "FTL on-call", "FTL monthly"].includes(service) ? FTL_CATEGORIES

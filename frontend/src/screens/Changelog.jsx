@@ -7,7 +7,7 @@ const ENTRIES = [
     by: "Michael + Claude",
     changes: [
       "FTL (on-call, monthly and the provisional line) is judged on margin: Category 1 = margin 15% or more; Category 2 = margin 10% up to under 15%; Category 3 = margin below 10%.",
-      "Sameday is judged on discount: Category 1 = normal rate with no discount; Category 2 = a discount under 20%, such as 10%; Category 3 = a discount of 20% or more.",
+      "Sameday is judged on discount: Category 1 = normal rate with no discount; Category 2 = a discount up to 10%; Category 3 = a discount of more than 10%.",
       "Every other service keeps the general rule: Category 1 = discount up to 40%; Category 2 = discount above 40% with margin still 20% or more; Category 3 = margin below 20% (floor 10% B2BR, 5% LTL).",
       "The pricing dropdown shows the definitions for that ticket's service. Still a tag only — approvals do not read it.",
     ],
