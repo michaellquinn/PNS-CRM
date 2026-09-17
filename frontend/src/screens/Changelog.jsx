@@ -3,6 +3,18 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-09-17",
+    title: "Notes and Custom handling request are no longer copied from Sales CRM",
+    by: "Michael + Claude",
+    changes: [
+      "The Project Charter's Notes and Custom handling request are written by Sales and PNS only. The sync no longer overwrites them from Sales CRM's description / next_step and shipping_requirements.",
+      "What is already in those two fields stays as it is. Sales CRM's original text is still visible under Sales CRM record on the ticket.",
+    ],
+    overruled: [
+      "Notes from description → next_step and Custom handling request from shipping_requirements, overwritten on every sync (Baskoro's field list, 2026-08-18).",
+    ],
+  },
+  {
+    date: "2026-09-17",
     title: "Invoicing PIC comes from Sales CRM; Pickup PIC leaves New Request",
     by: "Michael + Claude",
     changes: [

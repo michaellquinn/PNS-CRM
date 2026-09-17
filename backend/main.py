@@ -1553,7 +1553,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-17.7"
+BUILD = "2026-09-17.8"
 
 
 class Me(BaseModel):
@@ -2294,7 +2294,9 @@ CRM_OPP_PAYLOAD = [
     ("shipperPic",   ["contact_name", "primary_contact_name"], "Shipper PIC", True),
     ("shipperContact", ["contact_phone", "primary_contact_phone", "contact_mobile"],
      "Contact shipper PIC", True),
-    ("notes",        ["description", "next_step"], "Notes", True),
+    # Notes and Custom handling request are NOT read from Sales CRM (Michael, 2026-09-17).
+    # They are what Sales and PNS write on the charter for this solution; copying
+    # description / next_step / shipping_requirements over them every sync erased that.
     # Every one of these is a question the intake form ALREADY asks and Sales CRM already
     # holds the answer to (Baskoro's field list, 2026-08-18). Asking a salesperson to
     # retype what they typed in Sales CRM an hour ago is how intake ends up half empty.
@@ -2303,7 +2305,6 @@ CRM_OPP_PAYLOAD = [
     ("sla",          ["service_level"], "SLA", True),
     ("cod",          ["cash_on_delivery_cod"], "COD", True),
     ("ins",          ["insurance"], "Insurance", True),
-    ("handling",     ["shipping_requirements"], "Custom handling request", True),
     # Sales CRM's own numbers. Reported on alongside potential revenue, and both change
     # as a deal is negotiated, so these are re-read every time.
     ("committedRev", ["committed_revenue_mth"], "Committed revenue / month", True),
