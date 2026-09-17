@@ -20,6 +20,7 @@ const ENTRIES = [
     changes: [
       "Invoicing PIC is filled from Sales CRM's Billing Person (billing_person_lookup). That field holds a Contact ID, so the sync reads the Contact and writes the person's name; Contact invoicing PIC gets their phone, or email when there is no phone. Like other Sales CRM fields it is overwritten on each sync.",
       "Invoicing PIC and Contact invoicing PIC are back on the Project Charter, so what Sales CRM and New Request fill in is visible.",
+      "The Billing Person is read in a small step after each automatic sync — up to 25 contacts per run, remembered for 6 hours — rather than inside the sweep, whose time budget was always spent before existing tickets got their turn.",
       "Pickup PIC and Contact pickup PIC are removed from New Request and the Project Charter. Onboarding still asks for the Shipper Pickup PIC and contact, typed there.",
     ],
     overruled: [

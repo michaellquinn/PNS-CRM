@@ -1553,7 +1553,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-17.8"
+BUILD = "2026-09-17.9"
 
 
 class Me(BaseModel):
@@ -3488,6 +3488,64 @@ _auto_sync = {"enabled": bool(AUTO_SYNC_MINUTES), "every_minutes": AUTO_SYNC_MIN
               "last_counts": None, "runs": 0}
 
 
+# Billing Person contacts already read, {contact id: (name, reach, time.monotonic())}.
+# Module-level so it outlives one sweep: a contact rarely changes, and re-reading the
+# same one every five minutes would only spend Sales CRM's rate limit.
+_billing_contacts: dict[str, tuple[str, str, float]] = {}
+BILLING_CONTACT_TTL_S = 6 * 3600
+BILLING_FILL_PER_RUN = 25
+
+
+async def fill_billing_pics(limit: int = BILLING_FILL_PER_RUN) -> int:
+    """Write Invoicing PIC and its contact from each ticket's Billing Person.
+
+    Runs AFTER the sweep, outside its time budget (Michael, 2026-09-17). Inside the sweep
+    the contact reads for held tickets came after the refresh had spent the budget, so
+    they never ran and no existing ticket got its Invoicing PIC. Bounded per run and
+    cached, so it catches up over a few runs and then costs almost nothing."""
+    if not SALESCRM_API_KEY:
+        return 0
+    rows = await q("SELECT ti.ticket_id, ti.payload FROM ticket_input ti "
+                   "JOIN tickets t ON t.id=ti.ticket_id WHERE t.deleted_at IS NULL")
+    todo = []
+    for r in rows:
+        p = r["payload"] if isinstance(r["payload"], dict) else json.loads(r["payload"] or "{}")
+        cid = str(((p.get("_crm") or {}).get("billing_person_lookup")) or "").strip()
+        if cid.isdigit():
+            todo.append((r["ticket_id"], cid, p))
+    now = time.monotonic()
+    wanted = [cid for _, cid, _ in todo
+              if cid not in _billing_contacts or now - _billing_contacts[cid][2] > BILLING_CONTACT_TTL_S]
+    import httpx
+    async with httpx.AsyncClient(timeout=12, headers={"X-API-Key": SALESCRM_API_KEY}) as client:
+        crm = SalesCrm(client)
+        for cid in list(dict.fromkeys(wanted))[:limit]:
+            try:
+                d = await crm.records("Contact", id=cid)
+                c = (d.get("items") or [{}])[0]
+                _billing_contacts[cid] = (contact_name(c), contact_reach(c), time.monotonic())
+            except Exception:                                      # noqa: BLE001
+                continue          # tried again next run; one bad contact changes nothing
+    written = 0
+    for tid, cid, p in todo:
+        name, reach, _ = _billing_contacts.get(cid, ("", "", 0))
+        if not name or (p.get("invPic") == name and (not reach or p.get("invContact") == reach)):
+            continue
+        # Re-read just before writing, so an edit made while contacts were being fetched
+        # is not written back over.
+        cur = await q("SELECT payload FROM ticket_input WHERE ticket_id=%s", (tid,), one=True)
+        if not cur:
+            continue
+        fresh = cur["payload"] if isinstance(cur["payload"], dict) else json.loads(cur["payload"] or "{}")
+        fresh["invPic"] = name
+        if reach:
+            fresh["invContact"] = reach
+        await execute("UPDATE ticket_input SET payload=%s WHERE ticket_id=%s",
+                      (json.dumps(fresh), tid))
+        written += 1
+    return written
+
+
 async def _auto_sync_loop() -> None:
     """Run the Sales CRM sweep on a timer, as the sync owner.
 
@@ -3537,6 +3595,12 @@ async def _auto_sync_loop() -> None:
                                   last_error=None, last_counts=r.get("counts"),
                                   runs=_auto_sync["runs"] + 1)
                 log.info("auto-sync: %s", r.get("counts"))
+                try:
+                    n = await fill_billing_pics()
+                    if n:
+                        log.info("auto-sync: Invoicing PIC filled on %d ticket(s)", n)
+                except Exception:                                  # noqa: BLE001
+                    log.exception("auto-sync: filling Invoicing PIC failed")
         except asyncio.CancelledError:
             raise
         except Exception as e:                      # noqa: BLE001 - see docstring
