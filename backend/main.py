@@ -1553,7 +1553,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-17.6"
+BUILD = "2026-09-17.7"
 
 
 class Me(BaseModel):
@@ -2392,9 +2392,28 @@ def _crm_pick(rec: dict, names: list[str]) -> str:
     return ""
 
 
+def contact_name(c: dict | None) -> str:
+    c = c or {}
+    full = _crm_pick(c, ["name", "full_name"])
+    if full:
+        return full
+    return " ".join(x for x in (_crm_pick(c, ["first_name"]), _crm_pick(c, ["last_name"])) if x)
+
+
+def contact_reach(c: dict | None) -> str:
+    return _crm_pick(c or {}, ["mobile_phone", "mobile", "phone", "phone_number", "email"])
+
+
 def crm_payload(o: dict, account: dict | None) -> dict[str, tuple[str, bool]]:
     """Everything Sales CRM has to say about this deal, as {payload key: (value, owned)}."""
     out: dict[str, tuple[str, bool]] = {}
+    # Invoicing PIC is Sales CRM's Billing Person (Michael, 2026-09-17). The opportunity
+    # carries only the Contact ID; the sync resolves it and hangs the record here.
+    bc = o.get("_billing_contact") if isinstance(o, dict) else None
+    if contact_name(bc):
+        out["invPic"] = (contact_name(bc), True)
+        if contact_reach(bc):
+            out["invContact"] = (contact_reach(bc), True)
     for key, names, _label, owned in CRM_OPP_PAYLOAD:
         v = _crm_pick(o, names)
         if v:
@@ -2417,7 +2436,7 @@ def merge_crm_payload(current: dict, o: dict, account: dict | None) -> dict:
         if owned or not str(merged.get(key) or "").strip():
             merged[key] = value
     snapshot = {k: _first(v) for k, v in (o or {}).items()
-                if _first(v) not in (None, "", [], {})}
+                if not k.startswith("_") and _first(v) not in (None, "", [], {})}
     if account:
         # Every Account field, not a chosen few. Keeping only the fields we already read
         # meant a renamed field was invisible exactly when it mattered: when Sales CRM
@@ -2441,7 +2460,7 @@ def crm_unmapped(o: dict) -> set[str]:
     for _k, names, _l, _owned in CRM_OPP_PAYLOAD:
         mapped |= set(names)
     return {k for k, v in (o or {}).items()
-            if k not in mapped and _first(v) not in (None, "", [], {})}
+            if k not in mapped and not k.startswith("_") and _first(v) not in (None, "", [], {})}
 
 
 def _crm_date(o: dict) -> str | None:
@@ -2783,6 +2802,9 @@ class SalesCrm:
     def __init__(self, client):
         self.c = client
         self._accounts: dict[str, dict] = {}
+        # Contacts named by an opportunity's lookups. billing_person_lookup is a Contact
+        # ID, not a name (Michael, 2026-09-17), so the Invoicing PIC needs one more read.
+        self._contacts: dict[str, dict] = {}
         # WHY an account could not be read, keyed by id. warm_accounts() has to swallow
         # per-account failures or one bad row would end the sweep, but swallowing the
         # reason as well left "could not be read" as the only thing anybody could be
@@ -2838,6 +2860,36 @@ class SalesCrm:
                                            "opportunity may be wrong")
             self._accounts[aid] = items[0] if items else {}
         return self._accounts[aid] or None
+
+    async def warm_contacts(self, ids, deadline: float | None = None) -> None:
+        """Fetch the named Contacts into the cache, bounded the same way as accounts.
+
+        A contact that cannot be read is cached as {} and simply leaves its field alone:
+        the Invoicing PIC is useful, never worth failing or stalling a sweep over."""
+        todo = [str(i) for i in ids if str(i or "").strip() and str(i) not in self._contacts]
+        if not todo:
+            return
+        sem = asyncio.Semaphore(SYNC_CONCURRENCY)
+
+        async def one(cid: str):
+            async with sem:
+                if deadline is not None and time.monotonic() > deadline:
+                    return
+                try:
+                    d = await self.records("Contact", id=cid)
+                    items = d.get("items") or []
+                    self._contacts[cid] = items[0] if items else {}
+                except Exception:                                  # noqa: BLE001
+                    self._contacts.setdefault(cid, {})
+
+        await asyncio.gather(*(one(c) for c in todo))
+
+    def attach_billing_contacts(self, opps) -> None:
+        """Hang the resolved billing Contact on each opportunity for crm_payload()."""
+        for o in opps:
+            cid = str(_first(o.get("billing_person_lookup")) or "").strip()
+            if cid and self._contacts.get(cid):
+                o["_billing_contact"] = self._contacts[cid]
 
     def account_error(self, aid) -> str:
         """Why that account could not be read, if we know. Empty string if it read fine
@@ -3539,6 +3591,36 @@ async def salescrm_account_raw(account_id: str, u: User = Depends(current_user))
             default=str)))
 
 
+@app.get("/api/salescrm/contact/{contact_id}")
+async def salescrm_contact_raw(contact_id: str, u: User = Depends(current_user)):
+    """One Sales CRM Contact as the API sends it, plus the name and reach this app reads.
+    Read-only; for checking the Billing Person mapping against real data."""
+    require(u, "syncSalesCrm")
+    if not SALESCRM_API_KEY:
+        raise HTTPException(400, "SALESCRM_API_KEY is not set")
+    cid = re.sub(r"\D", "", contact_id or "")
+    if not cid:
+        raise HTTPException(400, "Give a numeric Sales CRM contact id")
+    import httpx
+    from fastapi.responses import JSONResponse
+    async with httpx.AsyncClient(timeout=12,
+                                 headers={"X-API-Key": SALESCRM_API_KEY}) as client:
+        try:
+            d = await SalesCrm(client).records("Contact", id=cid)
+        except HTTPException:
+            raise
+        except Exception as e:                                   # noqa: BLE001
+            why = getattr(getattr(e, "response", None), "status_code", None)
+            raise HTTPException(502, f"Sales CRM read failed: HTTP {why}" if why
+                                else f"Sales CRM read failed: {type(e).__name__}")
+    c = (d.get("items") or [None])[0]
+    if not c:
+        raise HTTPException(404, "No such contact")
+    return JSONResponse(json.loads(json.dumps(
+        {"contact": c, "name_read": contact_name(c), "reach_read": contact_reach(c)},
+        default=str)))
+
+
 @app.post("/api/sync/salescrm")
 async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
     """Pull new Sales CRM opportunities and raise the matching solutioning tickets.
@@ -3983,6 +4065,14 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
             # and gets its account next run.
             await crm.warm_accounts((o.get("account_id") for o in held),
                                     deadline=fetch_deadline)
+            # The billing person behind Invoicing PIC. Same bounds as the accounts: the
+            # deals somebody asked for in full, everything else only while time allows.
+            _billing = lambda rows: (_first(o.get("billing_person_lookup")) for o in rows)
+            await crm.warm_contacts(_billing(explicit_fresh))
+            await crm.warm_contacts(_billing(found_fresh), deadline=fetch_deadline)
+            await crm.warm_contacts(_billing(held), deadline=fetch_deadline)
+            for _rows in (explicit_fresh, found_fresh, held):
+                crm.attach_billing_contacts(_rows)
 
             # Explicit requests first, and never truncated. A "queued 907174" or
             # "id 907174" batch is one opportunity somebody typed on purpose; a "day" or
@@ -5774,8 +5864,8 @@ CHARTER_SECTIONS = [
     ("1 Â· Shipper profile", [
         ("shipper", "Shipper name"), ("shipperStatus", "Status"), ("brief", "Brief summary"),
         ("shipperPic", "Shipper PIC"), ("shipperContact", "Contact shipper PIC"),
-        ("invAddr", "Invoicing address"), ("pickPic", "Pickup PIC"),
-        ("pickContact", "Contact pickup PIC"), ("pickup", "Pickup address"),
+        ("invPic", "Invoicing PIC"), ("invContact", "Contact invoicing PIC"),
+        ("invAddr", "Invoicing address"), ("pickup", "Pickup address"),
         ("dest", "Destination"), ("freq", "Shipment frequency"), ("volume", "Shipment volume"),
     ]),
     ("2 Â· Cargo knowledge", [
@@ -5833,8 +5923,10 @@ FIELD_RULES = {
     "shipperPic":     ("Sales", "asked", ""),
     "shipperContact": ("Sales", "asked", ""),
     "invAddr":        ("Sales", "won", ""),
-    "pickPic":        ("Sales", "won", ""),
-    "pickContact":    ("Sales", "won", ""),
+    # From Sales CRM's Billing Person, resolved to the contact's name and phone by the
+    # sync (Michael, 2026-09-17). Blocks nothing.
+    "invPic":         ("Sales", "won", ""),
+    "invContact":     ("Sales", "won", ""),
     "pickup":         ("Sales", "asked", ""),
     "dest":           ("Sales", "asked", ""),
     "freq":           ("Sales", "asked", ""),
@@ -9062,8 +9154,9 @@ OB_FIELDS = [
     # Written for this launch, and first in the section: the address is what the fleet
     # reads before anything else about the pickup (Michael, 2026-09-15).
     ("pickup_address", "Pickup Address", "textarea", "D · First Pick Up", [], None),
-    ("pickup_pic", "Shipper Pickup PIC", "text", "D · First Pick Up", [], "pickPic"),
-    ("pickup_contact", "Shipper Pickup PIC contact", "text", "D · First Pick Up", [], "pickContact"),
+    # Typed here now: Pickup PIC left the Project Charter (Michael, 2026-09-17).
+    ("pickup_pic", "Shipper Pickup PIC", "text", "D · First Pick Up", [], None),
+    ("pickup_contact", "Shipper Pickup PIC contact", "text", "D · First Pick Up", [], None),
     ("pickup_frequency", "Shipment frequency", "text", "D · First Pick Up", [], "freq"),
     # Its own answer (Michael, 2026-09-17). It used to copy the charter's single vehicle
     # request, which is the DELIVERY vehicle, so the pickup never had a requirement of

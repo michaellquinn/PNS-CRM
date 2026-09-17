@@ -170,11 +170,9 @@ export function NewRequest({ me, notify, onCreated }) {
             Optional now — required once the bid is won
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <Field label="Invoicing PIC"><input className={inputCls} value={f.invPic || ""} onChange={set("invPic")} /></Field>
+            <Field label="Invoicing PIC" hint="Filled from Sales CRM's Billing Person once the opportunity syncs"><input className={inputCls} value={f.invPic || ""} onChange={set("invPic")} /></Field>
             <Field label="Contact invoicing PIC"><input className={inputCls} value={f.invContact || ""} onChange={set("invContact")} /></Field>
             <Field label="Invoicing address" span><input className={inputCls} value={f.invAddr || ""} onChange={set("invAddr")} /></Field>
-            <Field label="Pickup PIC"><input className={inputCls} value={f.pickPic || ""} onChange={set("pickPic")} /></Field>
-            <Field label="Contact pickup PIC"><input className={inputCls} value={f.pickContact || ""} onChange={set("pickContact")} /></Field>
           </div>
         </div>
 

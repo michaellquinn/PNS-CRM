@@ -18,7 +18,8 @@ const SECTIONS = [
   ["1 · Shipper profile", [
     ["shipper", "Shipper name"], ["shipperStatus", "Status"], ["brief", "Brief summary"],
     ["shipperPic", "Shipper PIC"], ["shipperContact", "Contact shipper PIC"],
-    ["invAddr", "Invoicing address"], ["pickPic", "Pickup PIC"], ["pickContact", "Contact pickup PIC"],
+    ["invPic", "Invoicing PIC"], ["invContact", "Contact invoicing PIC"],
+    ["invAddr", "Invoicing address"],
     ["pickup", "Pickup address"], ["dest", "Destination"], ["freq", "Shipment frequency"],
     ["volume", "Shipment volume"],
   ]],

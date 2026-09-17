@@ -3,6 +3,19 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-09-17",
+    title: "Invoicing PIC comes from Sales CRM; Pickup PIC leaves New Request",
+    by: "Michael + Claude",
+    changes: [
+      "Invoicing PIC is filled from Sales CRM's Billing Person (billing_person_lookup). That field holds a Contact ID, so the sync reads the Contact and writes the person's name; Contact invoicing PIC gets their phone, or email when there is no phone. Like other Sales CRM fields it is overwritten on each sync.",
+      "Invoicing PIC and Contact invoicing PIC are back on the Project Charter, so what Sales CRM and New Request fill in is visible.",
+      "Pickup PIC and Contact pickup PIC are removed from New Request and the Project Charter. Onboarding still asks for the Shipper Pickup PIC and contact, typed there.",
+    ],
+    overruled: [
+      "Invoicing PIC and its contact dropped from the charter (2026-08-11, billing never used them): they are shown again, now filled from Sales CRM.",
+    ],
+  },
+  {
+    date: "2026-09-17",
     title: "Onboarding times are hour ranges, and No quantities fill themselves",
     by: "Michael + Claude",
     changes: [
