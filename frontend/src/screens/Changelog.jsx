@@ -3,6 +3,19 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-09-18",
+    title: "Ops Onboarding, a Pending Readiness badge, and no go-live box",
+    by: "Michael + Claude",
+    changes: [
+      "The Onboarding menu entry is now Ops Onboarding.",
+      "Pending Readiness shows a count in the menu, like Pending requirement and Pending solution, for everyone who sees the menu — the operational teams included.",
+      "The Actual go-live and QC handover box is removed from the onboarding form.",
+    ],
+    overruled: [
+      "Sales confirming the actual go-live on the onboarding form, which started the seven-day monitoring and QC's handover acceptance (operational onboarding).",
+    ],
+  },
+  {
+    date: "2026-09-18",
     title: "Admin can confirm onboarding readiness for any team",
     by: "Michael + Claude",
     changes: [

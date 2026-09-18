@@ -170,9 +170,9 @@ const NAV = [
   // solutioning ends when the shipper accepts, and what follows asks a different
   // question of different people. Ops read it; Sales complete it.
   ["Onboarding", [
-    { id: "onboarding", label: "Onboarding", icon: "◉",
+    { id: "onboarding", label: "Ops Onboarding", icon: "◉",
       keywords: "go live ops kick off onboarding schedule" },
-    { id: "readiness", label: "Pending Readiness", icon: "◷" },
+    { id: "readiness", label: "Pending Readiness", icon: "◷", count: "ob:readiness" },
     { id: "golive", label: "Go Live", icon: "▷" },
     { id: "handover", label: "To Handover — QC", icon: "⇥" },
     { id: "operational-db", label: "Operational Database", icon: "▤" },
@@ -631,8 +631,19 @@ export default function App() {
         // PENDING_SOLUTION in api.js, the same list the screen fetches, so the number on
         // the menu and the number of rows behind it come from one definition.
         c["pending:solution"] = PENDING_SOLUTION.reduce((n, s) => n + (c[s] || 0), 0);
-        setCounts(c);
+        setCounts((prev) => ({ ...c, "ob:readiness": prev["ob:readiness"] }));
       })
+      .catch(() => {});
+  }, [me, tick]);
+
+  // Pending Readiness carries a badge like the solutioning queues (Michael, 2026-09-18),
+  // so an outstanding confirmation is visible from any screen. A separate effect because
+  // the one above skips operational users, and they are exactly who needs this number.
+  // It is the same list the screen shows, so badge and rows cannot disagree.
+  useEffect(() => {
+    if (!me) return;
+    api.operationalList("readiness")
+      .then((d) => setCounts((c) => ({ ...c, "ob:readiness": (d.rows || []).length })))
       .catch(() => {});
   }, [me, tick]);
 

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "../api";
 import { Btn, Card, Empty, Head, Pill, inputCls } from "../ui";
 
-const TITLES = { onboarding: "Onboarding", readiness: "Pending Readiness", golive: "Go Live", handover: "To Handover — QC" };
+const TITLES = { onboarding: "Ops Onboarding", readiness: "Pending Readiness", golive: "Go Live", handover: "To Handover — QC" };
 const HELP = { onboarding: "One opportunity per entry. Open the ticket to complete Sales requirements and follow operational readiness.",
   readiness: "Your team's outstanding confirmations. CL: packing · Sort: TKBM · pickup/delivery operations: fleet and documents.",
   golive: "Ready or approved with exception, awaiting Sales actual go-live confirmation. The seven-day monitoring period follows actual go-live.",
@@ -105,7 +105,6 @@ export function OnboardingPane({ ticketRef, me, notify }) {
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const [reviewed, setReviewed] = useState(false);
-  const [actual, setActual] = useState("");
   const load = (preserveInputs = false) => api.operationalDetail(ticketRef).then(d => { setData(d); if (!preserveInputs) setP(d.payload); setErr(""); }).catch(e => setErr(e.message));
   useEffect(() => { setData(null); setReviewed(false); load(); }, [ticketRef]);
   const run = async (fn, message, preserveInputs = false) => {
@@ -212,16 +211,7 @@ export function OnboardingPane({ ticketRef, me, notify }) {
       <div className="space-y-3">{data.checks.map(c => <Check key={`${c.id}-${c.fingerprint}`} c={c} me={me} frozen={!!data.actual_golive} canEdit={data.can_edit && !data.actual_golive} run={run} />)}</div>
       <p className="mt-3 text-[12px] text-slate-500">Only the assigned team can confirm. Sales Managers approve exceptions after the team's feasible workaround confirmation. Assign team accounts under Users & roles.</p>
     </section>}
-    <section className="mb-5 rounded-xl border p-4">
-      <h3 className="font-semibold">Actual go-live and QC handover</h3>
-      <p className="mt-2 text-[13px]">Planned: {p.planned_golive || "—"} · Actual: {data.actual_golive || "not yet confirmed"}</p>
-      {data.can_edit && !data.actual_golive && data.submitted_at && ["Ready", "Approved with exception"].includes(data.status) && <div className="mt-3 flex flex-wrap gap-2">
-        <input className={`${inputCls} max-w-xs`} type="date" value={actual} onChange={e => setActual(e.target.value)} />
-        <Btn kind="primary" disabled={!actual} onClick={() => { if (window.confirm("Confirm shipping actually started on this date? This starts the monitoring period and locks launch requirements.")) run(() => api.operationalGolive(ticketRef,actual),"Actual go-live recorded"); }}>Confirm actual go-live</Btn>
-      </div>}
-      {data.actual_golive && <p className="mt-2 text-[12px]">{data.qc_accepted_at ? `QC accepted: ${format(data.qc_accepted_at)}` : data.handover_due ? "Seven-day monitoring finished · awaiting QC acceptance" : "Seven-day PNS/QC monitoring in progress"}</p>}
-      {data.handover_due && !data.qc_accepted_at && me.group === "QC" && <Btn kind="primary" className="mt-3" onClick={() => run(() => api.operationalQcAccept(ticketRef),"QC accepted handover")}>QC accepts handover</Btn>}
-    </section>
+    {/* "Actual go-live and QC handover" removed (Michael, 2026-09-18). */}
     <details className="text-[12px]"><summary className="cursor-pointer font-semibold">Operational history</summary>{data.events.map((e,n) => <div key={n} className="border-b py-2"><span className="text-slate-500">{format(e.at)} · {e.actor}</span><p className="whitespace-pre-wrap break-words">{e.body}</p></div>)}</details>
   </div>;
 }
