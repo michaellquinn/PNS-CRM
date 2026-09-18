@@ -1559,7 +1559,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-18.1"
+BUILD = "2026-09-18.2"
 
 
 class Me(BaseModel):
@@ -5150,7 +5150,9 @@ class PriceIn(BaseModel):
     margin_pct: float | None = None
     discount_pct: float | None = None
     price_category: int | None = None    # 1, 2 or 3 — a tag, see PRICE_CATEGORIES
-    below_bottom: bool = False           # manual, LTL and B2BR only, checked server-side
+    # Retired (Michael, 2026-09-18): the Below bottom rate checkbox is gone. Still
+    # accepted so an old open tab does not fail, and ignored.
+    below_bottom: bool = False
     # Escalating to PSP is a standalone button (POST .../status), not a price-attach
     # field, so it shows up on PSP's queue the moment it's clicked rather than only
     # once a price is also submitted. See change_status.
@@ -5222,13 +5224,11 @@ async def submit_price(ref: str, body: PriceIn, u: User = Depends(current_user))
     # A fresh price starts a fresh cycle, so any earlier PSP clearance no longer applies.
     await execute("UPDATE tickets SET psp_ready=0 WHERE id=%s", (t["id"],))
 
-    # The manual flag is only offered for services with a published floor (LTL, B2BR).
-    # Rejected server-side as well as hidden in the UI, so a client cannot set it on a
-    # service with nothing to check it against.
-    if body.below_bottom and t["service_type"] not in BOTTOM_MARGIN:
-        raise HTTPException(
-            400, f"{t['service_type']} has no published bottom margin; "
-                 f"below-bottom isn't available for it yet")
+    # The Below bottom rate checkbox is retired (Michael, 2026-09-18) and a stale tab's
+    # value is ignored. Without it and without a typed margin nothing flags a price as
+    # below the floor, so the floor refusal and the below-floor PSP step below only fire
+    # for a client that still sends a margin_pct / discount_pct figure.
+    body.below_bottom = False
 
     # Two mechanisms, deliberately both live. The 5A guard computes a ceiling for every
     # service and catches a breach the pricer did not declare; the checkbox catches one

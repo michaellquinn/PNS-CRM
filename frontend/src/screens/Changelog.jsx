@@ -3,6 +3,19 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-09-18",
+    title: "Below bottom rate checkbox removed",
+    by: "Michael + Claude",
+    changes: [
+      "The Below bottom rate checkbox is gone from the pricing form (LTL and B2BR). The price category is the only thing the pricer states.",
+      "What that means: nothing in the app flags a price as below the floor any more. A Standard deal is no longer refused for it, and a Must Win deal on a Standard account no longer adds PSP for it. Hypercare and Strategic still reach PSP as before — they go there by rule, not through this box.",
+    ],
+    overruled: [
+      "A Standard deal can never be below the floor, refused at price attach (Baskoro, 2026-08-13): no longer enforced, because nothing identifies a below-floor price once the margin boxes and this checkbox are gone.",
+      "Below bottom rate checkbox sending a watched deal through PSP (manual flag, LTL/B2BR).",
+    ],
+  },
+  {
+    date: "2026-09-18",
     title: "Sameday can be escalated to PSP; Pending Requirement has a way out",
     by: "Michael + Claude",
     changes: [

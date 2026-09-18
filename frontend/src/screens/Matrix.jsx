@@ -43,10 +43,10 @@ const APPROVAL = [
   // The Head of Sales accepts the concession in Sales CRM now (Baskoro, 2026-08-14),
   // so a below-floor price has no gate of its own here -- it is refused outright on a
   // Standard deal, and on a watched one it rides the normal chain.
-  ["Margin below the tier floor, Standard deal",
-   "Refused. Reprice, or tag the deal Must Win in Sales CRM.", "—"],
-  ["Margin below the tier floor, watched group",
-   "PSP on the margin, then the Head of PNS finalises.", "Pending Review - PSP"],
+  // The below-floor flag is gone (Michael, 2026-09-18): no margin is typed and the
+  // Below bottom rate checkbox is removed, so nothing detects a below-floor price.
+  ["Margin below the tier floor",
+   "Not detected by the app any more (2026-09-18). Hypercare and Strategic still reach PSP by rule; anything else can be escalated.", "—"],
   ["Sales Head acknowledges a below-bottom price",
    "Ends there, unless the ticket carries a PSP exception, in which case PSP signs off.",
    "Proposal, or Pending Review - PSP"],

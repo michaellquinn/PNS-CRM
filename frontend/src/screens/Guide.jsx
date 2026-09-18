@@ -45,7 +45,7 @@ const TASKS = [
     who: "Anyone",
     go: "matrix",
     steps: [
-      "Below the tier floor → Pending Review - PSP. PSP settles whether the margin is survivable, and the Head of Sales accepts the commercial concession in Sales CRM rather than here. Where PSP does not take the ticket, the Head of PNS is the remaining gate.",
+      "Below the tier floor is no longer detected on its own (2026-09-18) — Hypercare and Strategic still reach PSP by rule, and PSP can be asked for with Escalate to PSP.",
       "Sales priced a Hypercare, Strategic or Must Win deal → Pending Review - Head PNS. That queue is the Head of PNS’s own oversight of the three watched groups, and nothing else lands in it.",
       "Sales priced anything else at or above Rp 30 Mio → Pending PNS, assigned like ordinary PNS work. It is still checked, just not by the Head.",
       "Managed account, Sameday discount over 20%, FTL at or above Rp 30 Mio, or an escalation → Pending Review - PSP.",
@@ -58,7 +58,7 @@ const TASKS = [
     who: "PSP on the margin; the Head of Sales in SALES CRM, not here",
     go: "psp-pending",
     steps: [
-      "First: a Standard deal can never be below the floor. Attaching one is refused outright, with the two real options — reprice inside the ceiling, or have Sales tag the deal Must Win in Sales CRM (Lead Source Detail) if it genuinely warrants the exception.",
+      "Since 2026-09-18 the app no longer flags a below-floor price: the margin boxes and the Below bottom rate checkbox are gone, and the price category is a tag only. A Standard deal is no longer refused for it, so check the category (Category 3 is below 20% margin) when you review.",
       "On a watched group (Hypercare, Strategic, Must Win), PSP rules on whether the margin is survivable, then the Head of PNS finalises the solution, then C-level sign it.",
       "The commercial concession itself — whether Sales will wear the discount — is the Head of Sales's call, and they make it in SALES CRM (Baskoro, 2026-08-14). This app no longer holds a queue for it, because a gate nobody opens just leaves the ticket waiting.",
       "Where PSP does not take the ticket at all (a Must Win on a Standard account with no exception recorded), the Head of PNS is the remaining gate here.",

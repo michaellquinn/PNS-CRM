@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, BOTTOM_MARGIN, priceCategoriesFor, categoryLabel, LIVE_STATUSES, PENDING, SEND_BACK_STATUSES,
+import { api, priceCategoriesFor, categoryLabel, LIVE_STATUSES, PENDING, SEND_BACK_STATUSES,
          REQUIREMENT_STATUS, PICKABLE_LOSS_REASONS, SELLING_GROUPS, SERVICES,
          FTL, WATCHED_GROUPS, NEW_TICKET_DAYS, arrivedAgo, groupFilter, groupTone,
          isNewIncoming, isPnsWork, mayGoToPsp, rp } from "../api";
@@ -280,7 +280,6 @@ export function PriceForm({ t, me, notify, onDone, compact = false }) {
   const [link, setLink] = useState(t.price_url || "");
   const [label, setLabel] = useState(t.price_file || "");
   const [cat, setCat] = useState(t.price_category ? String(t.price_category) : "");
-  const [below, setBelow] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const submit = async () => {
@@ -295,7 +294,6 @@ export function PriceForm({ t, me, notify, onDone, compact = false }) {
         price_file: label.trim() || "Pricing spreadsheet",
         price_url: url || null,
         price_category: Number(cat),
-        below_bottom: !!below,
       });
       notify("Price updated");
       await onDone?.();
@@ -330,13 +328,7 @@ export function PriceForm({ t, me, notify, onDone, compact = false }) {
         <CategorySelect service={t.service} value={cat} onChange={setCat} />
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        {BOTTOM_MARGIN[t.service] != null && (
-          <label className="flex items-center gap-2 rounded-lg bg-amber-50 px-3 py-1.5 text-[12.5px] font-medium text-amber-800">
-            <input type="checkbox" checked={below}
-              onChange={(e) => setBelow(e.target.checked)} />
-            Below bottom rate ({BOTTOM_MARGIN[t.service]}% floor)
-          </label>
-        )}
+        {/* Below bottom rate checkbox removed (Michael, 2026-09-18). */}
         <Btn kind="primary" className="ml-auto"
           disabled={busy || !cat || !(link.trim() || label.trim())}
           onClick={submit}>
