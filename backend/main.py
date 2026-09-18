@@ -1559,7 +1559,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-18.2"
+BUILD = "2026-09-18.3"
 
 
 class Me(BaseModel):

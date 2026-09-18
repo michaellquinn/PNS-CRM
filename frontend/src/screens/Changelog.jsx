@@ -3,6 +3,18 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-09-18",
+    title: "Operations tab removed from the ticket",
+    by: "Michael + Claude",
+    changes: [
+      "The ticket's Operations tab (PNS raising a far-from-standard requirement per operational area for Ops and QC) is gone. Operational onboarding's team readiness checks cover the same ground, and no requirement had been raised in it on any ticket.",
+      "The API behind it is left in place, so nothing stored is lost.",
+    ],
+    overruled: [
+      "One Operations tab with the areas as sections (Baskoro, 2026-09-07).",
+    ],
+  },
+  {
+    date: "2026-09-18",
     title: "Below bottom rate checkbox removed",
     by: "Michael + Claude",
     changes: [
