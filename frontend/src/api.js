@@ -87,6 +87,8 @@ export const api = {
   createTicket: (body) => call("/tickets", { method: "POST", body: JSON.stringify(body) }),
   price: (ref, body) => call(`/tickets/${ref}/price`, { method: "POST", body: JSON.stringify(body) }),
   status: (ref, body) => call(`/tickets/${ref}/status`, { method: "POST", body: JSON.stringify(body) }),
+  requirementSupplied: (ref, note) =>
+    call(`/tickets/${ref}/requirement-supplied`, { method: "POST", body: JSON.stringify({ note }) }),
   // "" clears the owner. The separate reviewer slot was retired on 2026-08-14;
   // the endpoint still accepts and ignores the field so an old open tab does not 422.
   assign: (ref, body) => call(`/tickets/${ref}/assign`, { method: "POST", body: JSON.stringify(body) }),
@@ -384,8 +386,10 @@ export const categoryLabel = (n, service) => {
 // discount), never through a person choosing to send it. Both places that let someone
 // forward a ticket to PSP (the To-review button, the Escalate button) use this same
 // check, and the server re-checks it independently either way.
+// Sameday may always be escalated (Michael, 2026-09-18) — mirrors may_go_to_psp().
 export const mayGoToPsp = (t) =>
-  t.acct_type === "Strategic" || t.acct_type === "Hypercare" || !!t.must_win || !!t.psp_allowed;
+  t.acct_type === "Strategic" || t.acct_type === "Hypercare" || !!t.must_win || !!t.psp_allowed
+  || t.service === "Sameday";
 
 // Whether a ticket is PNS's business: PNS owes the price (resp on the backend,
 // priced_by here), or PNS reviews a price Sales built (needs_review, which is

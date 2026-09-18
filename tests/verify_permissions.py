@@ -303,6 +303,11 @@ for label, ok, hint in [
      "Margin % (" not in _FE("screens/Queues.jsx") and "Discount % (" not in _FE("screens/Queues.jsx"), ""),
     ("the category is not sent to roles that cannot see the price",
      'price_category=(t.get("price_category") if sees_price else None)' in _SRC, "Ops and QC"),
+    ("Pending Requirement has a way out on screen",
+     "RequirementActions" in _FE("screens/Meetings.jsx") and "requirementSupplied" in _FE("api.js")
+     and '@app.post("/api/tickets/{ref}/requirement-supplied"' in _SRC, "Michael, 2026-09-18"),
+    ("sending to Pending Requirement does not rewrite who owes the price",
+     'elif nxt in ("Pending Sales", REQUIREMENT_STATUS):' not in _SRC, "Sales owes the data, not the price"),
     ("the New Request form has no Must Win checkbox",
      'label="Must Win"' not in _FE("screens/Forms.jsx"), ""),
 ]:

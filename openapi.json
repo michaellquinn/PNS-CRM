@@ -1702,7 +1702,7 @@
       "Me": {
         "properties": {
           "build": {
-            "default": "2026-09-17.7",
+            "default": "2026-09-18.1",
             "title": "Build",
             "type": "string"
           },
@@ -3436,6 +3436,17 @@
         "title": "ReopenIn",
         "type": "object"
       },
+      "RequirementDoneIn": {
+        "properties": {
+          "note": {
+            "default": "",
+            "title": "Note",
+            "type": "string"
+          }
+        },
+        "title": "RequirementDoneIn",
+        "type": "object"
+      },
       "RequirementIn": {
         "properties": {
           "area": {
@@ -4835,7 +4846,7 @@
   "info": {
     "description": "Ninja PNS - solutioning and pricing workflow for Ninja Xpress Indonesia. Every route below requires a signed-in session: identity arrives from the platform's auth proxy as an X-Forwarded-Email header the browser cannot set, and the app resolves a role from it. GET /health is the only unauthenticated route. Generated from the app's own route table by tools/gen_openapi.py - do not hand-edit.",
     "title": "Ninja PNS, Solutioning",
-    "version": "2026-09-17.7"
+    "version": "2026-09-18.1"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -8685,6 +8696,56 @@
           }
         },
         "summary": "Put a lost or cancelled deal back into the pipeline. Any Commercial user."
+      }
+    },
+    "/api/tickets/{ref}/requirement-supplied": {
+      "post": {
+        "description": "Sales supplied the missing data: back to Pending solution, to whoever owes the price.\n\nPending Requirement had a way in and no way out on any screen, so tickets sat there\nfor good (Michael, 2026-09-18). Who owes the price is worked out again rather than\nread from resp, because the send-back used to overwrite resp with Sales: an admin's\noverride first, then the 5A matrix.",
+        "operationId": "requirement_supplied_api_tickets__ref__requirement_supplied_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RequirementDoneIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ok"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Sales supplied the missing data: back to Pending solution, to whoever owes the price."
       }
     },
     "/api/tickets/{ref}/requirements": {

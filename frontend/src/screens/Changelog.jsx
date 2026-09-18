@@ -2,6 +2,20 @@ import { Card, Head, Pill } from "../ui";
 
 const ENTRIES = [
   {
+    date: "2026-09-18",
+    title: "Sameday can be escalated to PSP; Pending Requirement has a way out",
+    by: "Michael + Claude",
+    changes: [
+      "Escalate to PSP now shows on every Sameday ticket, on any account. Sameday's only lever is a discount and PSP is where a Sameday discount is ruled on, so no exception is needed first.",
+      "Pending Requirement gets two actions on each row: Requirement supplied — back to Pending solution (an optional note says what was supplied) and Cancel ticket (reason required).",
+      "Requirement supplied sends the ticket to whoever owes the price: an admin's Priced-by override if there is one, otherwise the 5A matrix. Whoever owes it is notified.",
+      "FIXED: sending a ticket to Pending Requirement used to rewrite who owes the price to Sales, so a PNS-priced ticket would have come back as Sales' to price. Sales owes the data, not the price.",
+    ],
+    overruled: [
+      "PSP escalation limited to Hypercare, Strategic, Must Win or an exception Alex granted: Sameday is added on any account.",
+    ],
+  },
+  {
     date: "2026-09-17",
     title: "Notes and Custom handling request are no longer copied from Sales CRM",
     by: "Michael + Claude",

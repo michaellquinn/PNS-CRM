@@ -328,9 +328,11 @@ TRANSITIONS = [
      "PNS cannot price it until Sales supplies missing data, with a remark saying which",
      "PNS or Sales", "POST /status"),
     (REQUIREMENT_STATUS, "Pending PNS", "Sales supplied what was missing and PNS owes "
-     "the price", "PNS or Sales", "POST /status"),
+     "the price (Requirement supplied button: /requirement-supplied)", "PNS or Sales",
+     "POST /status"),
     (REQUIREMENT_STATUS, "Pending Sales", "Sales supplied what was missing and Sales "
-     "owes the price", "PNS or Sales", "POST /status"),
+     "owes the price (Requirement supplied button: /requirement-supplied)", "PNS or Sales",
+     "POST /status"),
     ("Pending PNS", "Pending Sales", "Sent back or handed over, with a reason",
      "PNS or Sales", "POST /status"),
     ("Pending PNS", "Pending Vendor", "FTL only — waiting on a haulage vendor's cost",
@@ -899,8 +901,12 @@ def may_go_to_psp(t: dict) -> bool:
     There, PSP takes the three groups PNS owns closely: Strategic, Hypercare and Must
     Win. Anything else needs the PNS Head to have recorded that Alex granted an
     exception verbatim. Otherwise an ordinary Standard deal lands in PSP's queue, which
-    is not what PSP is for."""
-    return bool(big_group(t)) or bool(t.get("psp_allowed"))
+    is not what PSP is for.
+
+    Sameday is PSP's on any account (Michael, 2026-09-18): its only lever is a discount,
+    and PSP is where a Sameday discount is ruled on, so escalating one needs no exception."""
+    return (bool(big_group(t)) or bool(t.get("psp_allowed"))
+            or t.get("service_type") == "Sameday")
 
 
 def proposal_or_signoff(t: dict) -> str:
@@ -1553,7 +1559,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-17.9"
+BUILD = "2026-09-18.1"
 
 
 class Me(BaseModel):
@@ -5426,8 +5432,11 @@ async def change_status(ref: str, body: StatusIn, u: User = Depends(current_user
                      f"only {' and '.join(VENDOR_SERVICES)} can wait on vendor cost")
         if nxt == "Pending PNS":
             await execute("UPDATE tickets SET resp='PNS' WHERE id=%s", (t["id"],))
-        elif nxt in ("Pending Sales", REQUIREMENT_STATUS):
+        elif nxt == "Pending Sales":
             await execute("UPDATE tickets SET resp='Sales' WHERE id=%s", (t["id"],))
+        # NOT for Pending Requirement (Michael, 2026-09-18). Sales owes the DATA, not the
+        # price; rewriting resp to Sales here meant a PNS-priced ticket came back from
+        # the requirement queue as Sales' to price.
 
     if is_lost:
         await execute("UPDATE tickets SET outcome='lost', loss_reason=%s WHERE id=%s",
@@ -5457,6 +5466,40 @@ async def change_status(ref: str, body: StatusIn, u: User = Depends(current_user
 
     await log_status(t["id"], nxt, u.name, body.reason or body.loss_reason or "")
     await audit(u.email, "status", "ticket", ref, "status", t["status"], nxt)
+    return {"ok": True, "ref": ref, "status": nxt}
+
+
+class RequirementDoneIn(BaseModel):
+    note: str = ""
+
+
+@app.post("/api/tickets/{ref}/requirement-supplied", response_model=Ok)
+async def requirement_supplied(ref: str, body: RequirementDoneIn,
+                               u: User = Depends(current_user)):
+    """Sales supplied the missing data: back to Pending solution, to whoever owes the price.
+
+    Pending Requirement had a way in and no way out on any screen, so tickets sat there
+    for good (Michael, 2026-09-18). Who owes the price is worked out again rather than
+    read from resp, because the send-back used to overwrite resp with Sales: an admin's
+    override first, then the 5A matrix."""
+    require(u, "sendBackProposal")
+    t = await get_ticket(ref)
+    if t["status"] != REQUIREMENT_STATUS:
+        raise HTTPException(409, f"{ref} is {t['status']}, not {REQUIREMENT_STATUS}")
+    row = await q("SELECT JSON_UNQUOTE(JSON_EXTRACT(payload, '" + RESP_OVERRIDE_PATH + "')) "
+                  "AS o FROM ticket_input WHERE ticket_id=%s", (t["id"],), one=True)
+    over = str((row or {}).get("o") or "").strip()
+    resp = over if over in ("PNS", "Sales") else route(
+        t["acct_type"], t["service_type"], int(t.get("potential_rev") or 0))["resp"]
+    nxt = pending_for(resp)
+    await execute("UPDATE tickets SET resp=%s WHERE id=%s", (resp, t["id"]))
+    note = "requirement supplied" + (f": {body.note.strip()}" if body.note.strip() else "")
+    await log_status(t["id"], nxt, u.name, note[:500])
+    await audit(u.email, "status", "ticket", ref, "status", t["status"], nxt)
+    await tell_owed({**t, "resp": resp}, nxt, u.name,
+                    f"{ref}, {t['shipper']}: requirement supplied by {u.name}, back to {nxt}"
+                    + (f" — {body.note.strip()}" if body.note.strip() else ""),
+                    f"Requirement supplied, {t['shipper']}", ref)
     return {"ok": True, "ref": ref, "status": nxt}
 
 

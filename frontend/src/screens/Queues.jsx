@@ -991,6 +991,44 @@ export function ExecSignoff({ me, onOpen, notify }) {
    submitted proposal become" is exactly the kind of thing that drifts and leaves one
    screen offering a move the other has already retired. Per-row state, so each card
    keeps its own draft without a map keyed by ref. */
+/* Pending Requirement's way out (Michael, 2026-09-18). It had a way in and none out, so
+   tickets sat there for good. Requirement supplied sends it back to Pending solution —
+   to whoever owes the price, worked out on the server — and Cancel ends it with a reason. */
+export function RequirementActions({ t, me, notify, onDone }) {
+  const [note, setNote] = useState("");
+  const [why, setWhy] = useState("");
+  const [busy, setBusy] = useState(false);
+  if (!me.permissions.sendBackProposal) {
+    return <span className="text-[12px] text-slate-500">View only — Sales or PNS moves this on.</span>;
+  }
+  const act = async (fn) => {
+    setBusy(true);
+    try { await fn(); notify("Done"); await onDone(); }
+    catch (e) { notify(e.message); }
+    finally { setBusy(false); }
+  };
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <input className={`${inputCls} max-w-[340px]`} placeholder="What was supplied (optional)"
+          value={note} onChange={(e) => setNote(e.target.value)} />
+        <Btn kind="primary" disabled={busy}
+          onClick={() => act(() => api.requirementSupplied(t.ref, note.trim()))}>
+          Requirement supplied — back to Pending solution
+        </Btn>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <input className={`${inputCls} max-w-[340px]`} placeholder="Why it is cancelled (required)"
+          value={why} onChange={(e) => setWhy(e.target.value)} />
+        <Btn disabled={busy || !why.trim()}
+          onClick={() => act(() => api.status(t.ref, { status: "Cancel", reason: why.trim() }))}>
+          Cancel ticket
+        </Btn>
+      </div>
+    </div>
+  );
+}
+
 export function ProposalActions({ t, me, notify, onDone }) {
   const [next, setNext] = useState(SEND_BACK_STATUSES[0]);
   const [reason, setReason] = useState("");

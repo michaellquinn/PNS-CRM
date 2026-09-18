@@ -34,6 +34,11 @@ cases = [
     ({"acct_type": "Non-Strategic", "psp_allowed": 0}, False, "plain Non-Strategic cannot"),
     ({"acct_type": "Non-Strategic", "psp_allowed": 1}, True, "PNS Head opened it on Alex's grant"),
     ({"acct_type": "Non-Strategic"}, False, "missing flag is not an exception"),
+    # Sameday on any account (Michael, 2026-09-18): PSP rules on Sameday discounts.
+    ({"acct_type": "Standard", "service_type": "Sameday", "psp_allowed": 0}, True,
+     "Sameday may always be escalated"),
+    ({"acct_type": "Standard", "service_type": "LTL", "psp_allowed": 0}, False,
+     "plain Standard LTL still cannot"),
 ]
 for t, exp, why in cases:
     got = may(t)
