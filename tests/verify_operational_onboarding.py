@@ -75,6 +75,10 @@ assert all(f["section"] != "D · Pickup" for f in m.ob_schema())
 rejected(lambda: m.ob_validate({**p, "pickup_at": "2026-09-20", "pickup_time": "23-24", "planned_golive": "2026-09-20"}, t, docs), 400)
 # The first pickup is a date; its moment is that date at the start of the pickup range.
 assert m.ob_pickup_moment(p) == datetime(2026, 9, 21, 10)
+# Admin may confirm for a team, and it is recorded as such (Michael, 2026-09-18).
+_admin = m.User(email="a@example.test", name="Boss", group="Admin", level="head")
+assert m.ob_actor(_admin, {"owner_group": "4W"}) == "Boss (Admin, for 4W)"
+assert m.ob_actor(m.User(email="f@example.test", name="Fleet", group="4W", level="staff"), {"owner_group": "4W"}) == "Fleet"
 assert m.ob_pickup_moment({"pickup_at": "2026-09-21T10:00"}) == datetime(2026, 9, 21, 10)   # released before
 assert m.ob_deadline(NOW, m.ob_pickup_moment(p)) == datetime(2026, 9, 21, 10)
 assert m.ob_deadline(datetime(2026, 9, 19), m.ob_pickup_moment(p)) == datetime(2026, 9, 20, 20)

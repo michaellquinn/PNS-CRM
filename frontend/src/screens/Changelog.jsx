@@ -3,6 +3,18 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-09-18",
+    title: "Admin can confirm onboarding readiness for any team",
+    by: "Michael + Claude",
+    changes: [
+      "Confirm ready / Not ready / Needs clarification, and Confirm workaround feasible, now show for Admin on every team's readiness card, as well as for that team.",
+      "It is recorded as acting for the team — “Michael Quinnfarand (Admin, for 4W)” — in the card and the operational history, so it is never read as the team's own confirmation.",
+    ],
+    overruled: [
+      "Only the assigned team (CL, Sort, 2W, 4W, Sameday) may confirm its readiness: Admin may too.",
+    ],
+  },
+  {
+    date: "2026-09-18",
     title: "First pickup is a date, not a date and time",
     by: "Michael + Claude",
     changes: [

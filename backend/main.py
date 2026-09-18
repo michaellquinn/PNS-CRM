@@ -1560,7 +1560,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-18.5"
+BUILD = "2026-09-18.6"
 
 
 class Me(BaseModel):
@@ -9843,6 +9843,11 @@ async def ob_locked(tid):
             raise
 
 
+def ob_actor(u, c) -> str:
+    """Who acted, saying so when Admin acted in a team's place."""
+    return u.name if u.group == c["owner_group"] else f"{u.name} (Admin, for {c['owner_group']})"
+
+
 async def ob_apply_decision(cur, c, cid, body, u):
     if not c or c["fingerprint"] != body.fingerprint:
         raise HTTPException(409, "Requirement changed; reload")
@@ -9853,14 +9858,16 @@ async def ob_apply_decision(cur, c, cid, body, u):
         raise HTTPException(409, "Readiness or exception approval must precede pickup; reschedule")
     if body.action == "confirm":
         require(u, "confirmOperational")
-        if u.group != c["owner_group"]:
+        # Admin may confirm for any team (Michael, 2026-09-18), and the record says so:
+        # the name reads "<admin> (Admin, for 4W)" so it is never mistaken for the team.
+        if u.group != c["owner_group"] and u.group != "Admin":
             raise HTTPException(403, "Only the assigned team confirms its readiness; assign team users first")
         if body.status not in ("ready", "not_ready", "clarification") or (body.status != "ready" and not body.note.strip()):
             raise HTTPException(400, "Choose a readiness state and explain blockers")
         if body.status == "ready" and ob_now() > ob_deadline(c["submitted_at"], ob_pickup_moment(p)):
             raise HTTPException(409, "Confirmation deadline passed; report the blocker and request an assessed exception or reschedule")
         await cur.execute("UPDATE onboarding_checks SET status=%s,note=%s,confirmed_by=%s,confirmed_name=%s,confirmed_at=%s,feasible_by=NULL,feasible_at=NULL,approved_by=NULL,approved_at=NULL WHERE id=%s AND fingerprint=%s",
-                      (body.status, body.note[:4000], u.email, u.name, ob_now(), cid, body.fingerprint))
+                      (body.status, body.note[:4000], u.email, ob_actor(u, c), ob_now(), cid, body.fingerprint))
     elif body.action == "request":
         rows = await ob_rows()
         t = next((r for r in rows if r["id"] == c["ticket_id"]), None)
@@ -9872,7 +9879,7 @@ async def ob_apply_decision(cur, c, cid, body, u):
         await cur.execute("UPDATE onboarding_checks SET exception_reason=%s,workaround=%s,feasible_by=NULL,feasible_at=NULL,approved_by=NULL,approved_at=NULL WHERE id=%s AND fingerprint=%s",
                       (body.reason[:4000], body.workaround[:4000], cid, body.fingerprint))
     elif body.action == "feasible":
-        if u.group != c["owner_group"] or not c["exception_reason"]:
+        if (u.group != c["owner_group"] and u.group != "Admin") or not c["exception_reason"]:
             raise HTTPException(403, "Assigned team must assess a requested workaround")
         await cur.execute("UPDATE onboarding_checks SET feasible_by=%s,feasible_at=%s WHERE id=%s AND fingerprint=%s", (u.email, ob_now(), cid, body.fingerprint))
     elif body.action == "approve":
@@ -9888,7 +9895,7 @@ async def ob_apply_decision(cur, c, cid, body, u):
     else:
         raise HTTPException(400, "Unknown readiness action")
     detail = body.note or (body.reason + " · Alternative: " + body.workaround if body.reason else "recorded")
-    await cur.execute("INSERT INTO onboarding_events(ticket_id,actor,body,at) VALUES(%s,%s,%s,%s)", (c["ticket_id"], u.name, f"{c['label']} · {body.action} · {body.status}: {detail[:8000]}", ob_now()))
+    await cur.execute("INSERT INTO onboarding_events(ticket_id,actor,body,at) VALUES(%s,%s,%s,%s)", (c["ticket_id"], ob_actor(u, c), f"{c['label']} · {body.action} · {body.status}: {detail[:8000]}", ob_now()))
 
 
 class OperationalDate(BaseModel):

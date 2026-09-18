@@ -63,7 +63,8 @@ function Check({ c, me, canEdit, frozen, run }) {
   const [note, setNote] = useState("");
   const [reason, setReason] = useState("");
   const [workaround, setWorkaround] = useState("");
-  const own = !frozen && me.group === c.owner_group;
+  // Admin may act for any team (Michael, 2026-09-18); the server records it as such.
+  const own = !frozen && (me.group === c.owner_group || me.group === "Admin");
   const act = (body) => run(() => api.operationalDecision(c.id, { fingerprint: c.fingerprint, ...body }), "Readiness decision recorded");
   return <div className="rounded-xl border border-slate-200 p-3">
     <div className="flex flex-wrap items-center gap-2"><b className="text-[13px]">{c.label}</b><Pill>{c.owner_group}</Pill>
