@@ -3,6 +3,18 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-09-18",
+    title: "First pickup is a date, not a date and time",
+    by: "Michael + Claude",
+    changes: [
+      "Onboarding asks for the first pickup DATE only. The time of day is the pickup hour range in D · First Pick Up.",
+      "Where a time is still needed — readiness must be confirmed before pickup, and the D-1 20:00 deadline — the pickup is taken to start at the beginning of the pickup hour range on that date. Launches submitted before this keep the exact time they were given.",
+    ],
+    overruled: [
+      "First pickup date and time (WIB), with the pickup time required to fall inside the pickup range.",
+    ],
+  },
+  {
+    date: "2026-09-18",
     title: "PNS can mark a proposal accepted or lost",
     by: "Michael + Claude",
     changes: [

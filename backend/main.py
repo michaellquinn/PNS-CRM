@@ -1560,7 +1560,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-18.4"
+BUILD = "2026-09-18.5"
 
 
 class Me(BaseModel):
@@ -9225,7 +9225,8 @@ OB_PACKING = {"PCK": "Bubble Wrap", "PCK Kayu": "Packing kayu", "PCK Wrap": "Pla
 OB_FIELDS = [
     ("request_type", "Request type", "select", "A · Basic requirements", ["New Shipper", "New OD", "New Volume"], None),
     ("planned_golive", "Planned go-live date", "date", "A · Basic requirements", [], "golive"),
-    ("pickup_at", "First pickup date and time (WIB)", "datetime-local", "A · Basic requirements", [], None),
+    # A date only (Michael, 2026-09-18). The time of day is the pickup hour range in D.
+    ("pickup_at", "First pickup date", "date", "A · Basic requirements", [], None),
     ("shipper_name", "Shipper name", "text", "B · Shipper profile", [], "shipper"),
     # ONE id (Michael, 2026-09-15). Shipper ID and Global ID were two boxes holding one
     # value -- the intake's shipperId is itself Sales CRM's global_id -- so Shipper ID is
@@ -9325,6 +9326,24 @@ def ob_hour_range(raw) -> tuple[int, int]:
     return start, end
 
 
+def ob_pickup_moment(p: dict) -> datetime:
+    """When the first pickup starts: its date at the START of the pickup hour range.
+
+    pickup_at became a date only (Michael, 2026-09-18), but "confirm before pickup" and
+    the deadline still need a time. The window's start is the earliest the truck can be
+    there, so it is the safe one. A launch released before the change still carries a
+    full date-time, and that is used as it is. Raises ValueError when unreadable."""
+    raw = str(p.get("pickup_at") or "").strip()
+    if len(raw) > 10:
+        return datetime.fromisoformat(raw)
+    day = date.fromisoformat(raw)
+    try:
+        start, _ = ob_hour_range(p.get("pickup_time"))
+    except ValueError:
+        start = 0
+    return datetime.combine(day, datetime.min.time()) + timedelta(hours=start)
+
+
 def ob_source_value(source: dict, src) -> str:
     """The charter's answer for one onboarding field: the first non-blank of its keys."""
     for key in (src if isinstance(src, tuple) else (src,) if src else ()):
@@ -9392,19 +9411,17 @@ def ob_validate(p, t, documents):
     # one shipper with a very odd name.
     one_shipper_id(p["global_id"])
     try:
-        pickup = datetime.fromisoformat(p["pickup_at"])
-        planned = date.fromisoformat(p["planned_golive"])
-    except ValueError:
-        raise HTTPException(400, "Provide valid planned go-live and first pickup date/time")
-    try:
-        pick_from, pick_to = ob_hour_range(p["pickup_time"])
+        ob_hour_range(p["pickup_time"])
         ob_hour_range(p["delivery_time"])
     except ValueError:
         raise HTTPException(400, "Pickup and delivery time must be an hour range, start before end")
+    try:
+        pickup = ob_pickup_moment(p)
+        planned = date.fromisoformat(p["planned_golive"])
+    except ValueError:
+        raise HTTPException(400, "Provide valid planned go-live and first pickup date")
     if pickup.tzinfo or pickup <= ob_now() or planned > pickup.date():
         raise HTTPException(400, "First pickup must be in the future (WIB), with planned go-live on or before it")
-    if not pick_from <= pickup.hour < pick_to:
-        raise HTTPException(400, "The first pickup time must fall inside the pickup hour range")
     if ob_now() > datetime.combine(pickup.date() - timedelta(days=1), datetime.min.time()).replace(hour=20):
         raise HTTPException(400, "Sales requirements must be submitted by D-1 20:00 WIB; reschedule pickup")
     for switch, count in OB_COUNTS:
@@ -9450,7 +9467,7 @@ def ob_readiness(checks):
 def ob_deadline(submitted, pickup):
     s = datetime.fromisoformat(str(submitted))
     cutoff = datetime.combine(s.date() + timedelta(days=1), datetime.min.time()).replace(hour=20)
-    return min(cutoff, datetime.fromisoformat(pickup))
+    return min(cutoff, pickup if isinstance(pickup, datetime) else datetime.fromisoformat(pickup))
 
 
 async def ob_event(tid, u, body):
@@ -9561,7 +9578,7 @@ async def operational_worklist(view: str = "onboarding", u: User = Depends(curre
             continue
         if view == "completed" and not r["qc_accepted_at"]:
             continue
-        deadline = ob_deadline(r["submitted_at"], p["pickup_at"]) if r["submitted_at"] and p.get("pickup_at") else None
+        deadline = ob_deadline(r["submitted_at"], ob_pickup_moment(p)) if r["submitted_at"] and p.get("pickup_at") else None
         result.append({"ref": r["ticket_ref"], "opportunity_id": r["opportunity_id"], "opportunity_name": r["opportunity_name"] or r["shipper"],
                        "shipper": r["shipper"], "service": r["service_type"], "sales": r["sales_name"],
                        "status": "QC accepted" if r["qc_accepted_at"] else "To Handover — QC" if due else "Monitoring · 7 days" if r["actual_golive"] else ready,
@@ -9832,7 +9849,7 @@ async def ob_apply_decision(cur, c, cid, body, u):
     if c["actual_golive"]:
         raise HTTPException(409, "Launch already confirmed")
     p = ob_json(c["released_payload"])
-    if body.action in ("confirm", "feasible", "approve") and ob_now() >= datetime.fromisoformat(p["pickup_at"]):
+    if body.action in ("confirm", "feasible", "approve") and ob_now() >= ob_pickup_moment(p):
         raise HTTPException(409, "Readiness or exception approval must precede pickup; reschedule")
     if body.action == "confirm":
         require(u, "confirmOperational")
@@ -9840,7 +9857,7 @@ async def ob_apply_decision(cur, c, cid, body, u):
             raise HTTPException(403, "Only the assigned team confirms its readiness; assign team users first")
         if body.status not in ("ready", "not_ready", "clarification") or (body.status != "ready" and not body.note.strip()):
             raise HTTPException(400, "Choose a readiness state and explain blockers")
-        if body.status == "ready" and ob_now() > ob_deadline(c["submitted_at"], p["pickup_at"]):
+        if body.status == "ready" and ob_now() > ob_deadline(c["submitted_at"], ob_pickup_moment(p)):
             raise HTTPException(409, "Confirmation deadline passed; report the blocker and request an assessed exception or reschedule")
         await cur.execute("UPDATE onboarding_checks SET status=%s,note=%s,confirmed_by=%s,confirmed_name=%s,confirmed_at=%s,feasible_by=NULL,feasible_at=NULL,approved_by=NULL,approved_at=NULL WHERE id=%s AND fingerprint=%s",
                       (body.status, body.note[:4000], u.email, u.name, ob_now(), cid, body.fingerprint))
@@ -9903,7 +9920,7 @@ async def ob_apply_golive(cur, t, intake, checks, body, u):
         raise HTTPException(400, "Provide the actual go-live date")
     if actual > ob_now().date() or actual < intake["submitted_at"].date():
         raise HTTPException(400, "Actual go-live cannot be future or earlier than Sales submission")
-    pickup = datetime.fromisoformat(ob_json(intake["released_payload"])["pickup_at"])
+    pickup = ob_pickup_moment(ob_json(intake["released_payload"]))
     if actual < pickup.date() or ob_now() < pickup:
         raise HTTPException(400, "Confirm actual go-live after the first pickup; reschedule planned pickup if it changed")
     latest = max((c.get("approved_at") or c.get("confirmed_at") or intake["submitted_at"] for c in checks))

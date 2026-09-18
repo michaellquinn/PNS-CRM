@@ -25,8 +25,8 @@ t = dict(id=1, ticket_ref="SOF-1", shipper="PT Test", service_type="FTL", opport
          opportunity_name="PT Test - FTL", status="Proposal Accepted / Ready to Ship", sales_name=sales.name,
          sales_email=sales.email, potential_rev=999999, deleted_at=None)
 p = {key: options[0] if options else "Operational detail" for key, _, _, _, options, _ in m.OB_FIELDS}
-p.update(packing=["PCK", "PCK Kayu"], pickup_at="2026-09-21T10:00", planned_golive="2026-09-21",
-         pickup_time="09-12", delivery_time="16-18", service="FTL", opportunity_id="123", global_id="G-1",
+p.update(packing=["PCK", "PCK Kayu"], pickup_at="2026-09-21", planned_golive="2026-09-21",
+         pickup_time="10-12", delivery_time="16-18", service="FTL", opportunity_id="123", global_id="G-1",
          shipper_id="8001", pickup_function="4W", delivery_function="2W", product_volume="20",
          pickup_tkbm="Yes", pickup_tkbm_count="2", delivery_tkbm="No", delivery_tkbm_count="0",
          implan="No", implan_count="0", rdo="No", rdo_treatment="Not required: shipper does not use RDO",
@@ -53,8 +53,7 @@ assert m.ob_validate(p, t, docs) == datetime(2026, 9, 21, 10)
 # Free-text detail is optional and uploads are no longer required (Michael, 2026-09-17).
 assert m.ob_validate({**p, "pod_treatment": "", "handling": "", "pickup_driver": ""}, t, docs)
 assert m.ob_validate(p, t, [])
-# Hour ranges (Michael, 2026-09-17): the first pickup must fall inside the pickup window.
-rejected(lambda: m.ob_validate({**p, "pickup_time": "11-14"}, t, docs), 400)
+# Hour ranges (Michael, 2026-09-17).
 rejected(lambda: m.ob_validate({**p, "delivery_time": "18-16"}, t, docs), 400)
 rejected(lambda: m.ob_validate({**p, "delivery_time": "16:00"}, t, docs), 400)
 # A No switch sets its quantity to 0 automatically.
@@ -73,9 +72,13 @@ assert "sla" not in {k for k, *_ in m.OB_FIELDS}
 assert set(m.OB_FOLLOW_CHARTER) == {"product_type", "delivery_mode", "mps", "rdo", "pickup_frequency"}
 assert m.ob_source_value({"commodity": "", "product": "Snacks"}, ("commodity", "product")) == "Snacks"
 assert all(f["section"] != "D · Pickup" for f in m.ob_schema())
-rejected(lambda: m.ob_validate({**p, "pickup_at": "2026-09-20T23:00", "pickup_time": "23-24", "planned_golive": "2026-09-20"}, t, docs), 400)
-assert m.ob_deadline(NOW, p["pickup_at"]) == datetime(2026, 9, 21, 10)
-assert m.ob_deadline(datetime(2026, 9, 19), p["pickup_at"]) == datetime(2026, 9, 20, 20)
+rejected(lambda: m.ob_validate({**p, "pickup_at": "2026-09-20", "pickup_time": "23-24", "planned_golive": "2026-09-20"}, t, docs), 400)
+# The first pickup is a date; its moment is that date at the start of the pickup range.
+assert m.ob_pickup_moment(p) == datetime(2026, 9, 21, 10)
+assert m.ob_pickup_moment({"pickup_at": "2026-09-21T10:00"}) == datetime(2026, 9, 21, 10)   # released before
+assert m.ob_deadline(NOW, m.ob_pickup_moment(p)) == datetime(2026, 9, 21, 10)
+assert m.ob_deadline(datetime(2026, 9, 19), m.ob_pickup_moment(p)) == datetime(2026, 9, 20, 20)
+assert m.ob_deadline(datetime(2026, 9, 19), "2026-09-20T10:00") == datetime(2026, 9, 20, 10)
 assert "revenue" not in m.ob_payload({**p, "revenue": "999", "_crm": {"price": 999}})
 assert "_crm" not in m.ob_payload({**p, "_crm": {"price": 999}})
 specs = m.ob_check_specs(p)
@@ -140,7 +143,7 @@ async def main():
     assert m.ob_readiness([dict(status="pending", approved_at=None)]) == "Pending Readiness"
     late = checkrow(); late["submitted_at"] = NOW - timedelta(days=2)
     await denied(lambda: m.ob_apply_decision(cur, late, 1, m.OperationalDecision(fingerprint="fp"), team), 409)
-    actual = dict(submitted_at=NOW - timedelta(days=1), actual_golive=None, qc_accepted_at=None, released_payload=json.dumps({**p, "pickup_at":"2026-09-20T10:00"}))
+    actual = dict(submitted_at=NOW - timedelta(days=1), actual_golive=None, qc_accepted_at=None, released_payload=json.dumps({**p, "pickup_at":"2026-09-20"}))
     await denied(lambda: m.ob_apply_golive(cur, t, actual, [dict(status="pending")], m.OperationalDate(on="2026-09-20"), sales), 409)
     await m.ob_apply_golive(cur, t, actual, [dict(status="ready", confirmed_at=NOW)], m.OperationalDate(on="2026-09-20"), sales)
     await denied(lambda: m.ob_apply_golive(cur, t, actual, [dict(status="ready", confirmed_at=NOW)], m.OperationalDate(on="2026-09-19"), sales), 400)
