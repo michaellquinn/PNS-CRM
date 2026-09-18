@@ -2,22 +2,29 @@ import { useEffect, useState } from "react";
 import { api } from "../api";
 import { Btn, Card, Empty, Head, Pill, inputCls } from "../ui";
 
-const TITLES = { onboarding: "Ops Onboarding", readiness: "Pending Readiness", golive: "Go Live", handover: "To Handover — QC" };
+const TITLES = { onboarding: "Ops Onboarding", readiness: "Pending Readiness", golive: "Go Live", handover: "Shipper List QC" };
 const HELP = { onboarding: "One opportunity per entry. Open the ticket to complete Sales requirements and follow operational readiness.",
   readiness: "Your team's outstanding confirmations. CL: packing · Sort: TKBM · pickup/delivery operations: fleet and documents.",
-  golive: "Ready or approved with exception, awaiting Sales actual go-live confirmation. The seven-day monitoring period follows actual go-live.",
-  handover: "Seven-day monitoring has finished. QC opens the ticket and explicitly accepts the operational handover." };
+  golive: "Every team is ready (or has an approved exception). Move each one to the Shipper List QC when it goes live.",
+  handover: "Shippers that have gone live and are handed to QC." };
 const format = (v) => v ? String(v).replace("T", " ").slice(0, 16) + (String(v).length > 10 ? " WIB" : "") : "—";
 
-export function OperationalList({ view = "onboarding", me, onOpen }) {
+export function OperationalList({ view = "onboarding", me, onOpen, notify = () => {} }) {
   const [data, setData] = useState(null);
   const [err, setErr] = useState("");
   const [filter, setFilter] = useState("");
   const [query, setQuery] = useState("");
-  useEffect(() => {
-    setData(null); setErr("");
-    api.operationalList(view).then(setData).catch(e => setErr(e.message));
-  }, [view]);
+  const [moving, setMoving] = useState("");
+  const load = () => api.operationalList(view).then(setData).catch(e => setErr(e.message));
+  useEffect(() => { setData(null); setErr(""); load(); }, [view]);
+  // Go Live's one step onward (Michael, 2026-09-18).
+  const handover = async (ref) => {
+    if (!window.confirm(`Move ${ref} to the Shipper List QC? Today is recorded as its go-live and the launch requirements lock.`)) return;
+    setMoving(ref);
+    try { await api.operationalHandover(ref); notify(`${ref} moved to Shipper List QC`); await load(); }
+    catch (e) { notify(e.message); }
+    finally { setMoving(""); }
+  };
   if (err) return <Empty>{err}</Empty>;
   const rows = (data?.rows || []).filter(r => (!filter || r.status === filter) && `${r.ref} ${r.opportunity_name} ${r.shipper}`.toLowerCase().includes(query.toLowerCase()));
   return <>
@@ -35,6 +42,11 @@ export function OperationalList({ view = "onboarding", me, onOpen }) {
           <button className="font-mono font-semibold text-[#EE1B2C] hover:underline" onClick={() => onOpen(r.ref)}>{r.ref}</button>
           <Pill>{r.status}</Pill>{r.overdue && <Pill tone="bg-rose-100 text-rose-800">Confirmation overdue</Pill>}
           <Btn className="ml-auto" onClick={() => onOpen(r.ref)}>Open onboarding</Btn>
+          {view === "golive" && me.permissions.editOnboarding && (
+            <Btn kind="primary" disabled={moving === r.ref} onClick={() => handover(r.ref)}>
+              Move to Shipper List QC
+            </Btn>
+          )}
         </div>
         <h3 className="mt-2 text-[15px] font-semibold">{r.opportunity_name}</h3>
         <p className="mt-1 text-[12px] text-slate-500">CRM {r.opportunity_id || "—"} · {r.shipper} · {r.service} · Sales {r.sales || "unassigned"}</p>
@@ -232,7 +244,8 @@ export function OperationalDatabase({ me, notify, onOpen }) {
       const r=await api.operationalImport(form);if(commit){notify(`Imported ${r.imported} records`);setPreview(null);await load();}else setPreview(r);
     }catch(e){notify(e.message);}finally{setBusy(false);}
   };
-  return <><Head title="Operational Database" sub="Reusable opportunity-level records. Automatically updated after Sales submits. No pricing or revenue." />
+  return <><Head title="Operational Database" sub="Reusable opportunity-level records. Automatically updated after Sales submits. No pricing or revenue."
+      right={<a href="/api/operational-master/export.xlsx"><Btn>Export to Excel</Btn></a>} />
     {me.permissions.importOperational && <Card className="mb-4 space-y-3 p-4">
       <a className="text-[13px] text-sky-700 underline" href="/api/operational-master/template.xlsx">Download Excel template</a>
       <input type="file" accept=".xlsx" onChange={e=>{setFile(e.target.files[0]);setPreview(null);}} className="block text-[13px]" />

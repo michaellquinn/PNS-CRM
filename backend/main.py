@@ -1560,7 +1560,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-18.7"
+BUILD = "2026-09-18.8"
 
 
 class Me(BaseModel):
@@ -9476,7 +9476,8 @@ async def ob_event(tid, u, body):
 
 async def ob_rows():
     return await q("SELECT t.id, t.ticket_ref, t.opportunity_id, t.opportunity_name, t.service_type, t.sales_name, t.sales_email, s.name AS shipper, "
-                   "i.payload, i.released_payload, i.revision, i.submitted_at, i.actual_golive, i.qc_accepted_at "
+                   "i.payload, i.released_payload, i.revision, i.submitted_at, i.actual_golive, i.qc_accepted_at, "
+                   "i.handover_at "
                    "FROM tickets t JOIN shippers s ON s.id=t.shipper_id LEFT JOIN onboarding_intake i ON i.ticket_id=t.id "
                    "WHERE t.deleted_at IS NULL AND (t.status='Proposal Accepted / Ready to Ship' OR i.submitted_at IS NOT NULL) "
                    "ORDER BY t.id DESC")
@@ -9569,7 +9570,10 @@ async def operational_worklist(view: str = "onboarding", u: User = Depends(curre
         if u.group in OPERATIONAL_GROUPS:
             pending = [c for c in pending if c["owner_group"] == u.group]
         ready = ob_readiness(cs)
-        due = r["actual_golive"] and ob_now().date() > r["actual_golive"] + timedelta(days=7)
+        # Handed to QC by the Go Live button (Michael, 2026-09-18), or the older route:
+        # seven days after a confirmed actual go-live.
+        due = bool(r.get("handover_at")) or bool(
+            r["actual_golive"] and ob_now().date() > r["actual_golive"] + timedelta(days=7))
         if view == "readiness" and (not pending or r["actual_golive"]):
             continue
         if view == "golive" and (ready not in ("Ready", "Approved with exception") or r["actual_golive"]):
@@ -9581,7 +9585,7 @@ async def operational_worklist(view: str = "onboarding", u: User = Depends(curre
         deadline = ob_deadline(r["submitted_at"], ob_pickup_moment(p)) if r["submitted_at"] and p.get("pickup_at") else None
         result.append({"ref": r["ticket_ref"], "opportunity_id": r["opportunity_id"], "opportunity_name": r["opportunity_name"] or r["shipper"],
                        "shipper": r["shipper"], "service": r["service_type"], "sales": r["sales_name"],
-                       "status": "QC accepted" if r["qc_accepted_at"] else "To Handover — QC" if due else "Monitoring · 7 days" if r["actual_golive"] else ready,
+                       "status": "QC accepted" if r["qc_accepted_at"] else "Shipper List QC" if due else "Monitoring · 7 days" if r["actual_golive"] else ready,
                        "pickup_at": p.get("pickup_at"), "deadline": str(deadline) if deadline else None,
                        "overdue": bool(deadline and pending and ob_now() >= deadline), "pending": [c["label"] + " · " + c["owner_group"] for c in pending],
                        "actual_golive": str(r["actual_golive"]) if r["actual_golive"] else None})
@@ -9937,6 +9941,39 @@ async def ob_apply_golive(cur, t, intake, checks, body, u):
     await cur.execute("INSERT INTO onboarding_events(ticket_id,actor,body,at) VALUES(%s,%s,%s,%s)", (t["id"], u.name, f"Actual go-live confirmed: {actual}; seven-day monitoring begins", ob_now()))
 
 
+@app.post("/api/onboarding-v2/tickets/{ref}/handover", response_model=Ok)
+async def operational_handover(ref: str, u: User = Depends(current_user)):
+    """Move a ready launch from Go Live to Shipper List QC in one step.
+
+    Replaces confirming an actual go-live date and waiting seven days (Michael,
+    2026-09-18). Today is recorded as the go-live, which also locks the launch
+    requirements as the old confirmation did."""
+    t = await get_ticket(ref)
+    require(u, "editOnboarding", t)
+    async with ob_locked(t["id"]) as cur:
+        await cur.execute("SELECT * FROM onboarding_intake WHERE ticket_id=%s FOR UPDATE", (t["id"],))
+        intake = await cur.fetchone()
+        await cur.execute("SELECT * FROM onboarding_checks WHERE ticket_id=%s FOR UPDATE", (t["id"],))
+        checks = await cur.fetchall()
+        if not intake or not intake["submitted_at"]:
+            raise HTTPException(409, "Sales must submit the onboarding requirements first")
+        if intake.get("handover_at"):
+            raise HTTPException(409, f"{ref} is already on the Shipper List QC")
+        if ob_readiness(checks) not in ("Ready", "Approved with exception"):
+            raise HTTPException(409, "Every team must confirm readiness (or have an approved "
+                                     "exception) before it moves to QC")
+        now = ob_now()
+        await cur.execute("UPDATE onboarding_intake SET handover_at=%s, handover_by=%s, "
+                          "actual_golive=COALESCE(actual_golive,%s), actual_by=COALESCE(actual_by,%s), "
+                          "actual_at=COALESCE(actual_at,%s) WHERE ticket_id=%s",
+                          (now, u.email, now.date(), u.email, now, t["id"]))
+        await cur.execute("INSERT INTO onboarding_events(ticket_id,actor,body,at) VALUES(%s,%s,%s,%s)",
+                          (t["id"], u.name, "Moved to Shipper List QC", now))
+    await notify(f"{ref}, {t['shipper']}: moved to the Shipper List QC by {u.name}",
+                 groups=["QC"], ticket_ref=ref)
+    return {"ok": True}
+
+
 @app.post("/api/onboarding-v2/tickets/{ref}/qc-accept", response_model=Ok)
 async def operational_qc_accept(ref: str, u: User = Depends(current_user)):
     """Accept operational handover as QC after the seven-day monitoring period."""
@@ -10080,6 +10117,36 @@ async def operational_import(file: UploadFile = FastFile(...), commit: bool = Fo
             await conn.rollback()
             raise
     return {"ok": True, "imported": len(mapped)}
+
+
+@app.get("/api/operational-master/export.xlsx")
+async def operational_export(u: User = Depends(current_user)):
+    """The Operational Database as an Excel file (Michael, 2026-09-18).
+
+    Same five columns in the same order as the import template, so an export can be
+    edited and imported back. Readable by everyone who can open the screen."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font
+    rows = await q("SELECT m.* FROM operational_master m JOIN tickets t ON t.id=m.ticket_id "
+                   "WHERE t.deleted_at IS NULL ORDER BY m.updated_at DESC")
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Operational Database"
+    ws.append(OB_MASTER_HEADERS)
+    for c in ws[1]:
+        c.font = Font(bold=True)
+    for r in rows:
+        ws.append([str(r["global_id"]), r["opportunity_name"], r["service"],
+                   r["pickup_function"], r["delivery_function"]])
+        ws.cell(row=ws.max_row, column=1).number_format = "@"    # Global ID stays text
+    for col, width in zip("ABCDE", (18, 60, 16, 12, 12)):
+        ws.column_dimensions[col].width = width
+    stream = io.BytesIO()
+    wb.save(stream)
+    name = f"operational-database-{ob_now().date().isoformat()}.xlsx"
+    return Response(stream.getvalue(),
+                    media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
 
 @app.get("/api/operational-master/template.xlsx")

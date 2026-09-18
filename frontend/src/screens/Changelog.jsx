@@ -3,6 +3,19 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-09-18",
+    title: "Go Live → Shipper List QC in one button; Operational Database exports to Excel",
+    by: "Michael + Claude",
+    changes: [
+      "Go Live has a Move to Shipper List QC button on each ready launch. It records today as the go-live, locks the launch requirements and tells QC.",
+      "To Handover — QC is renamed Shipper List QC.",
+      "Operational Database has Export to Excel: the same five columns as the import template, so an export can be edited and imported back.",
+    ],
+    overruled: [
+      "A launch reached QC seven days after Sales confirmed the actual go-live date (operational onboarding): it moves when someone presses the button.",
+    ],
+  },
+  {
+    date: "2026-09-18",
     title: "Ops Onboarding, a Pending Readiness badge, and no go-live box",
     by: "Michael + Claude",
     changes: [

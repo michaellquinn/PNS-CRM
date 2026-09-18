@@ -1702,7 +1702,7 @@
       "Me": {
         "properties": {
           "build": {
-            "default": "2026-09-18.3",
+            "default": "2026-09-18.8",
             "title": "Build",
             "type": "string"
           },
@@ -4846,7 +4846,7 @@
   "info": {
     "description": "Ninja PNS - solutioning and pricing workflow for Ninja Xpress Indonesia. Every route below requires a signed-in session: identity arrives from the platform's auth proxy as an X-Forwarded-Email header the browser cannot set, and the app resolves a role from it. GET /health is the only unauthenticated route. Generated from the app's own route table by tools/gen_openapi.py - do not hand-edit.",
     "title": "Ninja PNS, Solutioning",
-    "version": "2026-09-18.3"
+    "version": "2026-09-18.8"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -6121,6 +6121,46 @@
         "summary": "Record Sales-confirmed actual go-live after readiness and start seven-day monitoring."
       }
     },
+    "/api/onboarding-v2/tickets/{ref}/handover": {
+      "post": {
+        "description": "Move a ready launch from Go Live to Shipper List QC in one step.\n\nReplaces confirming an actual go-live date and waiting seven days (Michael,\n2026-09-18). Today is recorded as the go-live, which also locks the launch\nrequirements as the old confirmation did.",
+        "operationId": "operational_handover_api_onboarding_v2_tickets__ref__handover_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ok"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Move a ready launch from Go Live to Shipper List QC in one step."
+      }
+    },
     "/api/onboarding-v2/tickets/{ref}/intake": {
       "post": {
         "description": "Save a private Sales draft or publish complete requirements and synchronize the operational database.",
@@ -6532,6 +6572,23 @@
           }
         },
         "summary": "Read the reusable five-column opportunity-level operational database."
+      }
+    },
+    "/api/operational-master/export.xlsx": {
+      "get": {
+        "description": "The Operational Database as an Excel file (Michael, 2026-09-18).\n\nSame five columns in the same order as the import template, so an export can be\nedited and imported back. Readable by everyone who can open the screen.",
+        "operationId": "operational_export_api_operational_master_export_xlsx_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "The Operational Database as an Excel file (Michael, 2026-09-18)."
       }
     },
     "/api/operational-master/import": {
