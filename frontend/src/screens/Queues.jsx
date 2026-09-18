@@ -1028,7 +1028,7 @@ export function ProposalActions({ t, me, notify, onDone }) {
   const mayClose = me.permissions.acceptProposal;
   const mayPull = me.permissions.sendBackProposal;
   if (!mayClose && !mayPull) {
-    return <span className="text-[12px] text-slate-500">View only — Sales records the outcome.</span>;
+    return <span className="text-[12px] text-slate-500">View only — Sales, PNS or Admin record the outcome.</span>;
   }
   const act = async (fn) => {
     setBusy(true);

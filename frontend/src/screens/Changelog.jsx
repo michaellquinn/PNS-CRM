@@ -3,6 +3,18 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-09-18",
+    title: "PNS can mark a proposal accepted or lost",
+    by: "Michael + Claude",
+    changes: [
+      "On Proposal submitted, PNS now has Proposal accepted and the Lost reasons, the same as Sales and Admin.",
+      "Sales CRM still drives it too: the sync moves a ticket to Proposal Accepted / Ready to Ship when the opportunity reaches Agreed to Ship, Onboarding, Ready to Ship or Closed-Won.",
+    ],
+    overruled: [
+      "Only Sales (and Admin) record the shipper outcome: PNS may record it as well.",
+    ],
+  },
+  {
+    date: "2026-09-18",
     title: "Operations tab removed from the ticket",
     by: "Michael + Claude",
     changes: [

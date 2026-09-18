@@ -14,7 +14,7 @@ const GROUP_TONE = {
 
 const WHAT_EACH_GROUP_DOES = {
   Commercial: "Raises tickets, prices what Sales owns, records win/loss. Cannot escalate to PSP or see cost and margin.",
-  PNS: "Prices watched work, reviews Sales pricing and decides when PSP is needed. Sees cost and margin.",
+  PNS: "Prices watched work, reviews Sales pricing, decides when PSP is needed and can record win/loss. Sees cost and margin.",
   PSP: "One shared role: any PSP member approves or rejects margins. There is no Head PSP approval.",
   Visitor: "Reads everything, changes nothing. Legal sits here. Can still be tagged into any discussion.",
   Ops: "Reads everything and receives the Kick-off. Changes nothing in the app.",

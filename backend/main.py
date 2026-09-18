@@ -1142,7 +1142,8 @@ def can(u: User, action: str, t: dict | None = None) -> bool:
         # PNS owns the watched accounts and decides when PSP needs to enter. Sales may
         # price its own work, but has no discretionary PSP escalation button.
         "sendToPsp":        u.group == "PNS" or admin,
-        "acceptProposal":   u.group in SELLING_GROUPS or admin,
+        # PNS records the outcome too (Michael, 2026-09-18), as Admin always could.
+        "acceptProposal":   u.group in (*SELLING_GROUPS, "PNS") or admin,
         "sendBackProposal": u.group in (*SELLING_GROUPS, "PNS") or admin,
         "seeMargin":        u.group in ("PNS", "PSP", "CSO") or admin,
         # CAPA is the QC team's process. Commercial can still raise one, they hear the
@@ -1559,7 +1560,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-18.3"
+BUILD = "2026-09-18.4"
 
 
 class Me(BaseModel):
