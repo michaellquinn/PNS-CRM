@@ -1560,7 +1560,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-18.8"
+BUILD = "2026-09-18.9"
 
 
 class Me(BaseModel):
@@ -9574,6 +9574,10 @@ async def operational_worklist(view: str = "onboarding", u: User = Depends(curre
         # seven days after a confirmed actual go-live.
         due = bool(r.get("handover_at")) or bool(
             r["actual_golive"] and ob_now().date() > r["actual_golive"] + timedelta(days=7))
+        # Pending Information is only what still waits on Sales (Michael, 2026-09-18):
+        # once submitted, a launch belongs to Pending Readiness and the steps after it.
+        if view == "onboarding" and r["submitted_at"]:
+            continue
         if view == "readiness" and (not pending or r["actual_golive"]):
             continue
         if view == "golive" and (ready not in ("Ready", "Approved with exception") or r["actual_golive"]):

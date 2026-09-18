@@ -2,8 +2,8 @@ import { useEffect, useState } from "react";
 import { api } from "../api";
 import { Btn, Card, Empty, Head, Pill, inputCls } from "../ui";
 
-const TITLES = { onboarding: "Ops Onboarding", readiness: "Pending Readiness", golive: "Go Live", handover: "Shipper List QC" };
-const HELP = { onboarding: "One opportunity per entry. Open the ticket to complete Sales requirements and follow operational readiness.",
+const TITLES = { onboarding: "Pending Information", readiness: "Pending Readiness", golive: "Go Live", handover: "Shipper List QC" };
+const HELP = { onboarding: "Waiting on Sales to fill in and submit the onboarding requirements. Once submitted, a launch moves to Pending Readiness.",
   readiness: "Your team's outstanding confirmations. CL: packing · Sort: TKBM · pickup/delivery operations: fleet and documents.",
   golive: "Every team is ready (or has an approved exception). Move each one to the Shipper List QC when it goes live.",
   handover: "Shippers that have gone live and are handed to QC." };
@@ -31,10 +31,7 @@ export function OperationalList({ view = "onboarding", me, onOpen, notify = () =
     <Head title={TITLES[view]} sub={HELP[view]} right={data && <Pill>{rows.length} opportunities</Pill>} />
     <div className="mb-4 flex flex-wrap gap-2">
       <input className={`${inputCls} max-w-sm`} placeholder="Search opportunity or shipper" value={query} onChange={e => setQuery(e.target.value)} />
-      {view === "onboarding" && <select className={`${inputCls} max-w-xs`} value={filter} onChange={e => setFilter(e.target.value)}>
-        <option value="">All onboarding</option>
-        {["Awaiting Sales Input", "Pending Readiness", "Ready", "Approved with exception", "Monitoring · 7 days", "To Handover — QC", "QC accepted"].map(v => <option key={v}>{v}</option>)}
-      </select>}
+      {/* Status filter removed: Pending Information lists one status only. */}
     </div>
     {!data ? <p>Loading…</p> : !rows.length ? <Empty>No opportunities waiting here.</Empty> : <div className="space-y-3">
       {rows.map(r => <Card key={r.ref} className="p-4">

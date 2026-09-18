@@ -169,8 +169,8 @@ const NAV = [
   // Onboarding is deliberately its own section, not a step inside Solutioning:
   // solutioning ends when the shipper accepts, and what follows asks a different
   // question of different people. Ops read it; Sales complete it.
-  ["Onboarding", [
-    { id: "onboarding", label: "Ops Onboarding", icon: "◉",
+  ["Ops Onboarding", [
+    { id: "onboarding", label: "Pending Information", icon: "◉",
       keywords: "go live ops kick off onboarding schedule" },
     { id: "readiness", label: "Pending Readiness", icon: "◷", count: "ob:readiness" },
     { id: "golive", label: "Go Live", icon: "▷" },
@@ -536,7 +536,7 @@ export default function App() {
 
   useEffect(() => { api.me().then(setMe).catch((e) => setErr(e.message)); }, []);
   useEffect(() => {
-    if (me?.permissions.operationalOnly && !["onboarding", "readiness", "golive", "handover", "operational-db", "detail"].includes(screen)) setScreen("onboarding");
+    if (me?.permissions.operationalOnly && !["onboarding", "readiness", "golive", "handover", "operational-db", "detail"].includes(screen)) setScreen("readiness");
   }, [me, screen]);
 
   // Back goes back through the app, instead of leaving it.
@@ -828,7 +828,7 @@ export default function App() {
         )}
         <main className="min-w-0 flex-1 p-4 sm:p-6">
           <ScreenError screen={screen}>
-            {me.permissions.operationalOnly && !["onboarding", "readiness", "golive", "handover", "operational-db", "detail"].includes(screen) ? screens.onboarding : (screens[screen] || screens.dashboard)}
+            {me.permissions.operationalOnly && !["onboarding", "readiness", "golive", "handover", "operational-db", "detail"].includes(screen) ? screens.readiness : (screens[screen] || screens.dashboard)}
           </ScreenError>
         </main>
       </div>

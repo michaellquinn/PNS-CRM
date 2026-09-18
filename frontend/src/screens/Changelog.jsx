@@ -3,6 +3,17 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-09-18",
+    title: "Ops Onboarding section; Pending Information lists only what waits on Sales",
+    by: "Michael + Claude",
+    changes: [
+      "The menu section is now OPS ONBOARDING, and its first entry is Pending Information (was Ops Onboarding).",
+      "Pending Information shows only launches still Awaiting Sales Input. Submitted ones — Pending Readiness, Ready and after — are on their own screens and no longer repeated here.",
+      "Operational team users now land on Pending Readiness, since Pending Information holds nothing they can see.",
+    ],
+    overruled: [],
+  },
+  {
+    date: "2026-09-18",
     title: "Go Live → Shipper List QC in one button; Operational Database exports to Excel",
     by: "Michael + Claude",
     changes: [
