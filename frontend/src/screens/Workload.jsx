@@ -33,8 +33,8 @@ export default function Workload() {
     <>
       <Head title="Workload"
         sub={d.full
-          ? `Who is carrying what, and how quickly it clears. Pending PNS is each person's share of the Pricing - PNS queue plus Sales prices they are reviewing, so the column adds up to the queue (Unassigned included). Past ${d.cap} the auto-assigner stops, and new work is left unassigned for you to place by hand.`
-          : `Who is carrying what, so you can tell whether to pick something up. Pending PNS is each person's share of the Pricing - PNS queue plus Sales prices they are reviewing, so the column adds up to the queue (Unassigned included). Past ${d.cap} the auto-assigner stops and new work is left unassigned.`} />
+          ? `Who is carrying what, and how quickly it clears. Pending PNS is each person's share of the Pricing - PNS queue, plus Sales prices they are reviewing and tickets waiting in Pending Requirement (Unassigned included). Past ${d.cap} the auto-assigner stops, and new work is left unassigned for you to place by hand.`
+          : `Who is carrying what, so you can tell whether to pick something up. Pending PNS is each person's share of the Pricing - PNS queue, plus Sales prices they are reviewing and tickets waiting in Pending Requirement (Unassigned included). Past ${d.cap} the auto-assigner stops and new work is left unassigned.`} />
 
       <div className="mb-4">
         <Card>

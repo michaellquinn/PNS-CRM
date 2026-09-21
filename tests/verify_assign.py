@@ -10,7 +10,7 @@ tree = ast.parse(open(SRC, encoding='utf-8').read())
 WANT_FN = {'auto_assignee', 'pending_pns_load', 'shipper_is_live'}
 WANT_VAR = {'SERVICE_SPECIALIST', 'PNS_DEFAULT_PAIR', 'PNS_WIP_CAP', 'AUTO_ASSIGN',
             'COMPLEX_LOGISTICS_NEW', 'COMPLEX_LOGISTICS_LIVE', 'PNS_LOAD_STATUSES',
-            'AWAIT_STATUSES', 'PNS_LOAD_SQL'}
+            'AWAIT_STATUSES', 'PNS_LOAD_SQL', 'REQUIREMENT_STATUS'}
 keep = [n for n in tree.body
         if (isinstance(n, ast.AsyncFunctionDef) and n.name in WANT_FN)
         or (isinstance(n, ast.Assign) and any(

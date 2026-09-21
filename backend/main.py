@@ -518,8 +518,10 @@ WORKLOAD_DISPLAY_NAMES = {
 # Pending PNS alone left the three Open tickets out and the screen short of the queue.
 # Head review is left out: the Head does that one, not the PIC.
 PNS_LOAD_STATUSES = ("Pending PNS", "Pending Review - PNS")
+# ...and Pending Requirement (Michael, 2026-09-21): a ticket PNS sent back for missing
+# data is still theirs to finish, so it stays on the PIC's count while it waits.
 PNS_LOAD_SQL = ("((t.status IN ('" + "','".join(AWAIT_STATUSES) + "') AND t.resp='PNS') "
-                "OR t.status='Pending Review - PNS')")
+                "OR t.status IN ('Pending Review - PNS','" + REQUIREMENT_STATUS + "'))")
 # While a ticket sits in one of these, the PNS clock runs. Anything else before it
 # leaves PNS hands — waiting on Sales, on a requirement, on a vendor — pauses it.
 PNS_CLOCK_STATUSES = PNS_LOAD_STATUSES
@@ -1608,7 +1610,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-21.2"
+BUILD = "2026-09-21.3"
 
 
 class Me(BaseModel):
