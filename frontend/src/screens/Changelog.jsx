@@ -2,6 +2,21 @@ import { Card, Head, Pill } from "../ui";
 
 const ENTRIES = [
   {
+    date: "2026-09-21",
+    title: "Workload measures PNS's own time, in working days",
+    by: "Michael + Claude",
+    changes: [
+      "Pending PNS on the Workload screen now counts pricing PNS owes PLUS Sales prices being reviewed by PNS (Pending Review - PNS). Auto-assignment uses the same number for the 10-ticket cap. Open total adds Pending Review - PNS too.",
+      "Avg to clear and Worst count only the time a ticket spent in Pending PNS or Pending Review - PNS. Time waiting on Sales, a requirement or a vendor no longer counts against the PNS person.",
+      "Both are in working days, Monday to Friday — a weekend no longer adds two days.",
+      "Won / decided is won out of won + lost. Cancelled and parked deals are no longer counted as decided.",
+    ],
+    overruled: [
+      "Pending PNS load and the auto-assignment cap counting Pending PNS only.",
+      "Avg to clear as calendar days from first Pending PNS to first leaving PNS hands, including time waiting on Sales.",
+    ],
+  },
+  {
     date: "2026-09-18",
     title: "Ops Onboarding section; Pending Information lists only what waits on Sales",
     by: "Michael + Claude",

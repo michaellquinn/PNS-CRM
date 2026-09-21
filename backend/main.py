@@ -512,14 +512,60 @@ WORKLOAD_DISPLAY_NAMES = {
 # was still a real thing; half of it was not).
 
 
+# What counts as a PNS member's load (Michael, 2026-09-21): pricing they owe AND Sales
+# prices they are reviewing. Head review is left out: the Head does that one, and
+# counting it against the PIC would make them look busier for work they are not doing.
+PNS_LOAD_STATUSES = ("Pending PNS", "Pending Review - PNS")
+# While a ticket sits in one of these, the PNS clock runs. Anything else before it
+# leaves PNS hands — waiting on Sales, on a requirement, on a vendor — pauses it.
+PNS_CLOCK_STATUSES = PNS_LOAD_STATUSES
+# Reaching any of these means PNS is done with it.
+PNS_DONE_STATUSES = ("Proposal Submitted", "Pending Review - Head PNS",
+                     "Pending Review - PSP", "Pending Review - C-level",
+                     "Proposal Accepted / Ready to Ship")
+
+
+def working_seconds(start: datetime, end: datetime) -> float:
+    """Seconds between two moments, counting Monday to Friday only."""
+    if end <= start:
+        return 0.0
+    total, cur = 0.0, start
+    while cur < end:
+        nxt = min(end, datetime.combine(cur.date() + timedelta(days=1), datetime.min.time()))
+        if cur.weekday() < 5:
+            total += (nxt - cur).total_seconds()
+        cur = nxt
+    return total
+
+
+def pns_clear_days(history: list[tuple[str, datetime]]) -> float | None:
+    """Working days PNS actually held one ticket before it left their hands.
+
+    Starts the first time the ticket reaches pricing or review by PNS, stops the first
+    time it reaches a done status, and only counts the stretches spent in PNS's own
+    statuses (Michael, 2026-09-21). None when it never got there."""
+    started, total, prev = False, 0.0, None
+    for status, at in history:
+        if prev and started and prev[0] in PNS_CLOCK_STATUSES:
+            total += working_seconds(prev[1], at)
+        if not started and status in PNS_CLOCK_STATUSES:
+            started = True
+        elif started and status in PNS_DONE_STATUSES:
+            return round(total / 86400, 1)
+        prev = (status, at)
+    return None
+
+
 async def pending_pns_load(names: list[str]) -> dict[str, int]:
-    """How many tickets each named person is holding at Pending PNS right now."""
+    """How many tickets each named person is holding in PNS_LOAD_STATUSES right now."""
     if not names:
         return {}
     ph = ",".join(["%s"] * len(names))
+    sp = ",".join(["%s"] * len(PNS_LOAD_STATUSES))
     rows = await q(f"SELECT owner_name, COUNT(*) AS n FROM tickets "
-                   f"WHERE owner_name IN ({ph}) AND status='Pending PNS' "
-                   f"AND deleted_at IS NULL GROUP BY owner_name", tuple(names))
+                   f"WHERE owner_name IN ({ph}) AND status IN ({sp}) "
+                   f"AND deleted_at IS NULL GROUP BY owner_name",
+                   tuple(names) + PNS_LOAD_STATUSES)
     load = {n: 0 for n in names}
     for r in rows:
         load[r["owner_name"]] = int(r["n"])
@@ -1560,7 +1606,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-18.9"
+BUILD = "2026-09-21.1"
 
 
 class Me(BaseModel):
@@ -4978,32 +5024,37 @@ async def workload(u: User = Depends(current_user)):
 
     pns = await q(
         "SELECT u.email, u.name, "
-        "  SUM(t.status='Pending PNS') AS pending_pns, "
-        "  SUM(t.status IN ('Pending PNS','Pending Review - Head PNS','Pending Vendor')) AS open_total, "
+        "  SUM(t.status IN ('Pending PNS','Pending Review - PNS')) AS pending_pns, "
+        "  SUM(t.status IN ('Pending PNS','Pending Review - PNS','Pending Review - Head PNS',"
+        "'Pending Vendor')) AS open_total, "
         "  SUM(t.outcome='accepted') AS won, "
-        "  SUM(t.outcome IS NOT NULL) AS decided "
+        # Won out of won + lost (Michael, 2026-09-21). A cancelled or parked deal was
+        # neither, and counting it as decided lowered the rate for nothing.
+        "  SUM(t.outcome IN ('accepted','lost')) AS decided "
         "FROM users u LEFT JOIN tickets t "
         "  ON t.owner_name=u.name AND t.deleted_at IS NULL "
         "WHERE u.role_group IN ('PNS','Admin') AND u.active=1 "
         "GROUP BY u.email, u.name ORDER BY pending_pns DESC, u.name")
 
-    # Median would be the honest average here, but MySQL has no median and the volumes
-    # are small enough that a mean plus the worst case tells the same story.
-    lead = await q(
-        "SELECT t.owner_name AS name, "
-        "  ROUND(AVG(TIMESTAMPDIFF(DAY, first_seen.at, done.at)),1) AS avg_days, "
-        "  MAX(TIMESTAMPDIFF(DAY, first_seen.at, done.at)) AS worst_days, "
-        "  COUNT(*) AS finished "
-        "FROM tickets t "
-        "JOIN (SELECT ticket_id, MIN(at) AS at FROM ticket_history "
-        "      WHERE status='Pending PNS' GROUP BY ticket_id) first_seen "
-        "  ON first_seen.ticket_id=t.id "
-        "JOIN (SELECT ticket_id, MIN(at) AS at FROM ticket_history "
-        "      WHERE status IN ('Proposal Submitted','Pending Review - Head PNS') GROUP BY ticket_id) done "
-        "  ON done.ticket_id=t.id AND done.at >= first_seen.at "
+    # Days to clear, worked out per ticket from its history rather than in SQL: only the
+    # time spent in PNS's own statuses counts, and only Monday to Friday (Michael,
+    # 2026-09-21). Credited to the ticket's current PNS PIC, as before.
+    hist = await q(
+        "SELECT h.ticket_id, h.status, h.at, t.owner_name FROM ticket_history h "
+        "JOIN tickets t ON t.id=h.ticket_id "
         "WHERE t.deleted_at IS NULL AND t.owner_name IS NOT NULL "
-        "GROUP BY t.owner_name")
-    lead_by = {r["name"]: r for r in lead}
+        "ORDER BY h.ticket_id, h.at, h.id")
+    per_ticket: dict[int, dict] = {}
+    for h in hist:
+        per_ticket.setdefault(h["ticket_id"], {"owner": h["owner_name"], "rows": []})[
+            "rows"].append((h["status"], h["at"]))
+    days_by: dict[str, list[float]] = {}
+    for tk in per_ticket.values():
+        d = pns_clear_days(tk["rows"])
+        if d is not None:
+            days_by.setdefault(tk["owner"], []).append(d)
+    lead_by = {name: {"avg_days": round(sum(v) / len(v), 1), "worst_days": max(v),
+                      "finished": len(v)} for name, v in days_by.items()}
 
     team = []
     for r in pns:
@@ -5019,7 +5070,7 @@ async def workload(u: User = Depends(current_user)):
                 "won": int(r["won"] or 0),
                 "decided": int(r["decided"] or 0),
                 "avg_days_to_clear": float(l["avg_days"]) if l.get("avg_days") is not None else None,
-                "worst_days_to_clear": int(l["worst_days"]) if l.get("worst_days") is not None else None,
+                "worst_days_to_clear": float(l["worst_days"]) if l.get("worst_days") is not None else None,
                 "finished": int(l.get("finished") or 0),
             }
         team.append(row)

@@ -33,8 +33,8 @@ export default function Workload() {
     <>
       <Head title="Workload"
         sub={d.full
-          ? `Who is carrying what, and how quickly it clears. Past ${d.cap} tickets at Pending PNS the auto-assigner stops, and new work is left unassigned for you to place by hand.`
-          : `Who is carrying what, so you can tell whether to pick something up. Past ${d.cap} tickets at Pending PNS the auto-assigner stops and new work is left unassigned.`} />
+          ? `Who is carrying what, and how quickly it clears. Pending PNS counts pricing PNS owes plus Sales prices being reviewed by PNS. Past ${d.cap} of those the auto-assigner stops, and new work is left unassigned for you to place by hand.`
+          : `Who is carrying what, so you can tell whether to pick something up. Pending PNS counts pricing PNS owes plus Sales prices being reviewed by PNS. Past ${d.cap} of those the auto-assigner stops and new work is left unassigned.`} />
 
       <div className="mb-4">
         <Card>
@@ -48,13 +48,13 @@ export default function Workload() {
                   &ldquo;should I take this one?&rdquo; is answerable, not to rank anyone.
                 </>
               ) : (<>
-              <b>Avg to clear</b> is the mean number of days from the first time a ticket
-              entered <b>Pending PNS</b> to the first time it left PNS hands — reaching
-              Proposal Submitted, or Pending Review - Head PNS. It counts only tickets
-              that actually got there, so a ticket still sitting in the queue never
-              flatters it and never inflates it. Mean rather than median because MySQL
-              has no median; <b>Worst</b> sits beside it because on these volumes one
-              stalled ticket moves the average and then hides inside it.
+              <b>Avg to clear</b> is the average number of <b>working days</b> (Mon–Fri)
+              PNS actually held a ticket — only the time spent in Pending PNS or Pending
+              Review - PNS, from the first time it got there to the first time it left
+              PNS hands. Time waiting on Sales, a requirement or a vendor is not counted.
+              Only finished tickets count; <b>Worst</b> sits beside it because on these
+              volumes one stalled ticket moves the average. <b>Won / decided</b> is won
+              out of won + lost — cancelled and parked deals are left out.
               </>)}
             </p>
           </div>

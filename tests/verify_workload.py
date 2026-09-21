@@ -9,6 +9,7 @@ renaming the canonical account or its ticket ownership records.
 import ast
 import asyncio
 import os
+from datetime import datetime, timedelta
 
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -16,10 +17,12 @@ REPO = os.path.dirname(HERE)
 SRC = os.path.join(REPO, "backend", "main.py")
 tree = ast.parse(open(SRC, encoding="utf-8").read())
 
-WANT_VAR = {"PNS_WIP_CAP", "WORKLOAD_DISPLAY_NAMES"}
+WANT_VAR = {"PNS_WIP_CAP", "WORKLOAD_DISPLAY_NAMES", "PNS_LOAD_STATUSES",
+            "PNS_CLOCK_STATUSES", "PNS_DONE_STATUSES"}
 keep = [
     n for n in tree.body
     if (isinstance(n, ast.AsyncFunctionDef) and n.name == "workload")
+    or (isinstance(n, ast.FunctionDef) and n.name in ("working_seconds", "pns_clear_days"))
     or (isinstance(n, ast.Assign) and any(
         isinstance(t, ast.Name) and t.id in WANT_VAR for t in n.targets))
 ]
@@ -44,13 +47,21 @@ async def q(sql, args=(), one=False):
             "won": 4,
             "decided": 5,
         }]
-    if "JOIN (SELECT ticket_id, MIN(at) AS at FROM ticket_history" in sql:
-        return [{
-            "name": "Michael Quinnfarand",
-            "avg_days": 1.5,
-            "worst_days": 3,
-            "finished": 2,
-        }]
+    if "FROM ticket_history h" in sql:
+        o = "Michael Quinnfarand"
+        return [
+            # Mon 09:00 -> Tue 09:00 in Pending PNS = 1.0 working day
+            {"ticket_id": 1, "status": "Pending PNS", "at": datetime(2026, 9, 14, 9), "owner_name": o},
+            {"ticket_id": 1, "status": "Proposal Submitted", "at": datetime(2026, 9, 15, 9), "owner_name": o},
+            # Fri 09:00 PNS, Fri 21:00 waiting on Sales (paused), Mon 09:00 back, Mon 21:00 done
+            # = 0.5 + 0.5 = 1.0; the weekend and the Sales wait do not count
+            {"ticket_id": 2, "status": "Pending PNS", "at": datetime(2026, 9, 11, 9), "owner_name": o},
+            {"ticket_id": 2, "status": "Pending Sales", "at": datetime(2026, 9, 11, 21), "owner_name": o},
+            {"ticket_id": 2, "status": "Pending PNS", "at": datetime(2026, 9, 14, 9), "owner_name": o},
+            {"ticket_id": 2, "status": "Pending Review - Head PNS", "at": datetime(2026, 9, 14, 21), "owner_name": o},
+            # never finished: not counted
+            {"ticket_id": 3, "status": "Pending PNS", "at": datetime(2026, 9, 14, 9), "owner_name": o},
+        ]
     return []
 
 
@@ -63,7 +74,8 @@ def can(user, permission):
     return True
 
 
-ns = {"q": q, "require": require, "can": can, "User": object}
+ns = {"q": q, "require": require, "can": can, "User": object,
+      "datetime": datetime, "timedelta": timedelta}
 exec(compile(ast.fix_missing_locations(ast.Module(body=keep, type_ignores=[])),
              "<workload>", "exec"), ns)
 result = asyncio.run(ns["workload"](object()))
@@ -78,6 +90,10 @@ assert len(result["pns"]) == 1
 row = result["pns"][0]
 assert row["name"] == "Quinn", row
 assert row["pending_pns"] == 2 and row["open_total"] == 3, row
-assert row["avg_days_to_clear"] == 1.5 and row["finished"] == 2, row
+assert row["avg_days_to_clear"] == 1.0 and row["finished"] == 2, row
+assert row["worst_days_to_clear"] == 1.0, row
+# Load is pricing plus PNS review; decided leaves cancelled deals out (2026-09-21).
+assert "SUM(t.status IN ('Pending PNS','Pending Review - PNS')) AS pending_pns" in staff_sql
+assert "SUM(t.outcome IN ('accepted','lost')) AS decided" in staff_sql
 
 print("verify_workload.py      Admin included; Quinn alias keeps canonical ownership")

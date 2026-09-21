@@ -9,7 +9,7 @@ tree = ast.parse(open(SRC, encoding='utf-8').read())
 
 WANT_FN = {'auto_assignee', 'pending_pns_load', 'shipper_is_live'}
 WANT_VAR = {'SERVICE_SPECIALIST', 'PNS_DEFAULT_PAIR', 'PNS_WIP_CAP', 'AUTO_ASSIGN',
-            'COMPLEX_LOGISTICS_NEW', 'COMPLEX_LOGISTICS_LIVE'}
+            'COMPLEX_LOGISTICS_NEW', 'COMPLEX_LOGISTICS_LIVE', 'PNS_LOAD_STATUSES'}
 keep = [n for n in tree.body
         if (isinstance(n, ast.AsyncFunctionDef) and n.name in WANT_FN)
         or (isinstance(n, ast.Assign) and any(
@@ -31,7 +31,10 @@ def make_q(active, load, live=False):
         if 'FROM users WHERE email IN' in sql:
             return [{'name': NAME[e]} for e in args if e in active]
         if 'COUNT(*) AS n FROM tickets' in sql:
-            return [{'owner_name': n, 'n': load.get(n, 0)} for n in args]
+            # The load counts pricing AND PNS review (2026-09-21); the statuses ride
+            # in args after the names, so only the names are answered.
+            assert "status IN (" in sql, "load must count PNS_LOAD_STATUSES, not one status"
+            return [{'owner_name': n, 'n': load.get(n, 0)} for n in args if n in NAME.values()]
         if "outcome='accepted'" in sql:
             return {'n': 1} if live else None
         raise AssertionError('unexpected sql: ' + sql[:70])
