@@ -512,10 +512,14 @@ WORKLOAD_DISPLAY_NAMES = {
 # was still a real thing; half of it was not).
 
 
-# What counts as a PNS member's load (Michael, 2026-09-21): pricing they owe AND Sales
-# prices they are reviewing. Head review is left out: the Head does that one, and
-# counting it against the PIC would make them look busier for work they are not doing.
+# What counts as a PNS member's load (Michael, 2026-09-21): exactly what Pricing - PNS
+# shows for them — every AWAIT status while PNS owes the price, so Open and Pending
+# Vendor count as well as Pending PNS — plus Sales prices they are reviewing. Counting
+# Pending PNS alone left the three Open tickets out and the screen short of the queue.
+# Head review is left out: the Head does that one, not the PIC.
 PNS_LOAD_STATUSES = ("Pending PNS", "Pending Review - PNS")
+PNS_LOAD_SQL = ("((t.status IN ('" + "','".join(AWAIT_STATUSES) + "') AND t.resp='PNS') "
+                "OR t.status='Pending Review - PNS')")
 # While a ticket sits in one of these, the PNS clock runs. Anything else before it
 # leaves PNS hands — waiting on Sales, on a requirement, on a vendor — pauses it.
 PNS_CLOCK_STATUSES = PNS_LOAD_STATUSES
@@ -561,11 +565,9 @@ async def pending_pns_load(names: list[str]) -> dict[str, int]:
     if not names:
         return {}
     ph = ",".join(["%s"] * len(names))
-    sp = ",".join(["%s"] * len(PNS_LOAD_STATUSES))
-    rows = await q(f"SELECT owner_name, COUNT(*) AS n FROM tickets "
-                   f"WHERE owner_name IN ({ph}) AND status IN ({sp}) "
-                   f"AND deleted_at IS NULL GROUP BY owner_name",
-                   tuple(names) + PNS_LOAD_STATUSES)
+    rows = await q(f"SELECT t.owner_name, COUNT(*) AS n FROM tickets t "
+                   f"WHERE t.owner_name IN ({ph}) AND {PNS_LOAD_SQL} "
+                   f"AND t.deleted_at IS NULL GROUP BY t.owner_name", tuple(names))
     load = {n: 0 for n in names}
     for r in rows:
         load[r["owner_name"]] = int(r["n"])
@@ -1606,7 +1608,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-21.1"
+BUILD = "2026-09-21.2"
 
 
 class Me(BaseModel):
@@ -5024,9 +5026,8 @@ async def workload(u: User = Depends(current_user)):
 
     pns = await q(
         "SELECT u.email, u.name, "
-        "  SUM(t.status IN ('Pending PNS','Pending Review - PNS')) AS pending_pns, "
-        "  SUM(t.status IN ('Pending PNS','Pending Review - PNS','Pending Review - Head PNS',"
-        "'Pending Vendor')) AS open_total, "
+        "  SUM(" + PNS_LOAD_SQL + ") AS pending_pns, "
+        "  SUM(" + PNS_LOAD_SQL + " OR t.status='Pending Review - Head PNS') AS open_total, "
         "  SUM(t.outcome='accepted') AS won, "
         # Won out of won + lost (Michael, 2026-09-21). A cancelled or parked deal was
         # neither, and counting it as decided lowered the rate for nothing.
@@ -5074,6 +5075,16 @@ async def workload(u: User = Depends(current_user)):
                 "finished": int(l.get("finished") or 0),
             }
         team.append(row)
+
+    # Work nobody holds yet, so the team's Pending PNS adds up to the Pricing - PNS queue
+    # (Michael, 2026-09-21). Never at cap: it is not a person.
+    un = await q("SELECT SUM(" + PNS_LOAD_SQL + ") AS pending_pns, "
+                 "SUM(" + PNS_LOAD_SQL + " OR t.status='Pending Review - Head PNS') AS open_total "
+                 "FROM tickets t WHERE t.deleted_at IS NULL AND t.owner_name IS NULL", one=True)
+    if un and int(un.get("pending_pns") or 0):
+        team.append({"name": "Unassigned", "pending_pns": int(un["pending_pns"] or 0),
+                     "open_total": int(un.get("open_total") or 0), "at_cap": False,
+                     "unassigned": True})
 
     # Salespeople ranked by how much they currently have sitting on PNS. This is the
     # demand side of the same picture, a spike here explains a queue over there.

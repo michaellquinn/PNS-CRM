@@ -17,7 +17,7 @@ REPO = os.path.dirname(HERE)
 SRC = os.path.join(REPO, "backend", "main.py")
 tree = ast.parse(open(SRC, encoding="utf-8").read())
 
-WANT_VAR = {"PNS_WIP_CAP", "WORKLOAD_DISPLAY_NAMES", "PNS_LOAD_STATUSES",
+WANT_VAR = {"PNS_WIP_CAP", "WORKLOAD_DISPLAY_NAMES", "PNS_LOAD_STATUSES", "AWAIT_STATUSES", "PNS_LOAD_SQL",
             "PNS_CLOCK_STATUSES", "PNS_DONE_STATUSES"}
 keep = [
     n for n in tree.body
@@ -93,7 +93,8 @@ assert row["pending_pns"] == 2 and row["open_total"] == 3, row
 assert row["avg_days_to_clear"] == 1.0 and row["finished"] == 2, row
 assert row["worst_days_to_clear"] == 1.0, row
 # Load is pricing plus PNS review; decided leaves cancelled deals out (2026-09-21).
-assert "SUM(t.status IN ('Pending PNS','Pending Review - PNS')) AS pending_pns" in staff_sql
+assert "t.resp='PNS'" in staff_sql and "'Open'" in staff_sql and "Pending Review - PNS" in staff_sql, \
+    "Pending PNS must match the Pricing - PNS queue (Open, Pending Vendor included) plus PNS review"
 assert "SUM(t.outcome IN ('accepted','lost')) AS decided" in staff_sql
 
 print("verify_workload.py      Admin included; Quinn alias keeps canonical ownership")

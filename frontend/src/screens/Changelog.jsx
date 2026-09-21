@@ -6,7 +6,7 @@ const ENTRIES = [
     title: "Workload measures PNS's own time, in working days",
     by: "Michael + Claude",
     changes: [
-      "Pending PNS on the Workload screen now counts pricing PNS owes PLUS Sales prices being reviewed by PNS (Pending Review - PNS). Auto-assignment uses the same number for the 10-ticket cap. Open total adds Pending Review - PNS too.",
+      "Pending PNS on the Workload screen is each person's share of the Pricing - PNS queue — Open, Pending PNS and Pending Vendor while PNS owes the price — PLUS Sales prices they are reviewing (Pending Review - PNS). An Unassigned row holds the rest, so the column adds up to the queue. Auto-assignment uses the same number for the 10-ticket cap.",
       "Avg to clear and Worst count only the time a ticket spent in Pending PNS or Pending Review - PNS. Time waiting on Sales, a requirement or a vendor no longer counts against the PNS person.",
       "Both are in working days, Monday to Friday — a weekend no longer adds two days.",
       "Won / decided is won out of won + lost. Cancelled and parked deals are no longer counted as decided.",

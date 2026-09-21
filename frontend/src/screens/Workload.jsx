@@ -33,8 +33,8 @@ export default function Workload() {
     <>
       <Head title="Workload"
         sub={d.full
-          ? `Who is carrying what, and how quickly it clears. Pending PNS counts pricing PNS owes plus Sales prices being reviewed by PNS. Past ${d.cap} of those the auto-assigner stops, and new work is left unassigned for you to place by hand.`
-          : `Who is carrying what, so you can tell whether to pick something up. Pending PNS counts pricing PNS owes plus Sales prices being reviewed by PNS. Past ${d.cap} of those the auto-assigner stops and new work is left unassigned.`} />
+          ? `Who is carrying what, and how quickly it clears. Pending PNS is each person's share of the Pricing - PNS queue plus Sales prices they are reviewing, so the column adds up to the queue (Unassigned included). Past ${d.cap} the auto-assigner stops, and new work is left unassigned for you to place by hand.`
+          : `Who is carrying what, so you can tell whether to pick something up. Pending PNS is each person's share of the Pricing - PNS queue plus Sales prices they are reviewing, so the column adds up to the queue (Unassigned included). Past ${d.cap} the auto-assigner stops and new work is left unassigned.`} />
 
       <div className="mb-4">
         <Card>
@@ -71,7 +71,7 @@ export default function Workload() {
               </thead>
               <tbody>
                 {d.pns.map((p) => (
-                  <tr key={p.name} className="border-t border-slate-100">
+                  <tr key={p.name} className={`border-t border-slate-100 ${p.unassigned ? "bg-amber-50/50 italic text-slate-600" : ""}`}>
                     <td className="px-4 py-3 font-medium">
                       {p.name}{" "}
                       {p.at_cap && <Pill tone="bg-rose-50 text-rose-700">at cap</Pill>}
@@ -80,7 +80,8 @@ export default function Workload() {
                     <td className="px-4 py-3 tabular-nums">{p.open_total}</td>
                     {/* Absent from the payload entirely for a non-Head, not merely
                         hidden here — the figures never leave the server. */}
-                    {d.full && (
+                    {d.full && p.unassigned && <td colSpan={4} className="px-4 py-3 text-[12px] text-slate-400">nobody holds these yet</td>}
+                    {d.full && !p.unassigned && (
                       <>
                         <td className="px-4 py-3 tabular-nums">{days(p.avg_days_to_clear)}</td>
                         <td className="px-4 py-3 tabular-nums text-slate-500">{days(p.worst_days_to_clear)}</td>
