@@ -2,6 +2,15 @@ import { Card, Head, Pill } from "../ui";
 
 const ENTRIES = [
   {
+    date: "2026-09-22",
+    title: "Frontend image: OS packages upgraded for 39 reported CVEs",
+    by: "Michael + Claude",
+    changes: [
+      "The nginx runtime stage of cicd/Dockerfile.frontend now upgrades c-ares, libcrypto3, libssl3, libexpat, libpng, libxml2, musl, musl-utils, nghttp2-libs and zlib to their patched Alpine 3.21 versions, clearing CVE-2026-33630, CVE-2026-31789 and the rest of the 39 reported issues. The build stage is unchanged; no app behaviour changes.",
+    ],
+    overruled: [],
+  },
+  {
     date: "2026-09-21",
     title: "Workload measures PNS's own time, in working days",
     by: "Michael + Claude",
