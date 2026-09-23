@@ -187,14 +187,18 @@ export function NewRequest({ me, notify, onCreated }) {
               placeholder="2–3× per week" />
           </Field>
           <Field label="Pickup time slot" required><input className={inputCls} value={f.pickSlot || ""} onChange={set("pickSlot")} /></Field>
-          <Field label="Pickup waiting time" hint="Hours the driver waits at origin. Leave empty for none.">
-            <input type="number" min="0" step="0.5" className={inputCls}
-              value={f.pickWait ?? ""} onChange={set("pickWait")} placeholder="None" />
+          <Field label="Pickup waiting time" hint="How long the driver waits at origin.">
+            <select className={inputCls} value={f.pickWait ?? ""} onChange={set("pickWait")}>
+              <option value="">Choose…</option>
+              {["< 1 hour", "1-2 hours", "2-3 hours", "> 3 hours"].map((v) => <option key={v}>{v}</option>)}
+            </select>
           </Field>
           <Field label="Delivery time slot" required><input className={inputCls} value={f.delSlot || ""} onChange={set("delSlot")} /></Field>
-          <Field label="Delivery waiting time" hint="Hours the driver waits at destination. Leave empty for none.">
-            <input type="number" min="0" step="0.5" className={inputCls}
-              value={f.delWait ?? ""} onChange={set("delWait")} placeholder="None" />
+          <Field label="Delivery waiting time" hint="How long the driver waits at destination.">
+            <select className={inputCls} value={f.delWait ?? ""} onChange={set("delWait")}>
+              <option value="">Choose…</option>
+              {["< 1 hour", "1-2 hours", "2-3 hours", "> 3 hours"].map((v) => <option key={v}>{v}</option>)}
+            </select>
           </Field>
         </Section>
 

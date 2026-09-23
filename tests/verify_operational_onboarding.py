@@ -75,6 +75,12 @@ assert all(f["section"] != "D · Pickup" for f in m.ob_schema())
 rejected(lambda: m.ob_validate({**p, "pickup_at": "2026-09-20", "pickup_time": "23-24", "planned_golive": "2026-09-20"}, t, docs), 400)
 # The first pickup is a date; its moment is that date at the start of the pickup range.
 assert m.ob_pickup_moment(p) == datetime(2026, 9, 21, 10)
+# Waiting time is a band, and an older charter's free text lands in one (2026-09-23).
+assert m.ob_wait_bucket("2") == "1-2 hours" and m.ob_wait_bucket("0.5") == "< 1 hour"
+assert m.ob_wait_bucket("3") == "2-3 hours" and m.ob_wait_bucket("4 hours") == "> 3 hours"
+assert m.ob_wait_bucket("1-2 hours") == "1-2 hours"
+assert m.ob_wait_bucket("None") == "" and m.ob_wait_bucket("") == ""
+rejected(lambda: m.ob_validate({**p, "pickup_wait": "2 jam-ish"}, t, docs), 400)
 # Admin may confirm for a team, and it is recorded as such (Michael, 2026-09-18).
 _admin = m.User(email="a@example.test", name="Boss", group="Admin", level="head")
 assert m.ob_actor(_admin, {"owner_group": "4W"}) == "Boss (Admin, for 4W)"

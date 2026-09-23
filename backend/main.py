@@ -1610,7 +1610,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-22.1"
+BUILD = "2026-09-23.1"
 
 
 class Me(BaseModel):
@@ -6068,6 +6068,8 @@ CHARTER_SECTIONS = [
         ("branchId", "Corporate branch ID"),
     ]),
 ]
+# Waiting time is a band now (Michael, 2026-09-23); kept as a name so the old hours
+# formatting below can still render a charter written before the change.
 CHARTER_HOURS = ("pickWait", "delWait")
 
 # ------------------------------------------------------------------ the field guide
@@ -9286,6 +9288,11 @@ async def mark_read(u: User = Depends(current_user)):
 OB_WIB = timezone(timedelta(hours=7))
 OB_FUNCTIONS = ["2W", "4W", "Sameday"]
 OB_PACKING = {"PCK": "Bubble Wrap", "PCK Kayu": "Packing kayu", "PCK Wrap": "Plastic wrap", "No": "No packing required"}
+# Waiting time is chosen, not typed (Michael, 2026-09-23). Free text produced "2", "2
+# jam", "None" and "as needed" for the same answer, and the fleet costs the band.
+OB_WAIT_OPTIONS = ["< 1 hour", "1-2 hours", "2-3 hours", "> 3 hours"]
+
+
 OB_FIELDS = [
     ("request_type", "Request type", "select", "A · Basic requirements", ["New Shipper", "New OD", "New Volume"], None),
     ("planned_golive", "Planned go-live date", "date", "A · Basic requirements", [], "golive"),
@@ -9339,7 +9346,7 @@ OB_FIELDS = [
     ("pickup_function", "Pickup responsibility", "select", "D · First Pick Up", OB_FUNCTIONS, None),
     # A window in whole hours, "08-12" (Michael, 2026-09-17): minutes were false precision.
     ("pickup_time", "Pickup time (hour range)", "hour_range", "D · First Pick Up", [], None),
-    ("pickup_wait", "Pickup waiting time (include units)", "text", "D · First Pick Up", [], "pickWait"),
+    ("pickup_wait", "Pickup waiting time", "select", "D · First Pick Up", OB_WAIT_OPTIONS, "pickWait"),
     ("pickup_driver", "Specific pickup driver requirement", "text", "D · First Pick Up", [], None),
     ("pickup_tkbm", "Pickup TKBM", "select", "D · First Pick Up", ["Yes", "No"], "tkbmO"),
     ("pickup_tkbm_count", "Pickup TKBM quantity", "number", "D · First Pick Up", [], None),
@@ -9350,7 +9357,7 @@ OB_FIELDS = [
     ("destination", "Destination Address", "textarea", "E · Delivery", [], None),
     ("delivery_function", "Delivery responsibility", "select", "E · Delivery", OB_FUNCTIONS, None),
     ("delivery_time", "Delivery time (hour range)", "hour_range", "E · Delivery", [], None),
-    ("delivery_wait", "Delivery waiting time (include units)", "text", "E · Delivery", [], "delWait"),
+    ("delivery_wait", "Delivery waiting time", "select", "E · Delivery", OB_WAIT_OPTIONS, "delWait"),
     ("delivery_driver", "Specific delivery driver requirement", "text", "E · Delivery", [], None),
     ("delivery_tkbm", "Delivery TKBM", "select", "E · Delivery", ["Yes", "No"], "tkbmD"),
     ("delivery_tkbm_count", "Delivery TKBM quantity", "number", "E · Delivery", [], None),
@@ -9388,6 +9395,31 @@ def ob_hour_range(raw) -> tuple[int, int]:
     if not 0 <= start < end <= 24:
         raise ValueError("hour range out of order")
     return start, end
+
+
+def ob_wait_bucket(raw) -> str:
+    """One of OB_WAIT_OPTIONS for whatever the charter holds, or "" when it says nothing.
+
+    Charters written before this carry hours as free text ("2", "1.5", "None"), so a
+    number is read and placed in its band rather than left as an answer the form cannot
+    show and the pricer cannot fix."""
+    s = str(raw or "").strip()
+    if not s:
+        return ""
+    if s in OB_WAIT_OPTIONS:
+        return s
+    try:
+        hours = float(s.lower().replace("hours", "").replace("hour", "")
+                      .replace("jam", "").strip())
+    except ValueError:
+        return ""
+    if hours < 1:
+        return OB_WAIT_OPTIONS[0]
+    if hours <= 2:
+        return OB_WAIT_OPTIONS[1]
+    if hours <= 3:
+        return OB_WAIT_OPTIONS[2]
+    return OB_WAIT_OPTIONS[3]
 
 
 def ob_pickup_moment(p: dict) -> datetime:
@@ -9721,6 +9753,11 @@ async def operational_detail(ref: str, u: User = Depends(current_user)):
             v = ob_source_value(source, srcs.get(key))
             if v or key in OB_FOLLOW_CHARTER:
                 p[key] = v
+    # A charter written before the bands existed holds "2" or "None"; place it in a band
+    # so the form can show it and the launch is not stuck on an answer nobody can pick.
+    for key in ("pickup_wait", "delivery_wait"):
+        p[key] = ob_wait_bucket(p.get(key))
+
     # The product photo Sales attached to the ticket, offered here instead of a second
     # upload (Michael, 2026-09-17). Photos only: the ticket's documents can carry rate
     # cards, and this pane is read by Ops and QC.
@@ -9764,6 +9801,8 @@ async def operational_save(ref: str, body: OperationalSave, u: User = Depends(cu
     srcs = {k: sk for k, _, _, _, _, sk in OB_FIELDS}
     for key in OB_FOLLOW_CHARTER:
         p[key] = ob_source_value(source, srcs[key])
+    for key in ("pickup_wait", "delivery_wait"):
+        p[key] = ob_wait_bucket(p.get(key))
     ob_zero_counts(p)
     docs = await q("SELECT id,kind FROM onboarding_documents WHERE ticket_id=%s", (t["id"],))
     if body.submit:

@@ -2,6 +2,18 @@ import { Card, Head, Pill } from "../ui";
 
 const ENTRIES = [
   {
+    date: "2026-09-23",
+    title: "Waiting time is chosen from bands",
+    by: "Michael + Claude",
+    changes: [
+      "Pickup and delivery waiting time are now picked from < 1 hour, 1-2 hours, 2-3 hours or > 3 hours — on New Request, on the Project Charter and on the shipper onboarding form.",
+      "A charter written before this holds free text such as “2” or “None”; onboarding places that in its band, so nothing is stuck on an answer the form cannot show.",
+    ],
+    overruled: [
+      "Waiting time typed as a number of hours (blank meaning the driver does not wait).",
+    ],
+  },
+  {
     date: "2026-09-22",
     title: "Frontend image: OS packages upgraded for 39 reported CVEs",
     by: "Michael + Claude",

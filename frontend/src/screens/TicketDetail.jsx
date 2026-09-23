@@ -52,9 +52,14 @@ const SECTIONS = [
 const EDITABLE = SECTIONS.flatMap(([, fields]) => fields);
 const LONG = ["brief", "handling", "notes", "rdoNotes", "invAddr", "pickup", "dest"];
 const YESNO = ["mps", "rdo", "cod", "tkbmO", "tkbmD", "ins"];
+// Waiting time is picked from bands now (Michael, 2026-09-23). HOURS stays only to
+// render a charter written before the change, which holds a number.
 const HOURS = ["pickWait", "delWait"];
+const WAIT_OPTIONS = ["< 1 hour", "1-2 hours", "2-3 hours", "> 3 hours"];
 const SELECT_OPTIONS = {
   billingTreatment: ["Standard", "Actual weight", "Shipper weight", "Custom rounding"],
+  pickWait: WAIT_OPTIONS,
+  delWait: WAIT_OPTIONS,
   // Onboarding reads its Shipment mode from here (Michael, 2026-09-17).
   shipMode: ["Port to Port", "Port to Door", "Door to Port", "Door to Door"],
 };
@@ -63,7 +68,8 @@ const SELECT_OPTIONS = {
 // driver does not wait, which is a costed fact. Everything else shows an em dash.
 function display(k, v) {
   const s = String(v ?? "").trim();
-  if (HOURS.includes(k)) return s === "" ? "None" : `${s} hour${Number(s) === 1 ? "" : "s"}`;
+  if (HOURS.includes(k)) return s === "" ? "None"
+    : WAIT_OPTIONS.includes(s) ? s : `${s} hour${Number(s) === 1 ? "" : "s"}`;
   return s;
 }
 
@@ -585,10 +591,6 @@ function CommercialTicketDetail({ ticketRef: initialRef, me, notify, onBack,
                           // React to reconcile, and the deletion pass threw NotFoundError
                           // and unmounted the tab. An element does have identity.
                           <span>{display(k, i[k]) || <span className="text-slate-400">—</span>}</span>
-                        ) : HOURS.includes(k) ? (
-                          <input type="number" min="0" step="0.5" placeholder="None"
-                            className={`${inputCls} max-w-[140px]`} value={draft[k]}
-                            onChange={(e) => setDraft({ ...draft, [k]: e.target.value })} />
                         ) : LONG.includes(k) ? (
                           <textarea className={`${inputCls} min-h-[56px]`} value={draft[k]}
                             onChange={(e) => setDraft({ ...draft, [k]: e.target.value })} />
@@ -732,10 +734,6 @@ function CommercialTicketDetail({ ticketRef: initialRef, me, notify, onBack,
                           // React to reconcile, and the deletion pass threw NotFoundError
                           // and unmounted the tab. An element does have identity.
                           <span>{display(k, i[k]) || <span className="text-slate-400">—</span>}</span>
-                        ) : HOURS.includes(k) ? (
-                          <input type="number" min="0" step="0.5" placeholder="None"
-                            className={`${inputCls} max-w-[140px]`} value={draft[k]}
-                            onChange={(e) => setDraft({ ...draft, [k]: e.target.value })} />
                         ) : LONG.includes(k) ? (
                           <textarea className={`${inputCls} min-h-[56px]`} value={draft[k]}
                             onChange={(e) => setDraft({ ...draft, [k]: e.target.value })} />
