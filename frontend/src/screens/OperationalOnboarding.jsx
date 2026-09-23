@@ -6,7 +6,7 @@ const TITLES = { onboarding: "Pending Information", readiness: "Pending Readines
 const HELP = { onboarding: "Waiting on Sales to fill in and submit the onboarding requirements. Once submitted, a launch moves to Pending Readiness.",
   readiness: "Your team's outstanding confirmations. CL: packing · Sort: TKBM · pickup/delivery operations: fleet and documents.",
   golive: "Every team is ready (or has an approved exception). Move each one to the Shipper List QC when it goes live.",
-  handover: "Shippers that have gone live and are handed to QC." };
+  handover: "Shippers that have gone live and are handed to QC. QC confirms each one here." };
 const format = (v) => v ? String(v).replace("T", " ").slice(0, 16) + (String(v).length > 10 ? " WIB" : "") : "—";
 
 export function OperationalList({ view = "onboarding", me, onOpen, notify = () => {} }) {
@@ -17,6 +17,15 @@ export function OperationalList({ view = "onboarding", me, onOpen, notify = () =
   const [moving, setMoving] = useState("");
   const load = () => api.operationalList(view).then(setData).catch(e => setErr(e.message));
   useEffect(() => { setData(null); setErr(""); load(); }, [view]);
+  // QC's own confirmation (Michael, 2026-09-23): nothing leaves the Shipper List QC
+  // until QC says they have looked at it.
+  const qcAccept = async (ref) => {
+    if (!window.confirm(`Confirm QC accepts the operational handover for ${ref}?`)) return;
+    setMoving(ref);
+    try { await api.operationalQcAccept(ref); notify(`${ref} accepted by QC`); await load(); }
+    catch (e) { notify(e.message); }
+    finally { setMoving(""); }
+  };
   // Go Live's one step onward (Michael, 2026-09-18).
   const handover = async (ref) => {
     if (!window.confirm(`Move ${ref} to the Shipper List QC? Today is recorded as its go-live and the launch requirements lock.`)) return;
@@ -39,6 +48,11 @@ export function OperationalList({ view = "onboarding", me, onOpen, notify = () =
           <button className="font-mono font-semibold text-[#EE1B2C] hover:underline" onClick={() => onOpen(r.ref)}>{r.ref}</button>
           <Pill>{r.status}</Pill>{r.overdue && <Pill tone="bg-rose-100 text-rose-800">Confirmation overdue</Pill>}
           <Btn className="ml-auto" onClick={() => onOpen(r.ref)}>Open onboarding</Btn>
+          {view === "handover" && me.group === "QC" && r.status !== "QC accepted" && (
+            <Btn kind="primary" disabled={moving === r.ref} onClick={() => qcAccept(r.ref)}>
+              QC accepts handover
+            </Btn>
+          )}
           {view === "golive" && me.permissions.editOnboarding && (
             <Btn kind="primary" disabled={moving === r.ref} onClick={() => handover(r.ref)}>
               Move to Shipper List QC

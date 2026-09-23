@@ -3,6 +3,18 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-09-23",
+    title: "QC confirms each shipper on the Shipper List QC",
+    by: "Michael + Claude",
+    changes: [
+      "Shipper List QC has a QC accepts handover button on every row, for QC users. A shipper stays on the list until QC confirms it.",
+      "Moving a launch with Go Live no longer needs the seven-day wait before QC can accept — the wait still applies to launches that reached QC the old way, seven days after a confirmed actual go-live.",
+    ],
+    overruled: [
+      "QC acceptance sat in the Actual go-live and QC handover box on the onboarding form, which was removed on 2026-09-18 — leaving nothing to accept with.",
+    ],
+  },
+  {
+    date: "2026-09-23",
     title: "Users & roles explains the operational teams",
     by: "Michael + Claude",
     changes: [

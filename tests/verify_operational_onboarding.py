@@ -161,6 +161,12 @@ async def main():
     await denied(lambda: m.ob_apply_qc(cur, t, actual, qc), 409)
     actual["actual_golive"] -= timedelta(days=1)
     await m.ob_apply_qc(cur, t, actual, qc)
+    # Handed over by the Go Live button: QC may accept at once, no seven-day wait
+    # (Michael, 2026-09-23).
+    handed = dict(submitted_at=NOW, actual_golive=NOW.date(), qc_accepted_at=None, handover_at=NOW)
+    await m.ob_apply_qc(cur, t, handed, qc)
+    await denied(lambda: m.ob_apply_qc(cur, t, dict(submitted_at=NOW, actual_golive=NOW.date(),
+                                                    qc_accepted_at=None), qc), 409)
 
     async def ticket(ref): return dict(t)
     async def query(sql, args=(), one=False):

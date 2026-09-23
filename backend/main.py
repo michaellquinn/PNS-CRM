@@ -1610,7 +1610,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-23.2"
+BUILD = "2026-09-23.3"
 
 
 class Me(BaseModel):
@@ -10095,8 +10095,16 @@ async def operational_qc_accept(ref: str, u: User = Depends(current_user)):
 
 
 async def ob_apply_qc(cur, t, intake, u):
-    if not intake or not intake["actual_golive"] or ob_now().date() <= intake["actual_golive"] + timedelta(days=7):
-        raise HTTPException(409, "Seven-day monitoring must finish before QC handover")
+    # Two ways onto the Shipper List QC, so two ways to accept it (Michael, 2026-09-23):
+    # the Go Live button hands it over there and then, and QC confirms when they have
+    # looked; the older route waits seven days after a confirmed actual go-live.
+    if not intake:
+        raise HTTPException(409, "Sales must submit the onboarding requirements first")
+    if not intake.get("handover_at") and (
+            not intake["actual_golive"]
+            or ob_now().date() <= intake["actual_golive"] + timedelta(days=7)):
+        raise HTTPException(409, "Move it to the Shipper List QC first, or wait for the "
+                                 "seven-day monitoring to finish")
     if intake["qc_accepted_at"]:
         raise HTTPException(409, "QC already accepted")
     await cur.execute("UPDATE onboarding_intake SET qc_accepted_by=%s,qc_accepted_at=%s WHERE ticket_id=%s AND qc_accepted_at IS NULL", (u.email, ob_now(), t["id"]))
