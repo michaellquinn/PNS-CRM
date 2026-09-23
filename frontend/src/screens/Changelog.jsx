@@ -3,6 +3,16 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-09-23",
+    title: "Users & roles explains the operational teams",
+    by: "Michael + Claude",
+    changes: [
+      "CL, Sort, 2W, 4W, Sameday, DE and QC now carry a description and a colour tag on Users & roles, like the commercial groups. The groups themselves already existed — an account could always be registered in them.",
+      "Each says what that team does in onboarding: CL packing, Sort TKBM, 2W/4W/Sameday fleet and documents for the legs they run, QC the handover. All are operational-view only: no price, cost or margin.",
+    ],
+    overruled: [],
+  },
+  {
+    date: "2026-09-23",
     title: "Waiting time is chosen from bands",
     by: "Michael + Claude",
     changes: [

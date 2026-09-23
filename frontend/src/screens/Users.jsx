@@ -10,6 +10,14 @@ const GROUP_TONE = {
   CSO: "bg-teal-50 text-teal-700",
   Visitor: "bg-slate-100 text-slate-600",
   Ops: "bg-teal-50 text-teal-700",
+  // The operational teams that confirm onboarding readiness (Michael, 2026-09-23).
+  QC: "bg-emerald-50 text-emerald-700",
+  CL: "bg-emerald-50 text-emerald-700",
+  Sort: "bg-emerald-50 text-emerald-700",
+  "2W": "bg-emerald-50 text-emerald-700",
+  "4W": "bg-emerald-50 text-emerald-700",
+  Sameday: "bg-emerald-50 text-emerald-700",
+  DE: "bg-emerald-50 text-emerald-700",
 };
 
 const WHAT_EACH_GROUP_DOES = {
@@ -20,6 +28,15 @@ const WHAT_EACH_GROUP_DOES = {
   Ops: "Reads everything and receives the Kick-off. Changes nothing in the app.",
   CSO: "Read-only across the pipeline, including cost and margin.",
   Admin: "Everything, plus registering people, setting roles and the recycle bin.",
+  // Operational teams: they read the pipeline, never see price, cost or margin, and each
+  // confirms only its OWN readiness card on a shipper onboarding.
+  CL: "Confirms packing readiness on onboarding (bubble wrap, packing kayu, plastic wrap). Operational view only — no price, cost or margin.",
+  Sort: "Confirms TKBM readiness on onboarding, pickup and delivery. Operational view only — no price, cost or margin.",
+  "2W": "Two-wheel fleet. Confirms fleet and document readiness (RDO / POD / Surat Jalan) for the legs it runs. Operational view only.",
+  "4W": "Four-wheel fleet. Confirms fleet and document readiness (RDO / POD / Surat Jalan) for the legs it runs. Operational view only.",
+  Sameday: "Sameday operations. Confirms fleet and document readiness for the legs it runs. Operational view only.",
+  DE: "Delivery operations. Reads the operational view; no readiness card of its own yet.",
+  QC: "Accepts the operational handover on the Shipper List QC. Operational view only — no price, cost or margin.",
 };
 
 const EMPTY_FORM = { email: "", name: "", group: "PNS", level: "staff", team: "Team1",
