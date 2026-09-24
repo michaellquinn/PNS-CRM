@@ -2,6 +2,20 @@ import { Card, Head, Pill } from "../ui";
 
 const ENTRIES = [
   {
+    date: "2026-09-24",
+    title: "Ticket notifications reach that ticket's people, not all of PNS",
+    by: "Michael + Claude",
+    changes: [
+      "Six notices that name ONE ticket were still going to every PNS member: the sync's “Sales CRM says the proposal is submitted, but…” warning, a ticket getting its Sales CRM id, a price awaiting C-level sign-off (both from pricing and after PSP), PSP's approve/reject decision, and an operational area acknowledging a requirement. Each now goes to that ticket's people only — the PNS PIC (or the Head of PNS while nobody holds it), the deal's salesperson, and that salesperson's manager and head.",
+      "“Everyone is at the cap — needs manual assignment” now goes to the Head of PNS alone, since the Head is who places it.",
+      "PSP's decision no longer goes to all of Commercial/AM either, only to the people on the deal.",
+      "Team-wide notices are unchanged by design: PSP's shared queue, QC's handover list, kick-offs, CAPA and recycle-bin housekeeping.",
+    ],
+    overruled: [
+      "Ticket-scoped notices broadcast to the whole PNS group.",
+    ],
+  },
+  {
     date: "2026-09-23",
     title: "QC confirms each shipper on the Shipper List QC",
     by: "Michael + Claude",

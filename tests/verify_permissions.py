@@ -303,6 +303,10 @@ for label, ok, hint in [
      "Margin % (" not in _FE("screens/Queues.jsx") and "Discount % (" not in _FE("screens/Queues.jsx"), ""),
     ("the category is not sent to roles that cannot see the price",
      'price_category=(t.get("price_category") if sees_price else None)' in _SRC, "Ops and QC"),
+    # A notice naming one ticket goes to that ticket's people (Michael, 2026-09-24):
+    # PNS were getting every deal's news, and a bell that is always ringing is ignored.
+    ("a ticket-scoped notice never goes to the whole PNS group",
+     'groups=["PNS"], ticket_ref' not in _SRC, "use people=await ticket_people(t)"),
     ("Pending Requirement has a way out on screen",
      "RequirementActions" in _FE("screens/Meetings.jsx") and "requirementSupplied" in _FE("api.js")
      and '@app.post("/api/tickets/{ref}/requirement-supplied"' in _SRC, "Michael, 2026-09-18"),

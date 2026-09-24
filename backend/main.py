@@ -1610,7 +1610,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-23.3"
+BUILD = "2026-09-24.1"
 
 
 class Me(BaseModel):
@@ -4788,10 +4788,11 @@ async def _refresh_from_salescrm(o: dict, account: dict | None = None,
                 if no_price:
                     what.append("no price is attached here, so the number the shipper "
                                 "received exists nowhere in this app")
+                # This ticket's people, not all of PNS (Michael, 2026-09-24).
                 await notify(
                     f"{ref}, {t['shipper']}: Sales CRM says the proposal is submitted, but "
                     + " and ".join(what) + ". Worth checking.",
-                    groups=["PNS"], ticket_ref=ref)
+                    people=await ticket_people(t), email=False, ticket_ref=ref)
         elif wants == "Cancel":
             # Parked in Sales CRM (Michael, 2026-09-02). Cancel rather than Lost:
             # the deal was not lost, it was put down, and the Cancelled screen is a
@@ -5359,7 +5360,7 @@ async def submit_price(ref: str, body: PriceIn, u: User = Depends(current_user))
         else:
             await notify(f"{ref}, {t['shipper']}: Sales priced it at or above 30 Mio and "
                          f"everyone eligible is at the cap — needs manual assignment",
-                         roles=["PNS - Head"], groups=["PNS"], ticket_ref=ref)
+                         roles=["PNS - Head"], ticket_ref=ref)
     elif to_psp:
         nxt, note = "Pending Review - PSP", g["why"]
         await execute("UPDATE tickets SET manual_review=1 WHERE id=%s", (t["id"],))
@@ -5391,7 +5392,8 @@ async def submit_price(ref: str, body: PriceIn, u: User = Depends(current_user))
         nxt, note = proposal_or_signoff(t), ""
         if nxt == "Pending Review - C-level":
             await notify(f"{ref}, {t['shipper']} ({t['acct_type']}): priced and awaiting "
-                         f"Alex and Dhinesh sign-off", groups=["PNS"], ticket_ref=ref)
+                         f"Alex and Dhinesh sign-off",
+                         people=await ticket_people(t), email=False, ticket_ref=ref)
         else:
             await notify(f"{ref}, {t['shipper']}: proposal is ready",
                          people=await ticket_people(t), email=False, ticket_ref=ref)
@@ -5930,7 +5932,7 @@ async def set_crm_id(ref: str, body: CrmIdIn, u: User = Depends(current_user)):
         nxt = "Open"
         await log_status(t["id"], nxt, u.name, f"Sales CRM id {oid} supplied")
         await notify(f"{ref}, {t['shipper']} now has its Sales CRM id and is Open",
-                     groups=["PNS"], ticket_ref=ref)
+                     people=await ticket_people(t), email=False, ticket_ref=ref)
     else:
         await log_note(t["id"], t["status"], u.name, f"Sales CRM id set to {oid}")
     await audit(u.email, "crm_id", "ticket", ref, "opportunity_id",
@@ -7082,7 +7084,7 @@ async def ack_requirement(rid: int, u: User = Depends(current_user)):
     await audit(u.email, "requirement_ack", "ticket", row["ticket_ref"], row["area"],
                 None, u.name)
     await notify(f"{owner} acknowledged the {label} requirement on {row['ticket_ref']}",
-                 groups=["PNS"], ticket_ref=row["ticket_ref"])
+                 people=await ticket_people(row), email=False, ticket_ref=row["ticket_ref"])
     return {"ok": True, "ref": row["ticket_ref"], "status": "acknowledged"}
 
 
@@ -7313,7 +7315,7 @@ async def psp_decide(ref: str, body: PspIn, u: User = Depends(current_user)):
                    actor_role[:30], body.note))
     await notify(f"{ref}, PSP {'approved' if body.approve else 'rejected'} the price"
                  f"{': ' + body.note if body.note else ''}",
-                 groups=["PNS"] if t["resp"] == "PNS" else list(SELLING_GROUPS),
+                 people=await ticket_people(t), email=False,
                  ticket_ref=ref)
     if not body.approve:
         # A rejection puts the ticket back on whoever priced it, same rule as a send-back.
@@ -7368,7 +7370,8 @@ async def submit_proposal(ref: str, u: User = Depends(current_user)):
     await log_status(t["id"], nxt, u.name, "submitted after PSP approval")
     if nxt == "Pending Review - C-level":
         await notify(f"{ref}, {t['shipper']} ({t['acct_type']}): PSP cleared the margin, "
-                     f"awaiting Alex and Dhinesh sign-off", groups=["PNS"], ticket_ref=ref)
+                     f"awaiting Alex and Dhinesh sign-off",
+                         people=await ticket_people(t), email=False, ticket_ref=ref)
     else:
         await notify(f"{ref}, {t['shipper']}: proposal is ready",
                      people=await ticket_people(t), email=False, ticket_ref=ref)
