@@ -1610,7 +1610,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-25.4"
+BUILD = "2026-09-25.5"
 
 
 class Me(BaseModel):
@@ -3603,6 +3603,101 @@ async def fill_billing_pics(limit: int = BILLING_FILL_PER_RUN) -> int:
     return written
 
 
+# ------------------------------------------------------------------ sample onboarding
+# A Dev environment starts with the trial seed (V2): ten shippers, ten tickets, sample
+# users. What it cannot have is a SUBMITTED onboarding, because that is something a
+# person does -- so the readiness cards, their points and the go-live countdown have
+# nothing to show until somebody fills the form in by hand.
+#
+# This fills one ready-to-ship sample ticket in, once, so those screens can be looked
+# at. It is gated on SEED_SAMPLE_ONBOARDING, which is set on Dev and nowhere else, and
+# it refuses to touch an environment that already has ANY onboarding in it -- the guard
+# that keeps it away from production even if the flag were set there by mistake.
+SEED_SAMPLE_ONBOARDING = os.getenv("SEED_SAMPLE_ONBOARDING", "").strip() in ("1", "true", "yes")
+
+SAMPLE_ONBOARDING = {
+    "request_type": "New Shipper", "shipper_status": "New",
+    "product_condition": "Dry", "product_volume": "18", "volume_unit": "CBM",
+    "dimensions": "60 x 40 x 40 cm", "weight": "12 kg",
+    "delivery_mode": "Door to Door", "mps": "No", "cod": "No", "rdo": "Yes",
+    "rdo_treatment": "Signed delivery order back to the origin warehouse within 3 days",
+    "pod_treatment": "Photo POD in the app, stamped copy on the next pickup",
+    "surat_jalan_treatment": "Two copies, one stamped and returned",
+    "packing": ["PCK", "PCK Wrap"],
+    "handling_pickup": "Hand-load only, no forklift on site",
+    "handling_sort": "Fragile — do not stack more than three cartons high",
+    "handling_delivery": "Call the store 30 minutes before arrival",
+    "oc_by": "SSM", "api_required": "No",
+    "pickup_address": "Jl. Raya Bekasi KM 21, Gudang B3, Jakarta Timur",
+    "pickup_pic": "Pak Rudi", "pickup_contact": "0812-1111-2222",
+    "pickup_frequency": "3x per week", "pickup_vehicle": "CDD box",
+    "pickup_function": "4W", "pickup_time": "09-12", "pickup_wait": "1-2 hours",
+    "pickup_driver": "", "pickup_tkbm": "Yes", "pickup_tkbm_count": "2",
+    "implan": "No", "implan_count": "0",
+    "delivery_to": "End customer", "delivery_vehicle": "CDE",
+    "destination": "Jabodetabek — 14 store addresses, list shared with Ops",
+    "delivery_function": "2W", "delivery_time": "13-17", "delivery_wait": "< 1 hour",
+    "delivery_driver": "", "delivery_tkbm": "No", "delivery_tkbm_count": "0",
+    "insurance_type": "NinjaCare", "claim_procedure": "Claim within 3x24 hours with photo evidence",
+}
+
+
+async def seed_sample_onboarding() -> str:
+    """Fill one sample launch in so Dev has readiness cards to look at."""
+    if not SEED_SAMPLE_ONBOARDING:
+        return "off"
+    if await q("SELECT 1 AS n FROM onboarding_intake LIMIT 1", one=True):
+        return "already has onboarding data"
+    t = await q("SELECT t.id, t.ticket_ref, t.service_type, t.opportunity_id, s.name AS shipper "
+                "FROM tickets t JOIN shippers s ON s.id=t.shipper_id "
+                "WHERE t.deleted_at IS NULL AND t.status='Proposal Accepted / Ready to Ship' "
+                "ORDER BY t.id LIMIT 1", one=True)
+    if not t:
+        return "no ready-to-ship ticket to seed"
+    today = ob_now().date()
+    p = ob_payload({**SAMPLE_ONBOARDING,
+                    "shipper_name": t["shipper"], "service": t["service_type"],
+                    "opportunity_id": str(t.get("opportunity_id") or ""),
+                    "global_id": f"SEED-{t['id']}",
+                    "product_type": "Dry goods · household",
+                    "complexity_tier": "Standard (non-strategic)",
+                    "planned_golive": str(today + timedelta(days=2)),
+                    "pickup_at": str(today + timedelta(days=2))})
+    now = ob_now()
+    revision = 1
+    if _pool is None:
+        return "no database"
+    async with _pool.acquire() as conn, conn.cursor(DictCursor) as cur:
+        await conn.begin()
+        try:
+            await cur.execute("INSERT INTO onboarding_intake(ticket_id,payload,released_payload,"
+                              "revision,updated_at,submitted_at,submitted_by) "
+                              "VALUES(%s,%s,%s,%s,%s,%s,%s)",
+                              (t["id"], json.dumps(p), json.dumps(p), revision, now, now,
+                               "sample@ninjavan.co"))
+            for spec in ob_check_specs(p):
+                await cur.execute(
+                    "INSERT INTO onboarding_checks(ticket_id,check_key,label,owner_group,"
+                    "fingerprint,revision) VALUES(%s,%s,%s,%s,%s,%s)",
+                    (t["id"], spec["check_key"], spec["label"], spec["owner_group"],
+                     spec["fingerprint"], revision))
+                for it in ob_item_specs(spec["check_key"], p):
+                    await cur.execute(
+                        "INSERT INTO onboarding_check_items(ticket_id,check_key,item_key,label,"
+                        "owner_group,origin_group,fingerprint,revision) "
+                        "VALUES(%s,%s,%s,%s,%s,%s,%s,%s)",
+                        (t["id"], spec["check_key"], it["item_key"], it["label"],
+                         spec["owner_group"], spec["owner_group"], it["fingerprint"], revision))
+            await cur.execute("INSERT INTO onboarding_events(ticket_id,actor,body,at) "
+                              "VALUES(%s,%s,%s,%s)",
+                              (t["id"], "Sample data", "Sample onboarding seeded for Dev", now))
+            await conn.commit()
+        except Exception:
+            await conn.rollback()
+            raise
+    return f"seeded {t['ticket_ref']}"
+
+
 async def _auto_sync_loop() -> None:
     """Run the Sales CRM sweep on a timer, as the sync owner.
 
@@ -3612,6 +3707,10 @@ async def _auto_sync_loop() -> None:
     # A short delay before the first run so the pod is serving traffic and the migrations
     # have settled before anything reaches out to a third party.
     await asyncio.sleep(30)
+    try:
+        log.info("sample onboarding: %s", await seed_sample_onboarding())
+    except Exception:                                   # noqa: BLE001
+        log.exception("sample onboarding seed failed")
     while True:
         # Read every tick, not once at import. The interval, the window, the floor and
         # whether the queue governs imports are all settings now (Baskoro, 2026-08-28),
