@@ -1610,7 +1610,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-25.11"
+BUILD = "2026-09-25.12"
 
 
 class Me(BaseModel):
@@ -9738,7 +9738,10 @@ def ob_readiness_points(p: dict) -> list[dict]:
         return bool(str(p.get(k) or "").strip())
 
     def add(key, label, fields, groups, when=True):
-        for g in groups:
+        # dict.fromkeys keeps the order and drops repeats: when ONE team runs both legs,
+        # a point owned by "the pickup team and the delivery team" is that team's once,
+        # not twice (Michael, 2026-09-25 — the 4W + 4W sample).
+        for g in dict.fromkeys(groups):
             if g and when:
                 out.append({"item_key": key, "label": str(label)[:255],
                             "owner_group": g, "fingerprint": _fp(p, fields)})

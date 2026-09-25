@@ -135,6 +135,16 @@ for _field, _off, _key in (("cod", "No", "cod"), ("rdo", "No", "rdo"),
 assert not [i for i in m.ob_readiness_points(p) if i["item_key"] in
             ("request_type", "planned_golive", "pickup_at", "global_id", "shipper_status",
              "pickup_function", "delivery_function", "complexity_tier", "delivery_mode")]
+# One team on BOTH legs gets a shared point once, not twice — it is the same team
+# answering the same question (Michael, 2026-09-25).
+_both = m.ob_readiness_points({**p, "pickup_function": "4W", "delivery_function": "4W"})
+_keys = [(i["owner_group"], i["item_key"]) for i in _both]
+assert len(_keys) == len(set(_keys)), [k for k in _keys if _keys.count(k) > 1]
+assert len([k for k in _keys if k == ("4W", "rdo")]) == 1
+# 6W is a fleet team like the others (Michael, 2026-09-25).
+assert "6W" in m.OB_FUNCTIONS and "6W" in m.OPERATIONAL_GROUPS
+assert any(c["owner_group"] == "6W" and c["label"] == "6W Team"
+           for c in m.ob_check_specs({**p, "pickup_function": "6W"}))
 # Packing tags are ONE point however many tags are chosen, not one card per tag.
 assert len([i for i in m.ob_readiness_points({**p, "packing": ["PCK", "PCK Wrap", "PCK Kayu"]})
             if i["item_key"] == "packing" and i["owner_group"] == "CL"]) == 1
