@@ -72,6 +72,31 @@ assert "sla" not in {k for k, *_ in m.OB_FIELDS}
 assert set(m.OB_FOLLOW_CHARTER) == {"product_type", "delivery_mode", "mps", "rdo", "pickup_frequency"}
 assert m.ob_source_value({"commodity": "", "product": "Snacks"}, ("commodity", "product")) == "Snacks"
 assert all(f["section"] != "D · Pickup" for f in m.ob_schema())
+# Parcel handling is its own section, ahead of the legs (Michael, 2026-09-25).
+_sections = [f["section"] for f in m.ob_schema()]
+assert _sections == sorted(_sections), "sections must stay in A-F order"
+assert "D · Parcel handling" in _sections
+assert {f["key"] for f in m.ob_schema() if f["section"] == "D · Parcel handling"} == {
+    "packing", "handling_pickup", "handling_sort", "handling_delivery"}
+assert "handling" not in {f["key"] for f in m.ob_schema()}
+# Claim and insurance is its own section; the cover is a choice, the procedure free text.
+_ins = {f["key"]: f for f in m.ob_schema() if f["section"] == "G · Claim and insurance"}
+assert set(_ins) == {"insurance_type", "claim_procedure"}
+assert _ins["insurance_type"]["options"] == ["Standard liability", "NinjaCare", "Ext. Insurance"]
+assert _ins["insurance_type"]["required"] and not _ins["claim_procedure"]["required"]
+rejected(lambda: m.ob_validate({**p, "insurance_type": "Gold cover"}, t, docs), 400)
+assert m.ob_validate({**p, "claim_procedure": ""}, t, docs)
+# Each team's readiness re-asks when ITS note changes, and not when another team's does.
+_base = m.ob_check_specs(p)
+for _leg in ("pickup", "delivery"):
+    _fleet = next(x for x in _base if x["check_key"] == _leg + ":fleet")["fingerprint"]
+    _same = next(x for x in m.ob_check_specs({**p, "handling_" + _leg: "wear gloves"})
+                 if x["check_key"] == _leg + ":fleet")["fingerprint"]
+    assert _fleet != _same, _leg
+    _other = "delivery" if _leg == "pickup" else "pickup"
+    _unmoved = next(x for x in m.ob_check_specs({**p, "handling_" + _other: "wear gloves"})
+                    if x["check_key"] == _leg + ":fleet")["fingerprint"]
+    assert _fleet == _unmoved, _leg
 rejected(lambda: m.ob_validate({**p, "pickup_at": "2026-09-20", "pickup_time": "23-24", "planned_golive": "2026-09-20"}, t, docs), 400)
 # The first pickup is a date; its moment is that date at the start of the pickup range.
 assert m.ob_pickup_moment(p) == datetime(2026, 9, 21, 10)

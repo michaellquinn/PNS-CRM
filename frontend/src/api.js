@@ -60,6 +60,7 @@ export const api = {
   operationalUpload: (ref, form) => upload(`/onboarding-v2/tickets/${encodeURIComponent(ref)}/documents`, form),
   operationalDecision: (id, body) => call(`/onboarding-v2/checks/${id}`, { method: "POST", body: JSON.stringify(body) }),
   operationalGolive: (ref, on) => call(`/onboarding-v2/tickets/${encodeURIComponent(ref)}/golive`, { method: "POST", body: JSON.stringify({ on }) }),
+  operationalItem: (id, body) => call(`/onboarding-v2/items/${id}`, { method: "POST", body: JSON.stringify(body) }),
   operationalHandover: ref => call(`/onboarding-v2/tickets/${encodeURIComponent(ref)}/handover`, { method: "POST", body: "{}" }),
   operationalQcAccept: ref => call(`/onboarding-v2/tickets/${encodeURIComponent(ref)}/qc-accept`, { method: "POST", body: "{}" }),
   operationalMaster: () => call("/operational-master"),

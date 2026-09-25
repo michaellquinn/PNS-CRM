@@ -1610,7 +1610,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-24.1"
+BUILD = "2026-09-25.4"
 
 
 class Me(BaseModel):
@@ -9331,39 +9331,57 @@ OB_FIELDS = [
     ("rdo_treatment", "RDO treatment details", "textarea", "C · Service and documents", [], "rdoNotes"),
     ("pod_treatment", "POD treatment details", "textarea", "C · Service and documents", [], None),
     ("surat_jalan_treatment", "Other Surat Jalan treatment details", "textarea", "C · Service and documents", [], None),
-    ("packing", "Packing tags", "packing", "C · Service and documents", list(OB_PACKING), None),
-    ("handling", "Handling request", "textarea", "C · Service and documents", [], None),
     ("oc_by", "Order creation by", "select", "C · Service and documents", ["SSM", "Shipper", "DE", "Sales"], None),
     ("api_required", "API required", "select", "C · Service and documents", ["Yes", "No"], None),
     # Written for this launch, and first in the section: the address is what the fleet
     # reads before anything else about the pickup (Michael, 2026-09-15).
-    ("pickup_address", "Pickup Address", "textarea", "D · First Pick Up", [], None),
+    # Everything about the parcel itself, ahead of the legs that carry it: what it is
+    # wrapped in, and what each team must do differently with it (Michael, 2026-09-25).
+    #
+    # DELIBERATELY NOT sourced from the charter's single "Custom handling request"
+    # (Michael, 2026-09-25). The charter keeps one box because that is how Sales writes
+    # it -- one request, in the shipper's words. Operations is three teams, and a note
+    # addressed to all of them is a note nobody owns, so onboarding asks the question
+    # once per team. The charter's version stays readable on the ticket; it is not
+    # copied here, because copying one answer into three boxes would make two of them
+    # wrong and let a team confirm against an instruction meant for somebody else.
+    ("packing", "Packing tags", "packing", "D · Parcel handling", list(OB_PACKING), None),
+    ("handling_pickup", "Handling request · pickup", "textarea", "D · Parcel handling", [], None),
+    ("handling_sort", "Handling request · sort", "textarea", "D · Parcel handling", [], None),
+    ("handling_delivery", "Handling request · delivery", "textarea", "D · Parcel handling", [], None),
+    ("pickup_address", "Pickup Address", "textarea", "E · First Pick Up", [], None),
     # Typed here now: Pickup PIC left the Project Charter (Michael, 2026-09-17).
-    ("pickup_pic", "Shipper Pickup PIC", "text", "D · First Pick Up", [], None),
-    ("pickup_contact", "Shipper Pickup PIC contact", "text", "D · First Pick Up", [], None),
-    ("pickup_frequency", "Shipment frequency", "text", "D · First Pick Up", [], "freq"),
+    ("pickup_pic", "Shipper Pickup PIC", "text", "E · First Pick Up", [], None),
+    ("pickup_contact", "Shipper Pickup PIC contact", "text", "E · First Pick Up", [], None),
+    ("pickup_frequency", "Shipment frequency", "text", "E · First Pick Up", [], "freq"),
     # Its own answer (Michael, 2026-09-17). It used to copy the charter's single vehicle
     # request, which is the DELIVERY vehicle, so the pickup never had a requirement of
     # its own.
-    ("pickup_vehicle", "Pick Up vehicle requirement", "text", "D · First Pick Up", [], None),
-    ("pickup_function", "Pickup responsibility", "select", "D · First Pick Up", OB_FUNCTIONS, None),
+    ("pickup_vehicle", "Pick Up vehicle requirement", "text", "E · First Pick Up", [], None),
+    ("pickup_function", "Pickup responsibility", "select", "E · First Pick Up", OB_FUNCTIONS, None),
     # A window in whole hours, "08-12" (Michael, 2026-09-17): minutes were false precision.
-    ("pickup_time", "Pickup time (hour range)", "hour_range", "D · First Pick Up", [], None),
-    ("pickup_wait", "Pickup waiting time", "select", "D · First Pick Up", OB_WAIT_OPTIONS, "pickWait"),
-    ("pickup_driver", "Specific pickup driver requirement", "text", "D · First Pick Up", [], None),
-    ("pickup_tkbm", "Pickup TKBM", "select", "D · First Pick Up", ["Yes", "No"], "tkbmO"),
-    ("pickup_tkbm_count", "Pickup TKBM quantity", "number", "D · First Pick Up", [], None),
-    ("implan", "Implan", "select", "D · First Pick Up", ["Yes", "No"], None),
-    ("implan_count", "Implan quantity", "number", "D · First Pick Up", [], None),
-    ("delivery_to", "Delivery to", "select", "E · Delivery", ["End customer", "Reseller", "GT", "MT"], "destType"),
-    ("delivery_vehicle", "Delivery vehicle requirement", "text", "E · Delivery", [], "truck"),
-    ("destination", "Destination Address", "textarea", "E · Delivery", [], None),
-    ("delivery_function", "Delivery responsibility", "select", "E · Delivery", OB_FUNCTIONS, None),
-    ("delivery_time", "Delivery time (hour range)", "hour_range", "E · Delivery", [], None),
-    ("delivery_wait", "Delivery waiting time", "select", "E · Delivery", OB_WAIT_OPTIONS, "delWait"),
-    ("delivery_driver", "Specific delivery driver requirement", "text", "E · Delivery", [], None),
-    ("delivery_tkbm", "Delivery TKBM", "select", "E · Delivery", ["Yes", "No"], "tkbmD"),
-    ("delivery_tkbm_count", "Delivery TKBM quantity", "number", "E · Delivery", [], None),
+    ("pickup_time", "Pickup time (hour range)", "hour_range", "E · First Pick Up", [], None),
+    ("pickup_wait", "Pickup waiting time", "select", "E · First Pick Up", OB_WAIT_OPTIONS, "pickWait"),
+    ("pickup_driver", "Specific pickup driver requirement", "text", "E · First Pick Up", [], None),
+    ("pickup_tkbm", "Pickup TKBM", "select", "E · First Pick Up", ["Yes", "No"], "tkbmO"),
+    ("pickup_tkbm_count", "Pickup TKBM quantity", "number", "E · First Pick Up", [], None),
+    ("implan", "Implan", "select", "E · First Pick Up", ["Yes", "No"], None),
+    ("implan_count", "Implan quantity", "number", "E · First Pick Up", [], None),
+    ("delivery_to", "Delivery to", "select", "F · Delivery", ["End customer", "Reseller", "GT", "MT"], "destType"),
+    ("delivery_vehicle", "Delivery vehicle requirement", "text", "F · Delivery", [], "truck"),
+    ("destination", "Destination Address", "textarea", "F · Delivery", [], None),
+    ("delivery_function", "Delivery responsibility", "select", "F · Delivery", OB_FUNCTIONS, None),
+    ("delivery_time", "Delivery time (hour range)", "hour_range", "F · Delivery", [], None),
+    ("delivery_wait", "Delivery waiting time", "select", "F · Delivery", OB_WAIT_OPTIONS, "delWait"),
+    ("delivery_driver", "Specific delivery driver requirement", "text", "F · Delivery", [], None),
+    ("delivery_tkbm", "Delivery TKBM", "select", "F · Delivery", ["Yes", "No"], "tkbmD"),
+    ("delivery_tkbm_count", "Delivery TKBM quantity", "number", "F · Delivery", [], None),
+    # What cover the parcel carries and what to do when it goes wrong (Michael,
+    # 2026-09-25). Kept out of the charter's Yes/No "Insurance": that is whether Sales
+    # sold cover, this is which cover the launch runs under.
+    ("insurance_type", "Insurance", "select", "G · Claim and insurance",
+     ["Standard liability", "NinjaCare", "Ext. Insurance"], None),
+    ("claim_procedure", "Claim procedure", "textarea", "G · Claim and insurance", [], None),
 ]
 
 
@@ -9373,7 +9391,8 @@ OB_FIELDS = [
 OB_FOLLOW_CHARTER = ("product_type", "delivery_mode", "mps", "rdo", "pickup_frequency")
 # Free-text detail that is useful when there is something to say and not a reason to
 # block a launch when there is not (Michael, 2026-09-17).
-OB_OPTIONAL = ("rdo_treatment", "pod_treatment", "surat_jalan_treatment", "handling",
+OB_OPTIONAL = ("rdo_treatment", "pod_treatment", "surat_jalan_treatment",
+               "handling_pickup", "handling_sort", "handling_delivery", "claim_procedure",
                "pickup_driver", "delivery_driver")
 
 
@@ -9534,6 +9553,86 @@ def ob_validate(p, t, documents):
     return pickup
 
 
+def _fp(p, fields) -> str:
+    """Fingerprint of the answers one point depends on. A point re-opens only when its
+    OWN inputs change; the rest of the card stays confirmed."""
+    values = {k: p.get(k) for k in list(fields) + ["service", "global_id"]}
+    return hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()
+
+
+def ob_item_specs(check_key: str, p: dict) -> list[dict]:
+    """The points inside one readiness card, built from what Sales submitted.
+
+    Generated rather than typed (Michael, 2026-09-25): the team confirms the ANSWERS,
+    so each point names the answer it is about and disappears when that answer does.
+    Points whose answer is blank are not raised at all — an empty box is not a thing to
+    confirm."""
+    out: list[dict] = []
+
+    def add(key, label, fields, when=True):
+        if when:
+            out.append({"item_key": key, "label": str(label)[:255],
+                        "fingerprint": _fp(p, fields)})
+
+    def val(k, dash="—"):
+        return str(p.get(k) or "").strip() or dash
+
+    if check_key.startswith("packing:"):
+        tag = check_key.split(":", 1)[1]
+        add("wrap", f"{tag} · {OB_PACKING.get(tag, tag)} ready for this parcel", ["packing"])
+        add("parcel", f"Parcel: {val('product_type')}, {val('dimensions')}, "
+                      f"{val('weight')} per koli", ["product_type", "dimensions", "weight"])
+        add("note", f"Handling request · sort: {val('handling_sort')}", ["handling_sort"],
+            when=bool(str(p.get("handling_sort") or "").strip()))
+        return out
+
+    leg, _, kind = check_key.partition(":")
+    if kind == "fleet":
+        add("vehicle", f"Vehicle: {val(leg + '_vehicle')}", [leg + "_vehicle"])
+        add("window", f"{leg.title()} time: {val(leg + '_time')}", [leg + "_time"])
+        add("wait", f"Waiting time: {val(leg + '_wait')}", [leg + "_wait"])
+        add("driver", f"Driver requirement: {val(leg + '_driver')}", [leg + "_driver"],
+            when=bool(str(p.get(leg + "_driver") or "").strip()))
+        if leg == "pickup":
+            add("address", f"Pickup address: {val('pickup_address')} · PIC "
+                           f"{val('pickup_pic')} {val('pickup_contact')}",
+                ["pickup_address", "pickup_pic", "pickup_contact"])
+            add("frequency", f"Shipment frequency: {val('pickup_frequency')}",
+                ["pickup_frequency"])
+            add("implan", f"Implan: {val('implan_count', '0')} people",
+                ["implan", "implan_count"], when=p.get("implan") == "Yes")
+        else:
+            add("address", f"Destination: {val('destination')} · to {val('delivery_to')}",
+                ["destination", "delivery_to"])
+            add("mode", f"Shipment mode: {val('delivery_mode')}", ["delivery_mode"])
+        add("load", f"Load: {val('product_volume')} {val('volume_unit')}, "
+                    f"{val('weight')} per koli, {val('product_condition')}",
+            ["product_volume", "volume_unit", "weight", "product_condition"])
+        add("handling", f"Handling request · {leg}: {val('handling_' + leg)}",
+            ["handling_" + leg], when=bool(str(p.get("handling_" + leg) or "").strip()))
+        add("systems", f"Order creation by {val('oc_by')} · API {val('api_required')} · "
+                       f"MPS {val('mps')} · COD {val('cod')}",
+            ["oc_by", "api_required", "mps", "cod"])
+        return out
+
+    if kind == "documents":
+        add("rdo", f"RDO {val('rdo')}: {val('rdo_treatment', 'no special treatment')}",
+            ["rdo", "rdo_treatment"])
+        add("pod", f"POD: {val('pod_treatment', 'standard')}", ["pod_treatment"])
+        add("surat_jalan", f"Surat Jalan: {val('surat_jalan_treatment', 'standard')}",
+            ["surat_jalan_treatment"])
+        return out
+
+    if kind == "tkbm":
+        add("count", f"TKBM {leg}: {val(leg + '_tkbm_count', '0')} people",
+            [leg + "_tkbm", leg + "_tkbm_count"])
+        add("window", f"{leg.title()} time: {val(leg + '_time')}", [leg + "_time"])
+        add("note", f"Handling request · sort: {val('handling_sort')}", ["handling_sort"],
+            when=bool(str(p.get("handling_sort") or "").strip()))
+        return out
+    return out
+
+
 def ob_check_specs(p):
     specs = []
     def add(key, label, owner, fields):
@@ -9542,16 +9641,18 @@ def ob_check_specs(p):
         specs.append({"check_key": key, "label": label, "owner_group": owner, "fingerprint": fingerprint})
     for tag in p.get("packing", []):
         if tag != "No":
-            add("packing:" + tag, f"{tag} · {OB_PACKING[tag]}", "CL", ["packing", "handling", "product_type", "dimensions", "weight"])
+            add("packing:" + tag, f"{tag} · {OB_PACKING[tag]}", "CL",
+                ["packing", "handling_sort", "product_type", "dimensions", "weight"])
     for leg in ["pickup", "delivery"]:
         owner = p.get(leg + "_function")
         if owner in OB_FUNCTIONS:
             add(leg + ":fleet", leg.title() + " fleet readiness", owner,
-                [leg + "_function", leg + "_vehicle", leg + "_time", leg + "_wait", leg + "_driver", "product_volume", "volume_unit", "dimensions", "weight", "destination", "pickup_address", "product_condition", "pickup_pic", "pickup_contact", "pickup_frequency", "delivery_to", "delivery_mode", "handling", "implan", "implan_count", "mps", "cod", "oc_by", "api_required"])
+                [leg + "_function", leg + "_vehicle", leg + "_time", leg + "_wait", leg + "_driver", "product_volume", "volume_unit", "dimensions", "weight", "destination", "pickup_address", "product_condition", "pickup_pic", "pickup_contact", "pickup_frequency", "delivery_to", "delivery_mode", "handling_" + leg, "implan", "implan_count", "mps", "cod", "oc_by", "api_required"])
             add(leg + ":documents", leg.title() + " RDO / POD / Surat Jalan", owner,
                 [leg + "_function", "rdo", "rdo_treatment", "pod_treatment", "surat_jalan_treatment"])
         if p.get(leg + "_tkbm") == "Yes":
-            add(leg + ":tkbm", leg.title() + " TKBM readiness", "Sort", [leg + "_tkbm", leg + "_tkbm_count", leg + "_time", "destination"])
+            add(leg + ":tkbm", leg.title() + " TKBM readiness", "Sort",
+                [leg + "_tkbm", leg + "_tkbm_count", leg + "_time", "destination", "handling_sort"])
     return specs
 
 
@@ -9561,6 +9662,14 @@ def ob_readiness(checks):
     if any(c["status"] != "ready" and not c.get("approved_at") for c in checks):
         return "Pending Readiness"
     return "Approved with exception" if any(c.get("approved_at") for c in checks) else "Ready"
+
+
+def ob_days_to(day) -> int | None:
+    """Whole days from today (WIB) to that date; negative once it has passed."""
+    try:
+        return (date.fromisoformat(str(day)[:10]) - ob_now().date()).days
+    except (TypeError, ValueError):
+        return None
 
 
 def ob_deadline(submitted, pickup):
@@ -9615,6 +9724,8 @@ class OperationalDetailResponse(BaseModel):
     # response_model drops anything it does not declare, which is how a new field reaches
     # the browser as undefined and every input silently stays editable.
     locked: list[str] = []
+    items: list[dict] = []            # the points inside each readiness card
+    teams: list[str] = []             # groups a point may be handed to
     charter_photos: list[dict] = []   # goods photos attached to the ticket
     revision: int
     submitted_at: str | None
@@ -9691,8 +9802,21 @@ async def operational_worklist(view: str = "onboarding", u: User = Depends(curre
                        "status": "QC accepted" if r["qc_accepted_at"] else "Shipper List QC" if due else "Monitoring · 7 days" if r["actual_golive"] else ready,
                        "pickup_at": p.get("pickup_at"), "deadline": str(deadline) if deadline else None,
                        "overdue": bool(deadline and pending and ob_now() >= deadline), "pending": [c["label"] + " · " + c["owner_group"] for c in pending],
-                       "actual_golive": str(r["actual_golive"]) if r["actual_golive"] else None})
-    result.sort(key=lambda r: (not r["overdue"], r["deadline"] or "9999", r["ref"]))
+                       "actual_golive": str(r["actual_golive"]) if r["actual_golive"] else None,
+                       # The date the whole readiness queue is racing (Michael,
+                       # 2026-09-25), and how many days are left. Negative means the
+                       # planned go-live has already passed and nothing is ready.
+                       "planned_golive": p.get("planned_golive") or None,
+                       "days_to_golive": ob_days_to(p.get("planned_golive"))})
+    # Pending Readiness is worked nearest-first: the launch closest to its go-live is the
+    # one that hurts if it slips. Everything overdue still floats to the top, and a row
+    # with no planned date sorts last rather than first.
+    if view == "readiness":
+        result.sort(key=lambda r: (not r["overdue"],
+                                   r["days_to_golive"] if r["days_to_golive"] is not None else 9999,
+                                   r["deadline"] or "9999", r["ref"]))
+    else:
+        result.sort(key=lambda r: (not r["overdue"], r["deadline"] or "9999", r["ref"]))
     return {"rows": result, "timezone": "Asia/Jakarta", "cutoff": "20:00"}
 
 
@@ -9756,6 +9880,12 @@ async def operational_detail(ref: str, u: User = Depends(current_user)):
             v = ob_source_value(source, srcs.get(key))
             if v or key in OB_FOLLOW_CHARTER:
                 p[key] = v
+    # One handling box became three (Michael, 2026-09-25). A draft written before that
+    # keeps its note, shown against pickup, so nothing typed is silently lost.
+    legacy_handling = str(ob_json((intake or {}).get("payload")).get("handling") or "").strip()
+    if legacy_handling and not any(p.get("handling_" + k) for k in ("pickup", "sort", "delivery")):
+        p["handling_pickup"] = legacy_handling
+
     # A charter written before the bands existed holds "2" or "None"; place it in a band
     # so the form can show it and the launch is not stuck on an answer nobody can pick.
     for key in ("pickup_wait", "delivery_wait"):
@@ -9767,6 +9897,9 @@ async def operational_detail(ref: str, u: User = Depends(current_user)):
     photos = await q("SELECT id, filename FROM ticket_files WHERE ticket_id=%s "
                      "AND kind='goods_photo' ORDER BY id", (t["id"],))
     checks = await q("SELECT * FROM onboarding_checks WHERE ticket_id=%s ORDER BY id", (t["id"],))
+    # The points inside each card, and who holds them now. Operational readers see the
+    # whole launch, so no filtering here — the screen marks which ones are theirs.
+    items = await q("SELECT * FROM onboarding_check_items WHERE ticket_id=%s ORDER BY id", (t["id"],))
     docs = await q("SELECT id,kind,filename,content_type FROM onboarding_documents WHERE ticket_id=%s ORDER BY id", (t["id"],))
     events = await q("SELECT actor,body,at FROM onboarding_events WHERE ticket_id=%s ORDER BY id DESC LIMIT 100", (t["id"],))
     actual = (intake or {}).get("actual_golive")
@@ -9777,7 +9910,10 @@ async def operational_detail(ref: str, u: User = Depends(current_user)):
             "submitted_at": str(intake["submitted_at"]) if intake and intake["submitted_at"] else None,
             "actual_golive": str(actual) if actual else None, "qc_accepted_at": str(intake["qc_accepted_at"]) if intake and intake["qc_accepted_at"] else None,
             "handover_due": bool(actual and ob_now().date() > actual + timedelta(days=7)),
-            "checks": [ob_serial(c) for c in checks], "documents": docs, "events": [ob_serial(e) for e in events],
+            "checks": [ob_serial(c) for c in checks], "items": [ob_serial(i) for i in items],
+            # Who a point can be handed to, named by the server so the screen cannot
+            # offer a team the server would refuse.
+            "teams": list(OPERATIONAL_GROUPS), "documents": docs, "events": [ob_serial(e) for e in events],
             "status": ob_readiness(checks), "can_edit": can(u, "editOnboarding", t), "packing_labels": OB_PACKING,
             "eligible": t["status"] == "Proposal Accepted / Ready to Ship", "timezone": "Asia/Jakarta"}
 
@@ -9854,6 +9990,32 @@ async def operational_save(ref: str, body: OperationalSave, u: User = Depends(cu
                         continue
                     await cur.execute("INSERT INTO onboarding_checks(ticket_id,check_key,label,owner_group,fingerprint,revision) VALUES(%s,%s,%s,%s,%s,%s)",
                                       (t["id"], s["check_key"], s["label"], s["owner_group"], s["fingerprint"], revision))
+                # ...and the points inside each card. A point whose own answer is
+                # unchanged keeps its confirmation AND whoever it was handed to; the
+                # rest are raised fresh (Michael, 2026-09-25).
+                await cur.execute("SELECT * FROM onboarding_check_items WHERE ticket_id=%s", (t["id"],))
+                old_items = {(i["check_key"], i["item_key"]): i for i in await cur.fetchall()}
+                wanted = set()
+                for sp in specs:
+                    for it in ob_item_specs(sp["check_key"], p):
+                        wanted.add((sp["check_key"], it["item_key"]))
+                        was = old_items.get((sp["check_key"], it["item_key"]))
+                        if was and was["fingerprint"] == it["fingerprint"]:
+                            continue
+                        await cur.execute(
+                            "INSERT INTO onboarding_check_items(ticket_id,check_key,item_key,"
+                            "label,owner_group,origin_group,fingerprint,revision) "
+                            "VALUES(%s,%s,%s,%s,%s,%s,%s,%s) ON DUPLICATE KEY UPDATE "
+                            "label=VALUES(label), owner_group=VALUES(owner_group), "
+                            "origin_group=VALUES(origin_group), fingerprint=VALUES(fingerprint), "
+                            "revision=VALUES(revision), status='pending', note=NULL, "
+                            "moved_note=NULL, confirmed_by=NULL, confirmed_name=NULL, confirmed_at=NULL",
+                            (t["id"], sp["check_key"], it["item_key"], it["label"],
+                             sp["owner_group"], sp["owner_group"], it["fingerprint"], revision))
+                for (ck, ik) in set(old_items) - wanted:
+                    await cur.execute("DELETE FROM onboarding_check_items WHERE ticket_id=%s "
+                                      "AND check_key=%s AND item_key=%s", (t["id"], ck, ik))
+                await ob_sync_check_status(cur, t["id"])
                 await cur.execute("INSERT INTO operational_master(ticket_id,global_id,opportunity_name,service,pickup_function,delivery_function,source,updated_by,updated_at) "
                                   "VALUES(%s,%s,%s,%s,%s,%s,'onboarding',%s,%s) ON DUPLICATE KEY UPDATE global_id=VALUES(global_id),opportunity_name=VALUES(opportunity_name),"
                                   "service=VALUES(service),pickup_function=VALUES(pickup_function),delivery_function=VALUES(delivery_function),source='onboarding',updated_by=VALUES(updated_by),updated_at=VALUES(updated_at)",
@@ -9960,6 +10122,84 @@ async def ob_locked(tid):
 def ob_actor(u, c) -> str:
     """Who acted, saying so when Admin acted in a team's place."""
     return u.name if u.group == c["owner_group"] else f"{u.name} (Admin, for {c['owner_group']})"
+
+
+async def ob_sync_check_status(cur, tid) -> None:
+    """A card is ready when every point in it is confirmed, and not before.
+
+    Points handed to another team still count: the launch is not ready because the team
+    that could not do something passed it on (Michael, 2026-09-25)."""
+    await cur.execute("SELECT id, check_key, status, approved_at FROM onboarding_checks "
+                      "WHERE ticket_id=%s", (tid,))
+    checks = await cur.fetchall()
+    await cur.execute("SELECT check_key, status FROM onboarding_check_items WHERE ticket_id=%s", (tid,))
+    items = await cur.fetchall()
+    by_check: dict[str, list[str]] = {}
+    for i in items:
+        by_check.setdefault(i["check_key"], []).append(i["status"])
+    for c in checks:
+        mine = by_check.get(c["check_key"], [])
+        want = "ready" if mine and all(st == "confirmed" for st in mine) else "pending"
+        if c["status"] != want:
+            await cur.execute("UPDATE onboarding_checks SET status=%s WHERE id=%s", (want, c["id"]))
+
+
+class OperationalItemAction(BaseModel):
+    fingerprint: str
+    action: str = "confirm"          # confirm | move
+    note: str = ""
+    to_group: str = ""
+
+
+@app.post("/api/onboarding-v2/items/{iid}", response_model=Ok)
+async def operational_item(iid: int, body: OperationalItemAction,
+                           u: User = Depends(current_user)):
+    """Confirm one point of a readiness card, or hand it to another team with a note."""
+    row = await q("SELECT ticket_id FROM onboarding_check_items WHERE id=%s", (iid,), one=True)
+    if not row:
+        raise HTTPException(409, "That point has changed; reload")
+    require(u, "confirmOperational")
+    async with ob_locked(row["ticket_id"]) as cur:
+        await cur.execute("SELECT i.*, t.ticket_ref, i2.actual_golive FROM onboarding_check_items i "
+                          "JOIN tickets t ON t.id=i.ticket_id "
+                          "LEFT JOIN onboarding_intake i2 ON i2.ticket_id=i.ticket_id "
+                          "WHERE i.id=%s FOR UPDATE", (iid,))
+        it = await cur.fetchone()
+        if not it or it["fingerprint"] != body.fingerprint:
+            raise HTTPException(409, "That point has changed; reload")
+        if it["actual_golive"]:
+            raise HTTPException(409, "Launch already confirmed")
+        # Admin may act for any team, and the record says so — same rule as the card.
+        if u.group != it["owner_group"] and u.group != "Admin":
+            raise HTTPException(403, f"{it['owner_group']} owns this point")
+        actor = u.name if u.group == it["owner_group"] else f"{u.name} (Admin, for {it['owner_group']})"
+        if body.action == "confirm":
+            await cur.execute("UPDATE onboarding_check_items SET status='confirmed', note=%s,"
+                              "confirmed_by=%s, confirmed_name=%s, confirmed_at=%s WHERE id=%s",
+                              (body.note[:4000] or None, u.email, actor, ob_now(), iid))
+            body_text = f"{it['label']} · confirmed by {actor}"
+        elif body.action == "move":
+            to = body.to_group.strip()
+            if to not in OPERATIONAL_GROUPS:
+                raise HTTPException(400, f"Hand it to one of {', '.join(OPERATIONAL_GROUPS)}")
+            if to == it["owner_group"]:
+                raise HTTPException(400, "That is already the team holding this point")
+            if not body.note.strip():
+                raise HTTPException(400, "Say why it is theirs — the note is what they act on")
+            await cur.execute("UPDATE onboarding_check_items SET owner_group=%s, status='pending',"
+                              "moved_note=%s, note=NULL, confirmed_by=NULL, confirmed_name=NULL,"
+                              "confirmed_at=NULL WHERE id=%s", (to, body.note[:4000], iid))
+            body_text = f"{it['label']} · handed from {it['owner_group']} to {to} by {actor}: {body.note.strip()}"
+        else:
+            raise HTTPException(400, "Unknown action")
+        await cur.execute("INSERT INTO onboarding_events(ticket_id,actor,body,at) VALUES(%s,%s,%s,%s)",
+                          (it["ticket_id"], actor, body_text[:8000], ob_now()))
+        await ob_sync_check_status(cur, it["ticket_id"])
+    if body.action == "move":
+        await notify(f"{it['ticket_ref']}: {it['owner_group']} handed a readiness point to "
+                     f"{body.to_group.strip()} — {body.note.strip()[:200]}",
+                     groups=[body.to_group.strip()], ticket_ref=it["ticket_ref"])
+    return {"ok": True}
 
 
 async def ob_apply_decision(cur, c, cid, body, u):

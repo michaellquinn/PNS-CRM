@@ -2,6 +2,24 @@ import { Card, Head, Pill } from "../ui";
 
 const ENTRIES = [
   {
+    date: "2026-09-25",
+    title: "Onboarding: parcel handling, claim and insurance, and point-by-point readiness",
+    by: "Michael + Claude",
+    changes: [
+      "NEW section D · Parcel handling: the packing tags move here from Service and documents, and the single Handling request becomes three — pickup, sort and delivery — so each operational team reads the instruction written for it. The Project Charter keeps ONE handling box in Sales' words and is deliberately not linked.",
+      "NEW section G · Claim and insurance: Insurance (Standard liability / NinjaCare / Ext. Insurance) and a free-text Claim procedure.",
+      "Sections after Parcel handling shift a letter: E · First Pick Up, F · Delivery.",
+      "Pending Readiness highlights the planned go-live date with a countdown — green, amber inside three days, red on the day or past — and lists the nearest go-live first.",
+      "Team readiness is now confirmed POINT BY POINT. Each card lists the answers that team must check (vehicle, time window, waiting time, address, load, handling note, documents, TKBM…), each is confirmed on its own, and the card shows 5/10 confirmed. A card turns ready only when all of its points are.",
+      "A point that belongs to another team can be handed over with a note: it leaves your count, joins theirs, and that team is notified. The card still waits for it.",
+      "Waiting time bands and the earlier hour ranges feed these points, so a team re-confirms only the point whose answer changed.",
+    ],
+    overruled: [
+      "One Confirm ready / Not ready / Needs clarification decision per card: the card is now the sum of its points.",
+      "Packing tags and Handling request living in C · Service and documents.",
+    ],
+  },
+  {
     date: "2026-09-24",
     title: "Ticket notifications reach that ticket's people, not all of PNS",
     by: "Michael + Claude",

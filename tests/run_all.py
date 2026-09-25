@@ -96,6 +96,12 @@ Each suite exists because something was actually wrong:
                      deciding, the old one only as a fallback, and Must Win staying on
                      the opportunity.
 
+  verify_readiness_points Readiness is confirmed point by point and a point can be handed
+                     to another team. Pins who may confirm, that a stale screen cannot,
+                     that a hand-off needs a team and a note, and that a card is ready
+                     only when every one of its points is — including the ones it gave
+                     away.
+
   verify_transitions POST /status took whatever string it was handed, so a status the
                      running code cannot act on could be written straight onto a ticket.
                      Also pins that a "*" row does not let a Lost deal be walked
@@ -113,7 +119,7 @@ SUITES = ["verify_rules.py", "verify_assign.py", "verify_workload.py", "verify_a
           "verify_service_line.py", "verify_stages.py", "verify_threads.py",
           "verify_onboarding.py", "verify_crm_retry.py", "verify_import_queue.py",
           "verify_sync_budget.py", "verify_operational_onboarding.py",
-          "verify_account_indicator.py"]
+          "verify_account_indicator.py", "verify_readiness_points.py"]
 
 # Suites that EXECUTE backend/main.py rather than reading it need the backend's own
 # dependencies installed. Most suites here deliberately parse the AST instead, precisely

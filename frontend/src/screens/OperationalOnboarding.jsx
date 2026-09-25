@@ -4,9 +4,18 @@ import { Btn, Card, Empty, Head, Pill, inputCls } from "../ui";
 
 const TITLES = { onboarding: "Pending Information", readiness: "Pending Readiness", golive: "Go Live", handover: "Shipper List QC" };
 const HELP = { onboarding: "Waiting on Sales to fill in and submit the onboarding requirements. Once submitted, a launch moves to Pending Readiness.",
-  readiness: "Your team's outstanding confirmations. CL: packing · Sort: TKBM · pickup/delivery operations: fleet and documents.",
+  readiness: "Your team's outstanding confirmations, nearest go-live first. CL: packing · Sort: TKBM · pickup/delivery operations: fleet and documents.",
   golive: "Every team is ready (or has an approved exception). Move each one to the Shipper List QC when it goes live.",
   handover: "Shippers that have gone live and are handed to QC. QC confirms each one here." };
+// The go-live countdown on Pending Readiness (Michael, 2026-09-25): red once it is
+// today or past, amber inside three days, plain after that.
+const goLiveTone = (d) => d == null ? "bg-slate-100 text-slate-600"
+  : d < 0 ? "bg-rose-100 text-rose-800"
+  : d === 0 ? "bg-rose-100 text-rose-800"
+  : d <= 3 ? "bg-amber-100 text-amber-800" : "bg-emerald-50 text-emerald-700";
+const goLiveWords = (d) => d == null ? "no date"
+  : d < 0 ? `${-d} day${d === -1 ? "" : "s"} overdue`
+  : d === 0 ? "today" : `in ${d} day${d === 1 ? "" : "s"}`;
 const format = (v) => v ? String(v).replace("T", " ").slice(0, 16) + (String(v).length > 10 ? " WIB" : "") : "—";
 
 export function OperationalList({ view = "onboarding", me, onOpen, notify = () => {} }) {
@@ -47,6 +56,11 @@ export function OperationalList({ view = "onboarding", me, onOpen, notify = () =
         <div className="flex flex-wrap items-center gap-2">
           <button className="font-mono font-semibold text-[#EE1B2C] hover:underline" onClick={() => onOpen(r.ref)}>{r.ref}</button>
           <Pill>{r.status}</Pill>{r.overdue && <Pill tone="bg-rose-100 text-rose-800">Confirmation overdue</Pill>}
+          {view === "readiness" && (
+            <Pill tone={goLiveTone(r.days_to_golive)}>
+              Go live {r.planned_golive || "—"} · {goLiveWords(r.days_to_golive)}
+            </Pill>
+          )}
           <Btn className="ml-auto" onClick={() => onOpen(r.ref)}>Open onboarding</Btn>
           {view === "handover" && me.group === "QC" && r.status !== "QC accepted" && (
             <Btn kind="primary" disabled={moving === r.ref} onClick={() => qcAccept(r.ref)}>
@@ -82,12 +96,52 @@ export function OperationalList({ view = "onboarding", me, onOpen, notify = () =
   </>;
 }
 
-function Check({ c, me, canEdit, frozen, run }) {
+// One point of a readiness card: confirmed on its own, or handed to another team with
+// a note that says why it is theirs (Michael, 2026-09-25).
+function CheckItem({ it, me, frozen, run, teams }) {
   const [note, setNote] = useState("");
+  const [to, setTo] = useState("");
+  const mine = !frozen && (me.group === it.owner_group || me.group === "Admin");
+  const done = it.status === "confirmed";
+  const act = (body) => run(() => api.operationalItem(it.id, { fingerprint: it.fingerprint, ...body }),
+    body.action === "move" ? `Handed to ${body.to_group}` : "Point confirmed", true);
+  return <div className={`rounded-lg border p-2.5 ${done ? "border-emerald-200 bg-emerald-50/40" : "border-slate-200"}`}>
+    <div className="flex flex-wrap items-start gap-2">
+      <span className={`mt-0.5 text-[13px] ${done ? "text-emerald-700" : "text-slate-400"}`}>{done ? "✓" : "○"}</span>
+      <span className="min-w-0 flex-1 text-[13px]">{it.label}</span>
+      {it.owner_group !== it.origin_group && (
+        <Pill tone="bg-sky-50 text-sky-700">from {it.origin_group}</Pill>
+      )}
+      <Pill>{it.owner_group}</Pill>
+    </div>
+    {it.moved_note && <p className="ml-6 mt-1 text-[12px] text-sky-800">Handed over: {it.moved_note}</p>}
+    {done && <p className="ml-6 mt-1 text-[11px] text-slate-500">
+      {it.confirmed_name} · {format(it.confirmed_at)}{it.note ? ` · ${it.note}` : ""}
+    </p>}
+    {mine && !done && <div className="ml-6 mt-2 flex flex-wrap items-center gap-2">
+      <input className={`${inputCls} max-w-[260px]`} placeholder="Note (optional)"
+        value={note} onChange={e => setNote(e.target.value)} />
+      <Btn kind="primary" onClick={() => act({ action: "confirm", note })}>Confirm</Btn>
+      <select className={`${inputCls} max-w-[150px]`} value={to} onChange={e => setTo(e.target.value)}>
+        <option value="">Hand to…</option>
+        {teams.filter(g => g !== it.owner_group).map(g => <option key={g}>{g}</option>)}
+      </select>
+      <Btn disabled={!to || !note.trim()}
+        onClick={() => act({ action: "move", to_group: to, note })}>Hand over</Btn>
+    </div>}
+    {mine && !done && to && !note.trim() && (
+      <p className="ml-6 mt-1 text-[11px] text-amber-700">A note is required to hand a point over.</p>
+    )}
+  </div>;
+}
+
+function Check({ c, items, me, canEdit, frozen, run, teams }) {
   const [reason, setReason] = useState("");
   const [workaround, setWorkaround] = useState("");
   // Admin may act for any team (Michael, 2026-09-18); the server records it as such.
   const own = !frozen && (me.group === c.owner_group || me.group === "Admin");
+  const mine = items.filter(i => i.check_key === c.check_key);
+  const done = mine.filter(i => i.status === "confirmed").length;
   const act = (body) => run(() => api.operationalDecision(c.id, { fingerprint: c.fingerprint, ...body }), "Readiness decision recorded");
   return <div className="rounded-xl border border-slate-200 p-3">
     <div className="flex flex-wrap items-center gap-2"><b className="text-[13px]">{c.label}</b><Pill>{c.owner_group}</Pill>
@@ -95,16 +149,17 @@ function Check({ c, me, canEdit, frozen, run }) {
         {c.approved_at ? "Approved with exception" : c.status.replaceAll("_", " ")}
       </Pill>
     </div>
-    {c.confirmed_name && <p className="mt-1 text-[11px] text-slate-500">{c.confirmed_name} · {format(c.confirmed_at)} · revision {c.revision}</p>}
+    {!!mine.length && <p className="mt-1 text-[11px] text-slate-500">
+      {done}/{mine.length} confirmed{own ? "" : " · another team confirms these"}
+    </p>}
     {c.note && <p className="mt-2 whitespace-pre-wrap text-[13px]">{c.note}</p>}
-    {own && <div className="mt-3 space-y-2">
-      <input className={inputCls} placeholder="Readiness note / blocker" value={note} onChange={e => setNote(e.target.value)} />
-      <div className="flex flex-wrap gap-2">
-        <Btn kind="primary" onClick={() => act({ status: "ready", note })}>Confirm ready</Btn>
-        <Btn onClick={() => act({ status: "not_ready", note })}>Not ready</Btn>
-        <Btn onClick={() => act({ status: "clarification", note })}>Needs clarification</Btn>
-      </div>
-    </div>}
+    {/* The card is ready when its points are; there is no whole-card button any more
+        (Michael, 2026-09-25). Everyone sees every point, and confirms only their own. */}
+    <div className="mt-3 space-y-2">
+      {mine.map(it => <CheckItem key={`${it.id}-${it.fingerprint}`} it={it} me={me}
+        frozen={frozen} run={run} teams={teams} />)}
+      {!mine.length && <p className="text-[12px] text-slate-500">No points on this card.</p>}
+    </div>
     {canEdit && c.status !== "ready" && <details className="mt-3 text-[12px]">
       <summary className="cursor-pointer font-medium">Request an exception</summary>
       <textarea className={`${inputCls} mt-2`} placeholder="Reason, risk, responsible person and scope" value={reason} onChange={e => setReason(e.target.value)} />
@@ -231,8 +286,10 @@ export function OnboardingPane({ ticketRef, me, notify }) {
     </div>}
     {!!data.checks.length && <section className="mb-6">
       <h3 className="mb-3 font-semibold">Team readiness and exceptions</h3>
-      <div className="space-y-3">{data.checks.map(c => <Check key={`${c.id}-${c.fingerprint}`} c={c} me={me} frozen={!!data.actual_golive} canEdit={data.can_edit && !data.actual_golive} run={run} />)}</div>
-      <p className="mt-3 text-[12px] text-slate-500">Only the assigned team can confirm. Sales Managers approve exceptions after the team's feasible workaround confirmation. Assign team accounts under Users & roles.</p>
+      <div className="space-y-3">{data.checks.map(c => <Check key={`${c.id}-${c.fingerprint}`} c={c}
+        items={data.items || []} me={me} frozen={!!data.actual_golive}
+        canEdit={data.can_edit && !data.actual_golive} run={run} teams={data.teams || []} />)}</div>
+      <p className="mt-3 text-[12px] text-slate-500">Each card is confirmed point by point, and only by the team that holds the point. A point that is not yours can be handed to the right team with a note; it then leaves your count and joins theirs. Only the assigned team can confirm. Sales Managers approve exceptions after the team's feasible workaround confirmation. Assign team accounts under Users & roles.</p>
     </section>}
     {/* "Actual go-live and QC handover" removed (Michael, 2026-09-18). */}
     <details className="text-[12px]"><summary className="cursor-pointer font-semibold">Operational history</summary>{data.events.map((e,n) => <div key={n} className="border-b py-2"><span className="text-slate-500">{format(e.at)} · {e.actor}</span><p className="whitespace-pre-wrap break-words">{e.body}</p></div>)}</details>
