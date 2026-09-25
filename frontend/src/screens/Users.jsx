@@ -35,7 +35,7 @@ const WHAT_EACH_GROUP_DOES = {
   "2W": "Two-wheel fleet. Confirms fleet and document readiness (RDO / POD / Surat Jalan) for the legs it runs. Operational view only.",
   "4W": "Four-wheel fleet. Confirms fleet and document readiness (RDO / POD / Surat Jalan) for the legs it runs. Operational view only.",
   Sameday: "Sameday operations. Confirms fleet and document readiness for the legs it runs. Operational view only.",
-  DE: "Delivery operations. Reads the operational view; no readiness card of its own yet.",
+  DE: "Data Entry. Creates orders in the system and confirms the launch details they have to key in — COD, RDO and order creation. Operational view only — no price, cost or margin.",
   QC: "Accepts the operational handover on the Shipper List QC. Operational view only — no price, cost or margin.",
 };
 

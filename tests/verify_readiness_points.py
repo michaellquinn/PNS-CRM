@@ -23,12 +23,12 @@ NOW = datetime(2026, 9, 25, 9)
 m.ob_now = lambda: NOW
 
 # one card with two points, held by 4W
-ITEM = dict(id=7, ticket_id=1, check_key="pickup:fleet", item_key="vehicle",
+ITEM = dict(id=7, ticket_id=1, check_key="team:4W", item_key="vehicle",
             label="Vehicle: CDD box", owner_group="4W", origin_group="4W",
             status="pending", fingerprint="fp1", revision=1,
             ticket_ref="SOF-1", actual_golive=None)
-OTHER = dict(check_key="pickup:fleet", status="pending")
-CHECKS = [dict(id=3, check_key="pickup:fleet", status="pending", approved_at=None)]
+OTHER = dict(check_key="team:4W", status="pending")
+CHECKS = [dict(id=3, check_key="team:4W", status="pending", approved_at=None)]
 writes = []
 
 
@@ -39,7 +39,7 @@ class Cur:
         if "FROM onboarding_check_items i" in sql: self.rows = [dict(ITEM)]
         elif "SELECT id, check_key, status, approved_at" in sql: self.rows = list(CHECKS)
         elif "SELECT check_key, status FROM onboarding_check_items" in sql:
-            self.rows = [dict(check_key="pickup:fleet", status=ITEM["status"]), dict(OTHER)]
+            self.rows = [dict(check_key="team:4W", status=ITEM["status"]), dict(OTHER)]
         else: self.rows = []
     async def fetchone(self): return (self.rows or [None])[0]
     async def fetchall(self): return self.rows or []

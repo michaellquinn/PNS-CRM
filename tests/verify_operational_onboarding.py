@@ -88,15 +88,18 @@ rejected(lambda: m.ob_validate({**p, "insurance_type": "Gold cover"}, t, docs), 
 assert m.ob_validate({**p, "claim_procedure": ""}, t, docs)
 # Each team's readiness re-asks when ITS note changes, and not when another team's does.
 _base = m.ob_check_specs(p)
-for _leg in ("pickup", "delivery"):
-    _fleet = next(x for x in _base if x["check_key"] == _leg + ":fleet")["fingerprint"]
-    _same = next(x for x in m.ob_check_specs({**p, "handling_" + _leg: "wear gloves"})
-                 if x["check_key"] == _leg + ":fleet")["fingerprint"]
-    assert _fleet != _same, _leg
+_owners = {c["check_key"]: c["owner_group"] for c in _base}
+assert _owners == {"team:2W": "2W", "team:4W": "4W", "team:CL": "CL",
+                   "team:DE": "DE", "team:Sort": "Sort"}, _owners
+for _leg, _grp in (("pickup", "4W"), ("delivery", "2W")):
+    _fp = next(c for c in _base if c["check_key"] == "team:" + _grp)["fingerprint"]
+    _moved = next(c for c in m.ob_check_specs({**p, "handling_" + _leg: "wear gloves"})
+                  if c["check_key"] == "team:" + _grp)["fingerprint"]
+    assert _fp != _moved, _leg
     _other = "delivery" if _leg == "pickup" else "pickup"
-    _unmoved = next(x for x in m.ob_check_specs({**p, "handling_" + _other: "wear gloves"})
-                    if x["check_key"] == _leg + ":fleet")["fingerprint"]
-    assert _fleet == _unmoved, _leg
+    _still = next(c for c in m.ob_check_specs({**p, "handling_" + _other: "wear gloves"})
+                  if c["check_key"] == "team:" + _grp)["fingerprint"]
+    assert _fp == _still, _leg
 rejected(lambda: m.ob_validate({**p, "pickup_at": "2026-09-20", "pickup_time": "23-24", "planned_golive": "2026-09-20"}, t, docs), 400)
 # The first pickup is a date; its moment is that date at the start of the pickup range.
 assert m.ob_pickup_moment(p) == datetime(2026, 9, 21, 10)
@@ -116,14 +119,30 @@ assert m.ob_deadline(datetime(2026, 9, 19), m.ob_pickup_moment(p)) == datetime(2
 assert m.ob_deadline(datetime(2026, 9, 19), "2026-09-20T10:00") == datetime(2026, 9, 20, 10)
 assert "revenue" not in m.ob_payload({**p, "revenue": "999", "_crm": {"price": 999}})
 assert "_crm" not in m.ob_payload({**p, "_crm": {"price": 999}})
-specs = m.ob_check_specs(p)
-owners = {s["check_key"]: s["owner_group"] for s in specs}
-assert owners == {"packing:PCK": "CL", "packing:PCK Kayu": "CL", "pickup:fleet": "4W", "pickup:documents": "4W", "pickup:tkbm": "Sort", "delivery:fleet": "2W", "delivery:documents": "2W"}
-assert len(m.ob_check_specs({**p, "packing": ["No"]})) == 5
-before = {s["check_key"]: s["fingerprint"] for s in specs}
-after = {s["check_key"]: s["fingerprint"] for s in m.ob_check_specs({**p, "pod_treatment": "New POD process"})}
-assert before["pickup:documents"] != after["pickup:documents"]
-assert before["packing:PCK"] == after["packing:PCK"]
+# The mapping, field by field (Michael, 2026-09-25). Two teams that must both agree get
+# a point each; an answer with nothing to do raises none.
+_points = {(i["owner_group"], i["item_key"]) for i in m.ob_readiness_points(p)}
+for _who, _what in (("4W", "load"), ("DE", "load"), ("CL", "packing"), ("DE", "packing"),
+                    ("2W", "pod"), ("Sort", "handling_sort"), ("CL", "insurance"),
+                    ("4W", "pickup_place"), ("2W", "delivery_place"), ("Sort", "pickup_tkbm")):
+    assert (_who, _what) in _points, (_who, _what)
+for _field, _off, _key in (("cod", "No", "cod"), ("rdo", "No", "rdo"),
+                           ("surat_jalan_treatment", "", "surat_jalan"),
+                           ("oc_by", "Shipper", "oc_by"), ("implan", "No", "implan"),
+                           ("pickup_tkbm", "No", "pickup_tkbm")):
+    assert not [i for i in m.ob_readiness_points({**p, _field: _off}) if i["item_key"] == _key], _key
+# Nothing from section A, the ids or the two responsibility pickers.
+assert not [i for i in m.ob_readiness_points(p) if i["item_key"] in
+            ("request_type", "planned_golive", "pickup_at", "global_id", "shipper_status",
+             "pickup_function", "delivery_function", "complexity_tier", "delivery_mode")]
+# Packing tags are ONE point however many tags are chosen, not one card per tag.
+assert len([i for i in m.ob_readiness_points({**p, "packing": ["PCK", "PCK Wrap", "PCK Kayu"]})
+            if i["item_key"] == "packing" and i["owner_group"] == "CL"]) == 1
+before = {c["check_key"]: c["fingerprint"] for c in _base}
+after = {c["check_key"]: c["fingerprint"]
+         for c in m.ob_check_specs({**p, "pod_treatment": "New POD process"})}
+assert before["team:2W"] != after["team:2W"], "the delivery team's POD point moved"
+assert before["team:CL"] == after["team:CL"], "CL does not own POD"
 cascade = (Path(__file__).parents[1] / "backend/resources/db/migration/V33__operational_onboarding_cascade.sql").read_text(encoding="utf-8")
 assert cascade.count("ON DELETE CASCADE") == 5
 assert "DELETE FROM" not in cascade

@@ -1610,7 +1610,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-25.6"
+BUILD = "2026-09-25.8"
 
 
 class Me(BaseModel):
@@ -3613,7 +3613,12 @@ async def fill_billing_pics(limit: int = BILLING_FILL_PER_RUN) -> int:
 # at. It is gated on SEED_SAMPLE_ONBOARDING, which is set on Dev and nowhere else, and
 # it refuses to touch an environment that already has ANY onboarding in it -- the guard
 # that keeps it away from production even if the flag were set there by mistake.
-SEED_SAMPLE_ONBOARDING = os.getenv("SEED_SAMPLE_ONBOARDING", "").strip() in ("1", "true", "yes")
+_SEED_FLAG = os.getenv("SEED_SAMPLE_ONBOARDING", "").strip().lower()
+SEED_SAMPLE_ONBOARDING = _SEED_FLAG in ("1", "true", "yes", "reset")
+# "reset" rebuilds the sample launch from scratch — used when the shape of the readiness
+# cards changes and Dev is still holding the older one. Set it back to 1 afterwards, or
+# every restart wipes and re-seeds.
+SEED_SAMPLE_RESET = _SEED_FLAG == "reset"
 
 SAMPLE_ONBOARDING = {
     "request_type": "New Shipper", "shipper_status": "New",
@@ -3646,7 +3651,7 @@ async def seed_sample_onboarding() -> str:
     """Fill one sample launch in so Dev has readiness cards to look at."""
     if not SEED_SAMPLE_ONBOARDING:
         return "off"
-    if await q("SELECT 1 AS n FROM onboarding_intake LIMIT 1", one=True):
+    if not SEED_SAMPLE_RESET and await q("SELECT 1 AS n FROM onboarding_intake LIMIT 1", one=True):
         return "already has onboarding data"
     t = await q("SELECT t.id, t.ticket_ref, t.service_type, t.opportunity_id, s.name AS shipper "
                 "FROM tickets t JOIN shippers s ON s.id=t.shipper_id "
@@ -3670,6 +3675,10 @@ async def seed_sample_onboarding() -> str:
     async with _pool.acquire() as conn, conn.cursor(DictCursor) as cur:
         await conn.begin()
         try:
+            if SEED_SAMPLE_RESET:
+                for table in ("onboarding_check_items", "onboarding_checks",
+                              "onboarding_events", "onboarding_intake"):
+                    await cur.execute(f"DELETE FROM {table} WHERE ticket_id=%s", (t["id"],))
             await cur.execute("INSERT INTO onboarding_intake(ticket_id,payload,released_payload,"
                               "revision,updated_at,submitted_at,submitted_by) "
                               "VALUES(%s,%s,%s,%s,%s,%s,%s)",
@@ -9657,105 +9666,141 @@ def ob_validate(p, t, documents):
 
 def _fp(p, fields) -> str:
     """Fingerprint of the answers one point depends on. A point re-opens only when its
-    OWN inputs change; the rest of the card stays confirmed."""
+    OWN inputs change; the rest of the team's card stays confirmed."""
     values = {k: p.get(k) for k in list(fields) + ["service", "global_id"]}
     return hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()
 
 
-def ob_item_specs(check_key: str, p: dict) -> list[dict]:
-    """The points inside one readiness card, built from what Sales submitted.
+def ob_readiness_points(p: dict) -> list[dict]:
+    """Every point somebody must confirm on this launch, and which team owns it.
 
-    Generated rather than typed (Michael, 2026-09-25): the team confirms the ANSWERS,
-    so each point names the answer it is about and disappears when that answer does.
-    Points whose answer is blank are not raised at all — an empty box is not a thing to
-    confirm."""
+    Mapped field by field from the form, A to G (Michael, 2026-09-25). Two rules run
+    through it:
+
+      * a point exists only when there is something to confirm -- COD No, an empty
+        Surat Jalan note and an order creation somebody else does raise nothing. A team
+        ticking "No" boxes stops reading them;
+      * one point per TEAM. Where two teams must both agree -- the load, RDO, TKBM --
+        each gets its own copy and confirms separately, because "we can carry it" and
+        "we can key it in" are different answers.
+
+    Sections A and B1-B6, the ids, the service, the mode and the two responsibility
+    pickers raise nothing: they say what the launch IS, and the pickers are what decide
+    which team a point goes to."""
+    pick = p.get("pickup_function") if p.get("pickup_function") in OB_FUNCTIONS else None
+    drop = p.get("delivery_function") if p.get("delivery_function") in OB_FUNCTIONS else None
     out: list[dict] = []
-
-    def add(key, label, fields, when=True):
-        if when:
-            out.append({"item_key": key, "label": str(label)[:255],
-                        "fingerprint": _fp(p, fields)})
 
     def val(k, dash="—"):
         return str(p.get(k) or "").strip() or dash
 
-    if check_key.startswith("packing:"):
-        tag = check_key.split(":", 1)[1]
-        add("wrap", f"{tag} · {OB_PACKING.get(tag, tag)} ready for this parcel", ["packing"])
-        add("parcel", f"Parcel: {val('product_type')}, {val('dimensions')}, "
-                      f"{val('weight')} per koli", ["product_type", "dimensions", "weight"])
-        add("note", f"Handling request · sort: {val('handling_sort')}", ["handling_sort"],
-            when=bool(str(p.get("handling_sort") or "").strip()))
-        return out
+    def has(k):
+        return bool(str(p.get(k) or "").strip())
 
-    leg, _, kind = check_key.partition(":")
-    if kind == "fleet":
-        add("vehicle", f"Vehicle: {val(leg + '_vehicle')}", [leg + "_vehicle"])
-        add("window", f"{leg.title()} time: {val(leg + '_time')}", [leg + "_time"])
-        add("wait", f"Waiting time: {val(leg + '_wait')}", [leg + "_wait"])
-        add("driver", f"Driver requirement: {val(leg + '_driver')}", [leg + "_driver"],
-            when=bool(str(p.get(leg + "_driver") or "").strip()))
-        if leg == "pickup":
-            add("address", f"Pickup address: {val('pickup_address')} · PIC "
-                           f"{val('pickup_pic')} {val('pickup_contact')}",
-                ["pickup_address", "pickup_pic", "pickup_contact"])
-            add("frequency", f"Shipment frequency: {val('pickup_frequency')}",
-                ["pickup_frequency"])
-            add("implan", f"Implan: {val('implan_count', '0')} people",
-                ["implan", "implan_count"], when=p.get("implan") == "Yes")
-        else:
-            add("address", f"Destination: {val('destination')} · to {val('delivery_to')}",
-                ["destination", "delivery_to"])
-            add("mode", f"Shipment mode: {val('delivery_mode')}", ["delivery_mode"])
-        add("load", f"Load: {val('product_volume')} {val('volume_unit')}, "
-                    f"{val('weight')} per koli, {val('product_condition')}",
-            ["product_volume", "volume_unit", "weight", "product_condition"])
-        add("handling", f"Handling request · {leg}: {val('handling_' + leg)}",
-            ["handling_" + leg], when=bool(str(p.get("handling_" + leg) or "").strip()))
-        add("systems", f"Order creation by {val('oc_by')} · API {val('api_required')} · "
-                       f"MPS {val('mps')} · COD {val('cod')}",
-            ["oc_by", "api_required", "mps", "cod"])
-        return out
+    def add(key, label, fields, groups, when=True):
+        for g in groups:
+            if g and when:
+                out.append({"item_key": key, "label": str(label)[:255],
+                            "owner_group": g, "fingerprint": _fp(p, fields)})
 
-    if kind == "documents":
-        add("rdo", f"RDO {val('rdo')}: {val('rdo_treatment', 'no special treatment')}",
-            ["rdo", "rdo_treatment"])
-        add("pod", f"POD: {val('pod_treatment', 'standard')}", ["pod_treatment"])
-        add("surat_jalan", f"Surat Jalan: {val('surat_jalan_treatment', 'standard')}",
-            ["surat_jalan_treatment"])
-        return out
+    # B7-B10 — the load, with Dry/Cold named in it rather than asked separately.
+    add("load", f"Load: {val('product_volume')} {val('volume_unit')}, "
+                f"{val('weight')} per koli, {val('dimensions')} — {val('product_condition')}",
+        ["product_volume", "volume_unit", "weight", "dimensions", "product_condition"],
+        [pick, "DE"])
 
-    if kind == "tkbm":
-        add("count", f"TKBM {leg}: {val(leg + '_tkbm_count', '0')} people",
-            [leg + "_tkbm", leg + "_tkbm_count"])
-        add("window", f"{leg.title()} time: {val(leg + '_time')}", [leg + "_time"])
-        add("note", f"Handling request · sort: {val('handling_sort')}", ["handling_sort"],
-            when=bool(str(p.get("handling_sort") or "").strip()))
-        return out
+    # C — service and documents.
+    add("cod", f"COD: {val('cod')} · MPS {val('mps')}", ["cod", "mps"], ["DE"],
+        when=p.get("cod") == "Yes")
+    add("rdo", f"RDO: {val('rdo_treatment', 'no special treatment')}",
+        ["rdo", "rdo_treatment"], [pick, drop, "DE"], when=p.get("rdo") == "Yes")
+    add("pod", f"POD: {val('pod_treatment', 'standard')}", ["pod_treatment"], [drop])
+    add("surat_jalan", f"Surat Jalan: {val('surat_jalan_treatment')}",
+        ["surat_jalan_treatment"], [pick, drop], when=has("surat_jalan_treatment"))
+    add("oc_by", "Order creation by DE", ["oc_by"], ["DE"], when=p.get("oc_by") == "DE")
+
+    # D — the parcel itself.
+    add("packing", "Packing: " + (", ".join(
+        f"{t} · {OB_PACKING.get(t, t)}" for t in p.get("packing", []) if t != "No")
+        or "no packing required"), ["packing"], ["CL", "DE"])
+    add("handling_pickup", f"Handling · pickup: {val('handling_pickup')}",
+        ["handling_pickup"], [pick], when=has("handling_pickup"))
+    add("handling_sort", f"Handling · sort: {val('handling_sort')}",
+        ["handling_sort"], ["Sort"], when=has("handling_sort"))
+    add("handling_delivery", f"Handling · delivery: {val('handling_delivery')}",
+        ["handling_delivery"], [drop], when=has("handling_delivery"))
+
+    # E — the first pickup.
+    add("pickup_place", f"Pickup: {val('pickup_address')} · PIC {val('pickup_pic')} "
+                        f"{val('pickup_contact')}",
+        ["pickup_address", "pickup_pic", "pickup_contact"], [pick])
+    add("pickup_vehicle", f"Pickup vehicle: {val('pickup_vehicle')}",
+        ["pickup_vehicle"], [pick])
+    add("pickup_window", f"Pickup {val('pickup_time')} · waiting {val('pickup_wait')}",
+        ["pickup_time", "pickup_wait"], [pick])
+    add("pickup_driver", f"Pickup driver: {val('pickup_driver')}",
+        ["pickup_driver"], [pick], when=has("pickup_driver"))
+    add("pickup_tkbm", f"Pickup TKBM: {val('pickup_tkbm_count', '0')} people",
+        ["pickup_tkbm", "pickup_tkbm_count"], [pick, "Sort"],
+        when=p.get("pickup_tkbm") == "Yes")
+    add("implan", f"Implan: {val('implan_count', '0')} people",
+        ["implan", "implan_count"], [pick, "Sort"], when=p.get("implan") == "Yes")
+
+    # F — the delivery.
+    add("delivery_place", f"Destination: {val('destination')} · to {val('delivery_to')}",
+        ["destination", "delivery_to"], [drop])
+    add("delivery_vehicle", f"Delivery vehicle: {val('delivery_vehicle')}",
+        ["delivery_vehicle"], [drop])
+    add("delivery_window", f"Delivery {val('delivery_time')} · waiting {val('delivery_wait')}",
+        ["delivery_time", "delivery_wait"], [drop])
+    add("delivery_driver", f"Delivery driver: {val('delivery_driver')}",
+        ["delivery_driver"], [drop], when=has("delivery_driver"))
+    add("delivery_tkbm", f"Delivery TKBM: {val('delivery_tkbm_count', '0')} people",
+        ["delivery_tkbm", "delivery_tkbm_count"], [drop, "Sort"],
+        when=p.get("delivery_tkbm") == "Yes")
+
+    # G — cover and claims.
+    add("insurance", f"Insurance {val('insurance_type')} · claim: "
+                     f"{val('claim_procedure', 'standard procedure')}",
+        ["insurance_type", "claim_procedure"], ["CL"])
     return out
 
 
+OB_CARD_LABEL = {"CL": "Packing (CL)", "Sort": "Sorting and TKBM (Sort)",
+                 "DE": "Data entry (DE)", "QC": "Quality (QC)"}
+
+
 def ob_check_specs(p):
+    """One card per team, carrying that team's points.
+
+    Was one card per topic -- packing:PCK, packing:PCK Wrap, pickup:fleet,
+    pickup:documents -- which split one team's work across four cards and made two cards
+    out of two packing tags (Michael, 2026-09-25). A team now opens one card, sees its
+    own list, and the count on it is the whole of what it owes this launch."""
+    by_group: dict[str, list[dict]] = {}
+    for it in ob_readiness_points(p):
+        by_group.setdefault(it["owner_group"], []).append(it)
     specs = []
-    def add(key, label, owner, fields):
-        values = {k: p.get(k) for k in fields + ["pickup_at", "planned_golive", "service", "global_id"]}
-        fingerprint = hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()
-        specs.append({"check_key": key, "label": label, "owner_group": owner, "fingerprint": fingerprint})
-    for tag in p.get("packing", []):
-        if tag != "No":
-            add("packing:" + tag, f"{tag} · {OB_PACKING[tag]}", "CL",
-                ["packing", "handling_sort", "product_type", "dimensions", "weight"])
-    for leg in ["pickup", "delivery"]:
-        owner = p.get(leg + "_function")
-        if owner in OB_FUNCTIONS:
-            add(leg + ":fleet", leg.title() + " fleet readiness", owner,
-                [leg + "_function", leg + "_vehicle", leg + "_time", leg + "_wait", leg + "_driver", "product_volume", "volume_unit", "dimensions", "weight", "destination", "pickup_address", "product_condition", "pickup_pic", "pickup_contact", "pickup_frequency", "delivery_to", "delivery_mode", "handling_" + leg, "implan", "implan_count", "mps", "cod", "oc_by", "api_required"])
-            add(leg + ":documents", leg.title() + " RDO / POD / Surat Jalan", owner,
-                [leg + "_function", "rdo", "rdo_treatment", "pod_treatment", "surat_jalan_treatment"])
-        if p.get(leg + "_tkbm") == "Yes":
-            add(leg + ":tkbm", leg.title() + " TKBM readiness", "Sort",
-                [leg + "_tkbm", leg + "_tkbm_count", leg + "_time", "destination", "handling_sort"])
+    for group in sorted(by_group):
+        items = by_group[group]
+        label = OB_CARD_LABEL.get(group) or f"{group} readiness"
+        if group in OB_FUNCTIONS:
+            legs = [leg for leg, fn in (("Pickup", p.get("pickup_function")),
+                                        ("Delivery", p.get("delivery_function")))
+                    if fn == group]
+            label = f"{' and '.join(legs) or 'Fleet'} readiness ({group})"
+        specs.append({
+            "check_key": "team:" + group, "label": label, "owner_group": group,
+            "fingerprint": hashlib.sha256(
+                json.dumps(sorted(i["fingerprint"] for i in items)).encode()).hexdigest()})
     return specs
+
+
+def ob_item_specs(check_key: str, p: dict) -> list[dict]:
+    """The points inside one team's card."""
+    group = check_key.split(":", 1)[1] if ":" in check_key else check_key
+    return [{"item_key": i["item_key"], "label": i["label"], "fingerprint": i["fingerprint"]}
+            for i in ob_readiness_points(p) if i["owner_group"] == group]
 
 
 def ob_readiness(checks):
