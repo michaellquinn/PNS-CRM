@@ -987,8 +987,8 @@ class User(BaseModel):
 # Legal folded into Visitor on 2026-08-11 (V17): the two were one role under two names,
 # and choosing between them was a question with no consequence. Ops arrived at the same
 # time — they receive the Kick-off, and without a group there was no list to send it to.
-OPERATIONAL_GROUPS = ("Ops", "QC", "CL", "Sort", "2W", "4W", "Sameday", "DE")
-ROLE_GROUPS = ["Commercial", "AM", "PNS", "PSP", "Ops", "CL", "Sort", "2W", "4W", "Sameday", "DE", "Finance", "Sales Planning",
+OPERATIONAL_GROUPS = ("Ops", "QC", "CL", "Sort", "2W", "4W", "6W", "Sameday", "DE")
+ROLE_GROUPS = ["Commercial", "AM", "PNS", "PSP", "Ops", "CL", "Sort", "2W", "4W", "6W", "Sameday", "DE", "Finance", "Sales Planning",
                "CSO", "QC", "Visitor", "Admin"]
 # Account Management (Michael, 2026-09-10). AMs hold the shipper relationship and do the
 # same job as Sales inside this app -- raise the request, correct the intake, follow it
@@ -1007,7 +1007,7 @@ SELLING_GROUPS = ("Commercial", "AM")
 # AMs registered on 2026-09-10 have no region, so nothing here is scoped by territory.
 # Visitor, Finance and Ops look and never touch. Sales Planning is different: they
 # correct what Sales submitted, so they get the intake edit and nothing else.
-READ_ONLY_GROUPS = ("Visitor", "Finance", "Ops", "CL", "Sort", "2W", "4W", "Sameday", "DE")
+READ_ONLY_GROUPS = ("Visitor", "Finance", "Ops", "CL", "Sort", "2W", "4W", "6W", "Sameday", "DE")
 # "manager" exists for Commercial: a Sales Manager may reassign the Sales PIC, same as
 # the Sales Head, and nothing else beyond staff. Other groups have no manager tier.
 ROLE_LEVELS = ["staff", "manager", "head"]
@@ -1610,7 +1610,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-25.10"
+BUILD = "2026-09-25.11"
 
 
 class Me(BaseModel):
@@ -3646,6 +3646,33 @@ SAMPLE_ONBOARDING = {
     "insurance_type": "NinjaCare", "claim_procedure": "Claim within 3x24 hours with photo evidence",
 }
 
+# One launch per shape worth looking at (Michael, 2026-09-25): both legs on one fleet,
+# a Sameday delivery, and an FTL delivery on six-wheelers. Each seeds onto its own
+# ready-to-ship ticket, so a reviewer can open three and see the difference.
+SAMPLE_LAUNCHES = [
+    {"__what": "4W pickup and 4W delivery",
+     "pickup_function": "4W", "delivery_function": "4W",
+     "pickup_vehicle": "CDD box", "delivery_vehicle": "CDD box",
+     "delivery_tkbm": "Yes", "delivery_tkbm_count": "2"},
+    {"__what": "4W pickup, Sameday delivery",
+     "pickup_function": "4W", "delivery_function": "Sameday",
+     "delivery_vehicle": "Motorcycle box", "delivery_to": "End customer",
+     "delivery_time": "10-18", "delivery_wait": "< 1 hour",
+     "destination": "Jakarta Selatan — same-day, 40 drops per day",
+     "handling_delivery": "Call the receiver before every drop; no drop after 18:00",
+     "product_volume": "3", "volume_unit": "CBM", "weight": "5 kg"},
+    {"__what": "6W delivery (FTL)",
+     "pickup_function": "6W", "delivery_function": "6W",
+     "pickup_vehicle": "Fuso 6W", "delivery_vehicle": "Fuso 6W",
+     "pickup_time": "07-10", "delivery_time": "08-17",
+     "pickup_wait": "2-3 hours", "delivery_wait": "2-3 hours",
+     "product_volume": "28", "volume_unit": "tons", "weight": "1000 kg",
+     "dimensions": "120 x 100 x 150 cm per pallet",
+     "packing": ["PCK Kayu"], "implan": "Yes", "implan_count": "2",
+     "destination": "Surabaya — one drop, plant gate 3",
+     "handling_pickup": "Forklift on site, pallet in and out",
+     "handling_delivery": "Gate pass needed, book the slot a day before"},
+]
 
 async def seed_sample_onboarding() -> str:
     """Fill one sample launch in so Dev has readiness cards to look at."""
@@ -3653,58 +3680,69 @@ async def seed_sample_onboarding() -> str:
         return "off"
     if not SEED_SAMPLE_RESET and await q("SELECT 1 AS n FROM onboarding_intake LIMIT 1", one=True):
         return "already has onboarding data"
-    t = await q("SELECT t.id, t.ticket_ref, t.service_type, t.opportunity_id, s.name AS shipper "
-                "FROM tickets t JOIN shippers s ON s.id=t.shipper_id "
-                "WHERE t.deleted_at IS NULL AND t.status='Proposal Accepted / Ready to Ship' "
-                "ORDER BY t.id LIMIT 1", one=True)
-    if not t:
-        return "no ready-to-ship ticket to seed"
+    # Enough ready-to-ship tickets for one launch each. The trial seed leaves most
+    # sample tickets mid-pipeline, so the first few are moved on — Dev only, and only
+    # ever tickets the trial seed itself created.
+    rows = await q("SELECT t.id, t.ticket_ref, t.service_type, t.opportunity_id, s.name AS shipper, "
+                   "t.status FROM tickets t JOIN shippers s ON s.id=t.shipper_id "
+                   "WHERE t.deleted_at IS NULL AND t.opportunity_id IS NULL "
+                   "ORDER BY t.status='Proposal Accepted / Ready to Ship' DESC, t.id "
+                   "LIMIT %s", (len(SAMPLE_LAUNCHES),))
+    if not rows:
+        return "no sample ticket to seed"
     today = ob_now().date()
-    p = ob_payload({**SAMPLE_ONBOARDING,
-                    "shipper_name": t["shipper"], "service": t["service_type"],
-                    "opportunity_id": str(t.get("opportunity_id") or ""),
-                    "global_id": f"SEED-{t['id']}",
-                    "product_type": "Dry goods · household",
-                    "complexity_tier": "Standard (non-strategic)",
-                    "planned_golive": str(today + timedelta(days=2)),
-                    "pickup_at": str(today + timedelta(days=2))})
     now = ob_now()
     revision = 1
     if _pool is None:
         return "no database"
+    seeded = []
     async with _pool.acquire() as conn, conn.cursor(DictCursor) as cur:
         await conn.begin()
         try:
-            if SEED_SAMPLE_RESET:
-                for table in ("onboarding_check_items", "onboarding_checks",
-                              "onboarding_events", "onboarding_intake"):
-                    await cur.execute(f"DELETE FROM {table} WHERE ticket_id=%s", (t["id"],))
-            await cur.execute("INSERT INTO onboarding_intake(ticket_id,payload,released_payload,"
-                              "revision,updated_at,submitted_at,submitted_by) "
-                              "VALUES(%s,%s,%s,%s,%s,%s,%s)",
-                              (t["id"], json.dumps(p), json.dumps(p), revision, now, now,
-                               "sample@ninjavan.co"))
-            for spec in ob_check_specs(p):
-                await cur.execute(
-                    "INSERT INTO onboarding_checks(ticket_id,check_key,label,owner_group,"
-                    "fingerprint,revision) VALUES(%s,%s,%s,%s,%s,%s)",
-                    (t["id"], spec["check_key"], spec["label"], spec["owner_group"],
-                     spec["fingerprint"], revision))
-                for it in ob_item_specs(spec["check_key"], p):
+            for n, (t, shape) in enumerate(zip(rows, SAMPLE_LAUNCHES)):
+                p = ob_payload({**SAMPLE_ONBOARDING, **shape,
+                                "shipper_name": t["shipper"], "service": t["service_type"],
+                                "opportunity_id": str(t.get("opportunity_id") or ""),
+                                "global_id": f"SEED-{t['id']}",
+                                "product_type": "Dry goods · household",
+                                "complexity_tier": "Standard (non-strategic)",
+                                "planned_golive": str(today + timedelta(days=2 + n)),
+                                "pickup_at": str(today + timedelta(days=2 + n))})
+                if SEED_SAMPLE_RESET:
+                    for table in ("onboarding_check_items", "onboarding_checks",
+                                  "onboarding_events", "onboarding_intake"):
+                        await cur.execute(f"DELETE FROM {table} WHERE ticket_id=%s", (t["id"],))
+                if t["status"] != "Proposal Accepted / Ready to Ship":
+                    await cur.execute("UPDATE tickets SET status='Proposal Accepted / Ready to Ship',"
+                                      "outcome='accepted', status_since=NOW() WHERE id=%s", (t["id"],))
+                await cur.execute("INSERT INTO onboarding_intake(ticket_id,payload,released_payload,"
+                                  "revision,updated_at,submitted_at,submitted_by) "
+                                  "VALUES(%s,%s,%s,%s,%s,%s,%s)",
+                                  (t["id"], json.dumps(p), json.dumps(p), revision, now, now,
+                                   "sample@ninjavan.co"))
+                for spec in ob_check_specs(p):
                     await cur.execute(
-                        "INSERT INTO onboarding_check_items(ticket_id,check_key,item_key,label,"
-                        "owner_group,origin_group,fingerprint,revision) "
-                        "VALUES(%s,%s,%s,%s,%s,%s,%s,%s)",
-                        (t["id"], spec["check_key"], it["item_key"], it["label"],
-                         spec["owner_group"], spec["owner_group"], it["fingerprint"], revision))
-            await cur.execute("INSERT INTO onboarding_events(ticket_id,actor,body,at) "
-                              "VALUES(%s,%s,%s,%s)",
-                              (t["id"], "Sample data", "Sample onboarding seeded for Dev", now))
+                        "INSERT INTO onboarding_checks(ticket_id,check_key,label,owner_group,"
+                        "fingerprint,revision) VALUES(%s,%s,%s,%s,%s,%s)",
+                        (t["id"], spec["check_key"], spec["label"], spec["owner_group"],
+                         spec["fingerprint"], revision))
+                    for it in ob_item_specs(spec["check_key"], p):
+                        await cur.execute(
+                            "INSERT INTO onboarding_check_items(ticket_id,check_key,item_key,label,"
+                            "owner_group,origin_group,fingerprint,revision) "
+                            "VALUES(%s,%s,%s,%s,%s,%s,%s,%s)",
+                            (t["id"], spec["check_key"], it["item_key"], it["label"],
+                             spec["owner_group"], spec["owner_group"], it["fingerprint"], revision))
+                await cur.execute("INSERT INTO onboarding_events(ticket_id,actor,body,at) "
+                                  "VALUES(%s,%s,%s,%s)",
+                                  (t["id"], "Sample data",
+                                   f"Sample onboarding seeded for Dev — {shape['__what']}", now))
+                seeded.append(f"{t['ticket_ref']} ({shape['__what']})")
             await conn.commit()
         except Exception:
             await conn.rollback()
             raise
-    return f"seeded {t['ticket_ref']}"
+    return "seeded " + ", ".join(seeded)
 
 
 async def _auto_sync_loop() -> None:
@@ -9400,7 +9438,9 @@ async def mark_read(u: User = Depends(current_user)):
 # Operational onboarding: all mutations below touch operational tables only.
 # Fixed WIB offset has no DST and works without an OS timezone database.
 OB_WIB = timezone(timedelta(hours=7))
-OB_FUNCTIONS = ["2W", "4W", "Sameday"]
+# Who runs a leg. 6W is the six-wheel fleet, which is what an FTL leg rides on
+# (Michael, 2026-09-25).
+OB_FUNCTIONS = ["2W", "4W", "6W", "Sameday"]
 OB_PACKING = {"PCK": "Bubble Wrap", "PCK Kayu": "Packing kayu", "PCK Wrap": "Plastic wrap", "No": "No packing required"}
 # Waiting time is chosen, not typed (Michael, 2026-09-23). Free text produced "2", "2
 # jam", "None" and "as needed" for the same answer, and the fleet costs the band.
@@ -9770,7 +9810,7 @@ def ob_readiness_points(p: dict) -> list[dict]:
 # 2026-09-25): a team opens its own card, and what is in it is the list below.
 OB_CARD_LABEL = {"CL": "CL Team", "Sort": "Sort Team", "DE": "Data Entry",
                  "QC": "QC Team", "Ops": "Ops Team", "2W": "2W Team", "4W": "4W Team",
-                 "Sameday": "Sameday Team"}
+                 "6W": "6W Team", "Sameday": "Sameday Team"}
 
 
 def ob_check_specs(p):

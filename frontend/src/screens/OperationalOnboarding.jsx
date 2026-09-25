@@ -170,12 +170,9 @@ function Check({ c, items, me, canEdit, frozen, run, teams }) {
         frozen={frozen} run={run} teams={teams} />)}
       {!mine.length && <p className="p-2 text-[12px] text-slate-500">No points on this card.</p>}
     </div>
-    {canEdit && c.status !== "ready" && <details className="mt-3 text-[12px]">
-      <summary className="cursor-pointer font-medium">Request an exception</summary>
-      <textarea className={`${inputCls} mt-2`} placeholder="Reason, risk, responsible person and scope" value={reason} onChange={e => setReason(e.target.value)} />
-      <textarea className={`${inputCls} mt-2`} placeholder="Proposed feasible workaround" value={workaround} onChange={e => setWorkaround(e.target.value)} />
-      <Btn onClick={() => act({ action: "request", reason, workaround })}>Send exception request</Btn>
-    </details>}
+    {/* "Request an exception" removed from the card (Michael, 2026-09-25): readiness is
+        settled point by point, and a point that cannot be met is handed to the team that
+        can meet it. Any exception already recorded still shows below. */}
     {c.exception_reason && <div className="mt-3 rounded-lg bg-orange-50 p-3 text-[12px]">
       <b>Exception request</b><p className="whitespace-pre-wrap">{c.exception_reason}</p><p className="mt-1 whitespace-pre-wrap">Alternative: {c.workaround}</p>
       <p className="mt-1">Team feasibility: {c.feasible_by || "awaiting confirmation"}</p>

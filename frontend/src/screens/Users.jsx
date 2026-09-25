@@ -16,6 +16,7 @@ const GROUP_TONE = {
   Sort: "bg-emerald-50 text-emerald-700",
   "2W": "bg-emerald-50 text-emerald-700",
   "4W": "bg-emerald-50 text-emerald-700",
+  "6W": "bg-emerald-50 text-emerald-700",
   Sameday: "bg-emerald-50 text-emerald-700",
   DE: "bg-emerald-50 text-emerald-700",
 };
@@ -33,6 +34,7 @@ const WHAT_EACH_GROUP_DOES = {
   CL: "Confirms packing readiness on onboarding (bubble wrap, packing kayu, plastic wrap). Operational view only — no price, cost or margin.",
   Sort: "Confirms TKBM readiness on onboarding, pickup and delivery. Operational view only — no price, cost or margin.",
   "2W": "Two-wheel fleet. Confirms fleet and document readiness (RDO / POD / Surat Jalan) for the legs it runs. Operational view only.",
+  "6W": "Six-wheel fleet — the trucks an FTL leg rides on. Confirms its own points on a launch it runs. Operational view only.",
   "4W": "Four-wheel fleet. Confirms fleet and document readiness (RDO / POD / Surat Jalan) for the legs it runs. Operational view only.",
   Sameday: "Sameday operations. Confirms fleet and document readiness for the legs it runs. Operational view only.",
   DE: "Data Entry. Creates orders in the system and confirms the launch details they have to key in — COD, RDO and order creation. Operational view only — no price, cost or margin.",
