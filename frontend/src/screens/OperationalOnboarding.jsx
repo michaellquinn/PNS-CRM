@@ -105,32 +105,42 @@ function CheckItem({ it, me, frozen, run, teams }) {
   const done = it.status === "confirmed";
   const act = (body) => run(() => api.operationalItem(it.id, { fingerprint: it.fingerprint, ...body }),
     body.action === "move" ? `Handed to ${body.to_group}` : "Point confirmed", true);
-  return <div className={`rounded-lg border p-2.5 ${done ? "border-emerald-200 bg-emerald-50/40" : "border-slate-200"}`}>
-    <div className="flex flex-wrap items-start gap-2">
-      <span className={`mt-0.5 text-[13px] ${done ? "text-emerald-700" : "text-slate-400"}`}>{done ? "✓" : "○"}</span>
-      <span className="min-w-0 flex-1 text-[13px]">{it.label}</span>
-      {it.owner_group !== it.origin_group && (
-        <Pill tone="bg-sky-50 text-sky-700">from {it.origin_group}</Pill>
-      )}
-      <Pill>{it.owner_group}</Pill>
-    </div>
-    {it.moved_note && <p className="ml-6 mt-1 text-[12px] text-sky-800">Handed over: {it.moved_note}</p>}
-    {done && <p className="ml-6 mt-1 text-[11px] text-slate-500">
-      {it.confirmed_name} · {format(it.confirmed_at)}{it.note ? ` · ${it.note}` : ""}
-    </p>}
-    {mine && !done && <div className="ml-6 mt-2 flex flex-wrap items-center gap-2">
-      <input className={`${inputCls} max-w-[260px]`} placeholder="Note (optional)"
-        value={note} onChange={e => setNote(e.target.value)} />
-      <Btn kind="primary" onClick={() => act({ action: "confirm", note })}>Confirm</Btn>
-      <select className={`${inputCls} max-w-[150px]`} value={to} onChange={e => setTo(e.target.value)}>
-        <option value="">Hand to…</option>
-        {teams.filter(g => g !== it.owner_group).map(g => <option key={g}>{g}</option>)}
-      </select>
-      <Btn disabled={!to || !note.trim()}
-        onClick={() => act({ action: "move", to_group: to, note })}>Hand over</Btn>
-    </div>}
-    {mine && !done && to && !note.trim() && (
-      <p className="ml-6 mt-1 text-[11px] text-amber-700">A note is required to hand a point over.</p>
+  // ONE LINE per task (Michael, 2026-09-25): the tick, the task, then its controls on
+  // the same row. The stacked version turned seven tasks into a page of scrolling, and
+  // a team reading its own card could not see the whole list at once.
+  const field = "h-8 rounded-lg border border-slate-300 px-2 text-[12.5px]";
+  return <div className={`flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-slate-100 px-1 py-1.5 last:border-b-0 ${done ? "bg-emerald-50/40" : ""}`}>
+    <span className={`text-[12.5px] ${done ? "text-emerald-700" : "text-slate-300"}`}>{done ? "✓" : "○"}</span>
+    <span className="min-w-[180px] flex-1 truncate text-[12.5px]" title={it.label}>{it.label}</span>
+    {it.owner_group !== it.origin_group && (
+      <span className="shrink-0 text-[11px] text-sky-700" title={it.moved_note || ""}>from {it.origin_group}</span>
+    )}
+    {done ? (
+      <span className="shrink-0 text-[11px] text-slate-500">
+        {it.confirmed_name}{it.note ? ` · ${it.note}` : ""}
+      </span>
+    ) : mine ? (
+      <>
+        <input className={`${field} w-[150px] shrink-0`} placeholder="Note"
+          value={note} onChange={e => setNote(e.target.value)} />
+        <button type="button" onClick={() => act({ action: "confirm", note })}
+          className="h-8 shrink-0 rounded-lg bg-[#EE1B2C] px-3 text-[12.5px] font-medium text-white">
+          Confirm
+        </button>
+        <select className={`${field} w-[110px] shrink-0`} value={to}
+          onChange={e => setTo(e.target.value)}>
+          <option value="">Hand to…</option>
+          {teams.filter(g => g !== it.owner_group).map(g => <option key={g}>{g}</option>)}
+        </select>
+        <button type="button" disabled={!to || !note.trim()}
+          title={to && !note.trim() ? "A note is required to hand a point over" : ""}
+          onClick={() => act({ action: "move", to_group: to, note })}
+          className="h-8 shrink-0 rounded-lg border border-slate-300 px-3 text-[12.5px] disabled:opacity-40">
+          Hand over
+        </button>
+      </>
+    ) : (
+      <span className="shrink-0 text-[11px] text-slate-400">{it.owner_group} confirms</span>
     )}
   </div>;
 }
@@ -155,10 +165,10 @@ function Check({ c, items, me, canEdit, frozen, run, teams }) {
     {c.note && <p className="mt-2 whitespace-pre-wrap text-[13px]">{c.note}</p>}
     {/* The card is ready when its points are; there is no whole-card button any more
         (Michael, 2026-09-25). Everyone sees every point, and confirms only their own. */}
-    <div className="mt-3 space-y-2">
+    <div className="mt-2 rounded-lg border border-slate-200">
       {mine.map(it => <CheckItem key={`${it.id}-${it.fingerprint}`} it={it} me={me}
         frozen={frozen} run={run} teams={teams} />)}
-      {!mine.length && <p className="text-[12px] text-slate-500">No points on this card.</p>}
+      {!mine.length && <p className="p-2 text-[12px] text-slate-500">No points on this card.</p>}
     </div>
     {canEdit && c.status !== "ready" && <details className="mt-3 text-[12px]">
       <summary className="cursor-pointer font-medium">Request an exception</summary>
