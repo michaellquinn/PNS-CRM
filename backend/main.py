@@ -1610,7 +1610,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-25.9"
+BUILD = "2026-09-25.10"
 
 
 class Me(BaseModel):
@@ -9766,8 +9766,11 @@ def ob_readiness_points(p: dict) -> list[dict]:
     return out
 
 
-OB_CARD_LABEL = {"CL": "Packing (CL)", "Sort": "Sorting and TKBM (Sort)",
-                 "DE": "Data entry (DE)", "QC": "Quality (QC)"}
+# The card is named for the TEAM that owns it, not for the work in it (Michael,
+# 2026-09-25): a team opens its own card, and what is in it is the list below.
+OB_CARD_LABEL = {"CL": "CL Team", "Sort": "Sort Team", "DE": "Data Entry",
+                 "QC": "QC Team", "Ops": "Ops Team", "2W": "2W Team", "4W": "4W Team",
+                 "Sameday": "Sameday Team"}
 
 
 def ob_check_specs(p):
@@ -9783,12 +9786,7 @@ def ob_check_specs(p):
     specs = []
     for group in sorted(by_group):
         items = by_group[group]
-        label = OB_CARD_LABEL.get(group) or f"{group} readiness"
-        if group in OB_FUNCTIONS:
-            legs = [leg for leg, fn in (("Pickup", p.get("pickup_function")),
-                                        ("Delivery", p.get("delivery_function")))
-                    if fn == group]
-            label = f"{' and '.join(legs) or 'Fleet'} readiness ({group})"
+        label = OB_CARD_LABEL.get(group) or f"{group} Team"
         specs.append({
             "check_key": "team:" + group, "label": label, "owner_group": group,
             "fingerprint": hashlib.sha256(
