@@ -75,12 +75,25 @@ assert all(f["section"] != "D · Pickup" for f in m.ob_schema())
 # Parcel handling is its own section, ahead of the legs (Michael, 2026-09-25).
 _sections = [f["section"] for f in m.ob_schema()]
 assert _sections == sorted(_sections), "sections must stay in A-F order"
-assert "D · Parcel handling" in _sections
-assert {f["key"] for f in m.ob_schema() if f["section"] == "D · Parcel handling"} == {
+# The form reads in the order the work happens (Michael, 2026-09-25): what the launch
+# is, the parcel, the pickup, the delivery, cover, then the paperwork last.
+assert [x.split(" · ", 1)[1] for x in dict.fromkeys(_sections)] == [
+    "Basic requirements", "Shipper profile", "Parcel handling", "First Pick Up",
+    "Delivery", "Claim and insurance", "Documents"], _sections
+assert {f["key"] for f in m.ob_schema() if f["section"] == "C · Parcel handling"} == {
     "packing", "handling_pickup", "handling_sort", "handling_delivery"}
+# The parcel's own numbers sit with the pickup that collects them.
+_pickup = {f["key"] for f in m.ob_schema() if f["section"] == "D · First Pick Up"}
+assert {"product_type", "product_volume", "volume_unit", "dimensions", "weight"} <= _pickup
+# Ninja service, shipment mode, order creation and API moved to the shipper profile.
+_profile = {f["key"] for f in m.ob_schema() if f["section"] == "B · Shipper profile"}
+assert {"service", "delivery_mode", "oc_by", "api_required"} <= _profile
+# Paperwork last, and nothing else with it.
+assert {f["key"] for f in m.ob_schema() if f["section"] == "G · Documents"} == {
+    "mps", "cod", "rdo", "rdo_treatment", "pod_treatment", "surat_jalan_treatment"}
 assert "handling" not in {f["key"] for f in m.ob_schema()}
 # Claim and insurance is its own section; the cover is a choice, the procedure free text.
-_ins = {f["key"]: f for f in m.ob_schema() if f["section"] == "G · Claim and insurance"}
+_ins = {f["key"]: f for f in m.ob_schema() if f["section"] == "F · Claim and insurance"}
 assert set(_ins) == {"insurance_type", "claim_procedure"}
 assert _ins["insurance_type"]["options"] == ["Standard liability", "NinjaCare", "Ext. Insurance"]
 assert _ins["insurance_type"]["required"] and not _ins["claim_procedure"]["required"]
@@ -88,6 +101,8 @@ rejected(lambda: m.ob_validate({**p, "insurance_type": "Gold cover"}, t, docs), 
 assert m.ob_validate({**p, "claim_procedure": ""}, t, docs)
 # Each team's readiness re-asks when ITS note changes, and not when another team's does.
 _base = m.ob_check_specs(p)
+# Cards in flow order: pickup team, Sort, delivery team, then the paperwork teams.
+assert [c["owner_group"] for c in _base] == ["4W", "Sort", "2W", "DE", "CL"],     [c["owner_group"] for c in _base]
 _owners = {c["check_key"]: c["owner_group"] for c in _base}
 assert _owners == {"team:2W": "2W", "team:4W": "4W", "team:CL": "CL",
                    "team:DE": "DE", "team:Sort": "Sort"}, _owners

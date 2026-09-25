@@ -1610,7 +1610,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-25.12"
+BUILD = "2026-09-25.13"
 
 
 class Me(BaseModel):
@@ -9450,7 +9450,7 @@ OB_WAIT_OPTIONS = ["< 1 hour", "1-2 hours", "2-3 hours", "> 3 hours"]
 OB_FIELDS = [
     ("request_type", "Request type", "select", "A · Basic requirements", ["New Shipper", "New OD", "New Volume"], None),
     ("planned_golive", "Planned go-live date", "date", "A · Basic requirements", [], "golive"),
-    # A date only (Michael, 2026-09-18). The time of day is the pickup hour range in D.
+    # A date only (Michael, 2026-09-18). The time of day is the pickup hour range in E.
     ("pickup_at", "First pickup date", "date", "A · Basic requirements", [], None),
     ("shipper_name", "Shipper name", "text", "B · Shipper profile", [], "shipper"),
     # ONE id (Michael, 2026-09-15). Shipper ID and Global ID were two boxes holding one
@@ -9460,32 +9460,16 @@ OB_FIELDS = [
     ("opportunity_id", "Sales CRM opportunity ID", "text", "B · Shipper profile", [], None),
     ("shipper_status", "Shipper status", "select", "B · Shipper profile", ["New", "Existing"], "shipperStatus"),
     ("product_condition", "Ninja product", "select", "B · Shipper profile", ["Dry", "Cold"], None),
-    # Product information on the charter: the Product (commodity) first, the specific
-    # product if that is all Sales gave (Michael, 2026-09-17).
-    ("product_type", "Product type", "text", "B · Shipper profile", [], ("commodity", "product")),
-    # The volume of the FIRST PICKUP, which is not the deal's monthly volume the charter
-    # carries -- so it is asked for here and not prefilled (Michael, 2026-09-15).
-    ("product_volume", "First pickup volume", "number", "B · Shipper profile", [], None),
-    ("volume_unit", "Volume unit", "select", "B · Shipper profile", ["CBM", "tons", "Kg"], None),
-    ("dimensions", "Product dimensions (include units)", "text", "B · Shipper profile", [], "dim"),
-    ("weight", "Est. Weight Per Koli", "text", "B · Shipper profile", [], "wt"),
+    # What Ninja sells and how it is booked belongs with the shipper, not among the
+    # documents (Michael, 2026-09-25).
+    ("service", "Ninja service", "text", "B · Shipper profile", [], None),
+    ("delivery_mode", "Shipment mode", "select", "B · Shipper profile", ["Port to Port", "Port to Door", "Door to Port", "Door to Door"], "shipMode"),
+    ("oc_by", "Order creation by", "select", "B · Shipper profile", ["SSM", "Shipper", "DE", "Sales"], None),
+    ("api_required", "API required", "select", "B · Shipper profile", ["Yes", "No"], None),
     # Read from the ACCOUNT, not typed (Michael, 2026-09-15): it is the watched-group
-    # classification the whole app already routes on, so asking for it again invites a
-    # second opinion about a fact the ticket already holds. Filled and locked in the
-    # detail endpoint from acct_type and must_win.
+    # classification the whole app already routes on. Filled and locked in the detail
+    # endpoint from acct_type and must_win.
     ("complexity_tier", "Complexity tier / operational assessment", "text", "B · Shipper profile", [], None),
-    ("service", "Ninja service", "text", "C · Service and documents", [], None),
-    ("delivery_mode", "Shipment mode", "select", "C · Service and documents", ["Port to Port", "Port to Door", "Door to Port", "Door to Door"], "shipMode"),
-    ("mps", "MPS", "select", "C · Service and documents", ["Yes", "No"], "mps"),
-    ("cod", "COD", "select", "C · Service and documents", ["Yes", "No"], "cod"),
-    ("rdo", "RDO", "select", "C · Service and documents", ["Yes", "No"], "rdo"),
-    ("rdo_treatment", "RDO treatment details", "textarea", "C · Service and documents", [], "rdoNotes"),
-    ("pod_treatment", "POD treatment details", "textarea", "C · Service and documents", [], None),
-    ("surat_jalan_treatment", "Other Surat Jalan treatment details", "textarea", "C · Service and documents", [], None),
-    ("oc_by", "Order creation by", "select", "C · Service and documents", ["SSM", "Shipper", "DE", "Sales"], None),
-    ("api_required", "API required", "select", "C · Service and documents", ["Yes", "No"], None),
-    # Written for this launch, and first in the section: the address is what the fleet
-    # reads before anything else about the pickup (Michael, 2026-09-15).
     # Everything about the parcel itself, ahead of the legs that carry it: what it is
     # wrapped in, and what each team must do differently with it (Michael, 2026-09-25).
     #
@@ -9496,43 +9480,55 @@ OB_FIELDS = [
     # once per team. The charter's version stays readable on the ticket; it is not
     # copied here, because copying one answer into three boxes would make two of them
     # wrong and let a team confirm against an instruction meant for somebody else.
-    ("packing", "Packing tags", "packing", "D · Parcel handling", list(OB_PACKING), None),
-    ("handling_pickup", "Handling request · pickup", "textarea", "D · Parcel handling", [], None),
-    ("handling_sort", "Handling request · sort", "textarea", "D · Parcel handling", [], None),
-    ("handling_delivery", "Handling request · delivery", "textarea", "D · Parcel handling", [], None),
-    ("pickup_address", "Pickup Address", "textarea", "E · First Pick Up", [], None),
-    # Typed here now: Pickup PIC left the Project Charter (Michael, 2026-09-17).
-    ("pickup_pic", "Shipper Pickup PIC", "text", "E · First Pick Up", [], None),
-    ("pickup_contact", "Shipper Pickup PIC contact", "text", "E · First Pick Up", [], None),
-    ("pickup_frequency", "Shipment frequency", "text", "E · First Pick Up", [], "freq"),
-    # Its own answer (Michael, 2026-09-17). It used to copy the charter's single vehicle
-    # request, which is the DELIVERY vehicle, so the pickup never had a requirement of
-    # its own.
-    ("pickup_vehicle", "Pick Up vehicle requirement", "text", "E · First Pick Up", [], None),
-    ("pickup_function", "Pickup responsibility", "select", "E · First Pick Up", OB_FUNCTIONS, None),
-    # A window in whole hours, "08-12" (Michael, 2026-09-17): minutes were false precision.
-    ("pickup_time", "Pickup time (hour range)", "hour_range", "E · First Pick Up", [], None),
-    ("pickup_wait", "Pickup waiting time", "select", "E · First Pick Up", OB_WAIT_OPTIONS, "pickWait"),
-    ("pickup_driver", "Specific pickup driver requirement", "text", "E · First Pick Up", [], None),
-    ("pickup_tkbm", "Pickup TKBM", "select", "E · First Pick Up", ["Yes", "No"], "tkbmO"),
-    ("pickup_tkbm_count", "Pickup TKBM quantity", "number", "E · First Pick Up", [], None),
-    ("implan", "Implan", "select", "E · First Pick Up", ["Yes", "No"], None),
-    ("implan_count", "Implan quantity", "number", "E · First Pick Up", [], None),
-    ("delivery_to", "Delivery to", "select", "F · Delivery", ["End customer", "Reseller", "GT", "MT"], "destType"),
-    ("delivery_vehicle", "Delivery vehicle requirement", "text", "F · Delivery", [], "truck"),
-    ("destination", "Destination Address", "textarea", "F · Delivery", [], None),
-    ("delivery_function", "Delivery responsibility", "select", "F · Delivery", OB_FUNCTIONS, None),
-    ("delivery_time", "Delivery time (hour range)", "hour_range", "F · Delivery", [], None),
-    ("delivery_wait", "Delivery waiting time", "select", "F · Delivery", OB_WAIT_OPTIONS, "delWait"),
-    ("delivery_driver", "Specific delivery driver requirement", "text", "F · Delivery", [], None),
-    ("delivery_tkbm", "Delivery TKBM", "select", "F · Delivery", ["Yes", "No"], "tkbmD"),
-    ("delivery_tkbm_count", "Delivery TKBM quantity", "number", "F · Delivery", [], None),
+    ("packing", "Packing tags", "packing", "C · Parcel handling", list(OB_PACKING), None),
+    ("handling_pickup", "Handling request · pickup", "textarea", "C · Parcel handling", [], None),
+    ("handling_sort", "Handling request · sort", "textarea", "C · Parcel handling", [], None),
+    ("handling_delivery", "Handling request · delivery", "textarea", "C · Parcel handling", [], None),
+    # The parcel's own numbers sit with the pickup that collects them (Michael,
+    # 2026-09-25): the fleet reads them at the kerb, not in the shipper profile.
+    ("product_type", "Product type", "text", "D · First Pick Up", [], ("commodity", "product")),
+    ("product_volume", "First pickup volume", "number", "D · First Pick Up", [], None),
+    ("volume_unit", "Volume unit", "select", "D · First Pick Up", ["CBM", "tons", "Kg"], None),
+    ("dimensions", "Product dimensions (include units)", "text", "D · First Pick Up", [], "dim"),
+    ("weight", "Est. Weight Per Koli", "text", "D · First Pick Up", [], "wt"),
+    # Written for this launch, and first in the section: the address is what the fleet
+    # reads before anything else about the pickup (Michael, 2026-09-15).
+    ("pickup_address", "Pickup Address", "textarea", "D · First Pick Up", [], None),
+    ("pickup_pic", "Shipper Pickup PIC", "text", "D · First Pick Up", [], None),
+    ("pickup_contact", "Shipper Pickup PIC contact", "text", "D · First Pick Up", [], None),
+    ("pickup_frequency", "Shipment frequency", "text", "D · First Pick Up", [], "freq"),
+    ("pickup_vehicle", "Pick Up vehicle requirement", "text", "D · First Pick Up", [], None),
+    ("pickup_function", "Pickup responsibility", "select", "D · First Pick Up", OB_FUNCTIONS, None),
+    ("pickup_time", "Pickup time (hour range)", "hour_range", "D · First Pick Up", [], None),
+    ("pickup_wait", "Pickup waiting time", "select", "D · First Pick Up", OB_WAIT_OPTIONS, "pickWait"),
+    ("pickup_driver", "Specific pickup driver requirement", "text", "D · First Pick Up", [], None),
+    ("pickup_tkbm", "Pickup TKBM", "select", "D · First Pick Up", ["Yes", "No"], "tkbmO"),
+    ("pickup_tkbm_count", "Pickup TKBM quantity", "number", "D · First Pick Up", [], None),
+    ("implan", "Implan", "select", "D · First Pick Up", ["Yes", "No"], None),
+    ("implan_count", "Implan quantity", "number", "D · First Pick Up", [], None),
+    ("delivery_to", "Delivery to", "select", "E · Delivery", ["End customer", "Reseller", "GT", "MT"], "destType"),
+    ("delivery_vehicle", "Delivery vehicle requirement", "text", "E · Delivery", [], "truck"),
+    ("destination", "Destination Address", "textarea", "E · Delivery", [], None),
+    ("delivery_function", "Delivery responsibility", "select", "E · Delivery", OB_FUNCTIONS, None),
+    ("delivery_time", "Delivery time (hour range)", "hour_range", "E · Delivery", [], None),
+    ("delivery_wait", "Delivery waiting time", "select", "E · Delivery", OB_WAIT_OPTIONS, "delWait"),
+    ("delivery_driver", "Specific delivery driver requirement", "text", "E · Delivery", [], None),
+    ("delivery_tkbm", "Delivery TKBM", "select", "E · Delivery", ["Yes", "No"], "tkbmD"),
+    ("delivery_tkbm_count", "Delivery TKBM quantity", "number", "E · Delivery", [], None),
     # What cover the parcel carries and what to do when it goes wrong (Michael,
     # 2026-09-25). Kept out of the charter's Yes/No "Insurance": that is whether Sales
     # sold cover, this is which cover the launch runs under.
-    ("insurance_type", "Insurance", "select", "G · Claim and insurance",
+    ("insurance_type", "Insurance", "select", "F · Claim and insurance",
      ["Standard liability", "NinjaCare", "Ext. Insurance"], None),
-    ("claim_procedure", "Claim procedure", "textarea", "G · Claim and insurance", [], None),
+    ("claim_procedure", "Claim procedure", "textarea", "F · Claim and insurance", [], None),
+    # Paperwork last (Michael, 2026-09-25): it is what travels WITH the launch rather
+    # than what the launch is, and Ops read it after the legs are settled.
+    ("mps", "MPS", "select", "G · Documents", ["Yes", "No"], "mps"),
+    ("cod", "COD", "select", "G · Documents", ["Yes", "No"], "cod"),
+    ("rdo", "RDO", "select", "G · Documents", ["Yes", "No"], "rdo"),
+    ("rdo_treatment", "RDO treatment details", "textarea", "G · Documents", [], "rdoNotes"),
+    ("pod_treatment", "POD treatment details", "textarea", "G · Documents", [], None),
+    ("surat_jalan_treatment", "Other Surat Jalan treatment details", "textarea", "G · Documents", [], None),
 ]
 
 
@@ -9714,19 +9710,22 @@ def _fp(p, fields) -> str:
 def ob_readiness_points(p: dict) -> list[dict]:
     """Every point somebody must confirm on this launch, and which team owns it.
 
-    Mapped field by field from the form, A to G (Michael, 2026-09-25). Two rules run
-    through it:
+    Mapped field by field from the form (Michael, 2026-09-25). Three rules run through
+    it:
 
       * a point exists only when there is something to confirm -- COD No, an empty
         Surat Jalan note and an order creation somebody else does raise nothing. A team
         ticking "No" boxes stops reading them;
       * one point per TEAM. Where two teams must both agree -- the load, RDO, TKBM --
         each gets its own copy and confirms separately, because "we can carry it" and
-        "we can key it in" are different answers.
+        "we can key it in" are different answers. One team running both legs owns a
+        shared point once;
+      * they are generated in the order the work happens: pickup, sort, delivery,
+        documents, then packing and cover. A card reads as the day runs.
 
-    Sections A and B1-B6, the ids, the service, the mode and the two responsibility
-    pickers raise nothing: they say what the launch IS, and the pickers are what decide
-    which team a point goes to."""
+    Section A, the ids, the service, the mode and the two responsibility pickers raise
+    nothing: they say what the launch IS, and the pickers are what decide which team a
+    point goes to."""
     pick = p.get("pickup_function") if p.get("pickup_function") in OB_FUNCTIONS else None
     drop = p.get("delivery_function") if p.get("delivery_function") in OB_FUNCTIONS else None
     out: list[dict] = []
@@ -9746,34 +9745,11 @@ def ob_readiness_points(p: dict) -> list[dict]:
                 out.append({"item_key": key, "label": str(label)[:255],
                             "owner_group": g, "fingerprint": _fp(p, fields)})
 
-    # B7-B10 — the load, with Dry/Cold named in it rather than asked separately.
+    # --- pickup
     add("load", f"Load: {val('product_volume')} {val('volume_unit')}, "
                 f"{val('weight')} per koli, {val('dimensions')} — {val('product_condition')}",
-        ["product_volume", "volume_unit", "weight", "dimensions", "product_condition"],
-        [pick, "DE"])
-
-    # C — service and documents.
-    add("cod", f"COD: {val('cod')} · MPS {val('mps')}", ["cod", "mps"], ["DE"],
-        when=p.get("cod") == "Yes")
-    add("rdo", f"RDO: {val('rdo_treatment', 'no special treatment')}",
-        ["rdo", "rdo_treatment"], [pick, drop, "DE"], when=p.get("rdo") == "Yes")
-    add("pod", f"POD: {val('pod_treatment', 'standard')}", ["pod_treatment"], [drop])
-    add("surat_jalan", f"Surat Jalan: {val('surat_jalan_treatment')}",
-        ["surat_jalan_treatment"], [pick, drop], when=has("surat_jalan_treatment"))
-    add("oc_by", "Order creation by DE", ["oc_by"], ["DE"], when=p.get("oc_by") == "DE")
-
-    # D — the parcel itself.
-    add("packing", "Packing: " + (", ".join(
-        f"{t} · {OB_PACKING.get(t, t)}" for t in p.get("packing", []) if t != "No")
-        or "no packing required"), ["packing"], ["CL", "DE"])
-    add("handling_pickup", f"Handling · pickup: {val('handling_pickup')}",
-        ["handling_pickup"], [pick], when=has("handling_pickup"))
-    add("handling_sort", f"Handling · sort: {val('handling_sort')}",
-        ["handling_sort"], ["Sort"], when=has("handling_sort"))
-    add("handling_delivery", f"Handling · delivery: {val('handling_delivery')}",
-        ["handling_delivery"], [drop], when=has("handling_delivery"))
-
-    # E — the first pickup.
+        ["product_volume", "volume_unit", "weight", "dimensions", "product_condition",
+         "product_type"], [pick, "DE"])
     add("pickup_place", f"Pickup: {val('pickup_address')} · PIC {val('pickup_pic')} "
                         f"{val('pickup_contact')}",
         ["pickup_address", "pickup_pic", "pickup_contact"], [pick])
@@ -9783,13 +9759,19 @@ def ob_readiness_points(p: dict) -> list[dict]:
         ["pickup_time", "pickup_wait"], [pick])
     add("pickup_driver", f"Pickup driver: {val('pickup_driver')}",
         ["pickup_driver"], [pick], when=has("pickup_driver"))
+    add("handling_pickup", f"Handling · pickup: {val('handling_pickup')}",
+        ["handling_pickup"], [pick], when=has("handling_pickup"))
     add("pickup_tkbm", f"Pickup TKBM: {val('pickup_tkbm_count', '0')} people",
         ["pickup_tkbm", "pickup_tkbm_count"], [pick, "Sort"],
         when=p.get("pickup_tkbm") == "Yes")
     add("implan", f"Implan: {val('implan_count', '0')} people",
         ["implan", "implan_count"], [pick, "Sort"], when=p.get("implan") == "Yes")
 
-    # F — the delivery.
+    # --- sort
+    add("handling_sort", f"Handling · sort: {val('handling_sort')}",
+        ["handling_sort"], ["Sort"], when=has("handling_sort"))
+
+    # --- delivery
     add("delivery_place", f"Destination: {val('destination')} · to {val('delivery_to')}",
         ["destination", "delivery_to"], [drop])
     add("delivery_vehicle", f"Delivery vehicle: {val('delivery_vehicle')}",
@@ -9798,19 +9780,32 @@ def ob_readiness_points(p: dict) -> list[dict]:
         ["delivery_time", "delivery_wait"], [drop])
     add("delivery_driver", f"Delivery driver: {val('delivery_driver')}",
         ["delivery_driver"], [drop], when=has("delivery_driver"))
+    add("handling_delivery", f"Handling · delivery: {val('handling_delivery')}",
+        ["handling_delivery"], [drop], when=has("handling_delivery"))
     add("delivery_tkbm", f"Delivery TKBM: {val('delivery_tkbm_count', '0')} people",
         ["delivery_tkbm", "delivery_tkbm_count"], [drop, "Sort"],
         when=p.get("delivery_tkbm") == "Yes")
 
-    # G — cover and claims.
+    # --- documents
+    add("rdo", f"RDO: {val('rdo_treatment', 'no special treatment')}",
+        ["rdo", "rdo_treatment"], [pick, drop, "DE"], when=p.get("rdo") == "Yes")
+    add("pod", f"POD: {val('pod_treatment', 'standard')}", ["pod_treatment"], [drop])
+    add("surat_jalan", f"Surat Jalan: {val('surat_jalan_treatment')}",
+        ["surat_jalan_treatment"], [pick, drop], when=has("surat_jalan_treatment"))
+    add("cod", f"COD: {val('cod')} · MPS {val('mps')}", ["cod", "mps"], ["DE"],
+        when=p.get("cod") == "Yes")
+    add("oc_by", "Order creation by DE", ["oc_by"], ["DE"], when=p.get("oc_by") == "DE")
+
+    # --- packing and cover
+    add("packing", "Packing: " + (", ".join(
+        f"{t} · {OB_PACKING.get(t, t)}" for t in p.get("packing", []) if t != "No")
+        or "no packing required"), ["packing"], ["CL", "DE"])
     add("insurance", f"Insurance {val('insurance_type')} · claim: "
                      f"{val('claim_procedure', 'standard procedure')}",
         ["insurance_type", "claim_procedure"], ["CL"])
     return out
 
 
-# The card is named for the TEAM that owns it, not for the work in it (Michael,
-# 2026-09-25): a team opens its own card, and what is in it is the list below.
 OB_CARD_LABEL = {"CL": "CL Team", "Sort": "Sort Team", "DE": "Data Entry",
                  "QC": "QC Team", "Ops": "Ops Team", "2W": "2W Team", "4W": "4W Team",
                  "6W": "6W Team", "Sameday": "Sameday Team"}
@@ -9826,8 +9821,14 @@ def ob_check_specs(p):
     by_group: dict[str, list[dict]] = {}
     for it in ob_readiness_points(p):
         by_group.setdefault(it["owner_group"], []).append(it)
+    # Cards follow the same flow as the points: the pickup team, then Sort, then the
+    # delivery team, then the teams that work off the paperwork (Michael, 2026-09-25).
+    order = [g for g in (p.get("pickup_function"), "Sort", p.get("delivery_function"),
+                         "DE", "CL", "QC", "Ops") if g]
+    def rank(g):
+        return (order.index(g) if g in order else len(order), g)
     specs = []
-    for group in sorted(by_group):
+    for group in sorted(by_group, key=rank):
         items = by_group[group]
         label = OB_CARD_LABEL.get(group) or f"{group} Team"
         specs.append({
