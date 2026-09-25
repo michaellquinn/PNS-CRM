@@ -1610,7 +1610,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-25.5"
+BUILD = "2026-09-25.6"
 
 
 class Me(BaseModel):
@@ -3708,7 +3708,10 @@ async def _auto_sync_loop() -> None:
     # have settled before anything reaches out to a third party.
     await asyncio.sleep(30)
     try:
-        log.info("sample onboarding: %s", await seed_sample_onboarding())
+        # WARNING, not info: the app configures no logging, so the root logger is at
+        # WARNING and an info line is never printed. This one has to be readable in
+        # /substrait:logs to tell whether a fresh environment seeded or refused.
+        log.warning("sample onboarding: %s", await seed_sample_onboarding())
     except Exception:                                   # noqa: BLE001
         log.exception("sample onboarding seed failed")
     while True:
