@@ -2,9 +2,9 @@ import { useEffect, useState } from "react";
 import { api } from "../api";
 import { Btn, Card, Empty, Head, Pill, inputCls } from "../ui";
 
-const TITLES = { onboarding: "Pending Information", readiness: "Pending Readiness", golive: "Go Live", handover: "Shipper List QC" };
+const TITLES = { onboarding: "Pending Information", readiness: "Ops Readiness", golive: "Go Live", handover: "Shipper List QC" };
 const HELP = { onboarding: "Waiting on Sales to fill in and submit the onboarding requirements. Once submitted, a launch moves to Pending Readiness.",
-  readiness: "Your team's outstanding confirmations, nearest go-live first. CL: packing · Sort: TKBM · pickup/delivery operations: fleet and documents.",
+  readiness: "Launches your team has points on, nearest go-live first. A launch your team owns nothing on is not listed here at all.",
   golive: "Every team is ready (or has an approved exception). Move each one to the Shipper List QC when it goes live.",
   handover: "Shippers that have gone live and are handed to QC. QC confirms each one here." };
 // The go-live countdown on Pending Readiness (Michael, 2026-09-25): red once it is
@@ -22,6 +22,8 @@ export function OperationalList({ view = "onboarding", me, onOpen, notify = () =
   const [data, setData] = useState(null);
   const [err, setErr] = useState("");
   const [filter, setFilter] = useState("");
+  // Where each launch stands for the team reading it (Michael, 2026-09-25).
+  const [state, setState] = useState("");
   const [query, setQuery] = useState("");
   const [moving, setMoving] = useState("");
   const load = () => api.operationalList(view).then(setData).catch(e => setErr(e.message));
@@ -44,18 +46,37 @@ export function OperationalList({ view = "onboarding", me, onOpen, notify = () =
     finally { setMoving(""); }
   };
   if (err) return <Empty>{err}</Empty>;
-  const rows = (data?.rows || []).filter(r => (!filter || r.status === filter) && `${r.ref} ${r.opportunity_name} ${r.shipper}`.toLowerCase().includes(query.toLowerCase()));
+  const rows = (data?.rows || []).filter(r => (!filter || r.status === filter)
+    && (!state || r.readiness_state === state)
+    && `${r.ref} ${r.opportunity_name} ${r.shipper}`.toLowerCase().includes(query.toLowerCase()));
+  const counted = (s) => (data?.rows || []).filter(r => r.readiness_state === s).length;
   return <>
     <Head title={TITLES[view]} sub={HELP[view]} right={data && <Pill>{rows.length} opportunities</Pill>} />
     <div className="mb-4 flex flex-wrap gap-2">
       <input className={`${inputCls} max-w-sm`} placeholder="Search opportunity or shipper" value={query} onChange={e => setQuery(e.target.value)} />
       {/* Status filter removed: Pending Information lists one status only. */}
+      {view === "readiness" && <div className="flex flex-wrap gap-1">
+        {[["", "All"], ["pending", "Pending"], ["ongoing", "Ongoing"], ["cleared", "Cleared"]].map(([v, label]) => (
+          <button key={v} type="button" onClick={() => setState(v)} aria-pressed={state === v}
+            className={`rounded-lg px-3 py-1.5 text-[12.5px] font-medium ${
+              state === v ? "bg-[#EE1B2C] text-white" : "border border-slate-300 text-slate-600"}`}>
+            {label}{v ? ` (${counted(v)})` : ` (${(data?.rows || []).length})`}
+          </button>
+        ))}
+      </div>}
     </div>
     {!data ? <p>Loading…</p> : !rows.length ? <Empty>No opportunities waiting here.</Empty> : <div className="space-y-3">
       {rows.map(r => <Card key={r.ref} className="p-4">
         <div className="flex flex-wrap items-center gap-2">
           <button className="font-mono font-semibold text-[#EE1B2C] hover:underline" onClick={() => onOpen(r.ref)}>{r.ref}</button>
           <Pill>{r.status}</Pill>{r.overdue && <Pill tone="bg-rose-100 text-rose-800">Confirmation overdue</Pill>}
+          {view === "readiness" && r.points_total > 0 && (
+            <Pill tone={r.readiness_state === "cleared" ? "bg-emerald-100 text-emerald-800"
+              : r.readiness_state === "ongoing" ? "bg-sky-50 text-sky-700"
+              : "bg-slate-100 text-slate-600"}>
+              {r.points_done}/{r.points_total} confirmed
+            </Pill>
+          )}
           {view === "readiness" && (
             <Pill tone={goLiveTone(r.days_to_golive)}>
               Go live {r.planned_golive || "—"} · {goLiveWords(r.days_to_golive)}

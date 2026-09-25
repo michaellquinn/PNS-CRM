@@ -1610,7 +1610,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-25.13"
+BUILD = "2026-09-25.14"
 
 
 class Me(BaseModel):
@@ -9959,6 +9959,13 @@ async def operational_worklist(view: str = "onboarding", u: User = Depends(curre
     by_ticket = {}
     for c in checks:
         by_ticket.setdefault(c["ticket_id"], []).append(c)
+    # Ops Readiness is read one team at a time (Michael, 2026-09-25): a 4W launch is
+    # nothing to do with 2W or Sameday, and listing it for them buries the work that IS
+    # theirs. Points carry the ownership, so the scoping is done on them.
+    all_items = await q("SELECT ticket_id, owner_group, status FROM onboarding_check_items")
+    items_by_ticket: dict[int, list[dict]] = {}
+    for i in all_items:
+        items_by_ticket.setdefault(i["ticket_id"], []).append(i)
     result = []
     for r in await ob_rows():
         if u.group in OPERATIONAL_GROUPS and not r["submitted_at"]:
@@ -9977,8 +9984,22 @@ async def operational_worklist(view: str = "onboarding", u: User = Depends(curre
         # once submitted, a launch belongs to Pending Readiness and the steps after it.
         if view == "onboarding" and r["submitted_at"]:
             continue
-        if view == "readiness" and (not pending or r["actual_golive"]):
-            continue
+        # What this reader owes on this launch: their team's points, or every point for
+        # Sales, PNS and Admin, who watch the whole thing.
+        mine = items_by_ticket.get(r["id"], [])
+        if u.group in OPERATIONAL_GROUPS:
+            mine = [i for i in mine if i["owner_group"] == u.group]
+        done = sum(1 for i in mine if i["status"] == "confirmed")
+        state = ("cleared" if mine and done == len(mine)
+                 else "ongoing" if done else "pending")
+        if view == "readiness":
+            # A launch this team owns no point on never appears for them at all.
+            if u.group in OPERATIONAL_GROUPS and not mine:
+                continue
+            # Cleared launches stay listed so a team can see what it has finished; they
+            # leave when the launch goes live.
+            if r["actual_golive"] or not mine:
+                continue
         if view == "golive" and (ready not in ("Ready", "Approved with exception") or r["actual_golive"]):
             continue
         if view == "handover" and (not due or r["qc_accepted_at"]):
@@ -9996,12 +10017,14 @@ async def operational_worklist(view: str = "onboarding", u: User = Depends(curre
                        # 2026-09-25), and how many days are left. Negative means the
                        # planned go-live has already passed and nothing is ready.
                        "planned_golive": p.get("planned_golive") or None,
-                       "days_to_golive": ob_days_to(p.get("planned_golive"))})
+                       "days_to_golive": ob_days_to(p.get("planned_golive")),
+                       "points_done": done, "points_total": len(mine),
+                       "readiness_state": state})
     # Pending Readiness is worked nearest-first: the launch closest to its go-live is the
     # one that hurts if it slips. Everything overdue still floats to the top, and a row
     # with no planned date sorts last rather than first.
     if view == "readiness":
-        result.sort(key=lambda r: (not r["overdue"],
+        result.sort(key=lambda r: (r["readiness_state"] == "cleared", not r["overdue"],
                                    r["days_to_golive"] if r["days_to_golive"] is not None else 9999,
                                    r["deadline"] or "9999", r["ref"]))
     else:

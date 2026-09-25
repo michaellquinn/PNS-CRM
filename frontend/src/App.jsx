@@ -172,7 +172,7 @@ const NAV = [
   ["Ops Onboarding", [
     { id: "onboarding", label: "Pending Information", icon: "◉",
       keywords: "go live ops kick off onboarding schedule" },
-    { id: "readiness", label: "Pending Readiness", icon: "◷", count: "ob:readiness" },
+    { id: "readiness", label: "Ops Readiness", icon: "◷", count: "ob:readiness" },
     { id: "golive", label: "Go Live", icon: "▷" },
     { id: "handover", label: "Shipper List QC", icon: "⇥" },
     { id: "operational-db", label: "Operational Database", icon: "▤" },
@@ -643,7 +643,10 @@ export default function App() {
   useEffect(() => {
     if (!me) return;
     api.operationalList("readiness")
-      .then((d) => setCounts((c) => ({ ...c, "ob:readiness": (d.rows || []).length })))
+      // Outstanding work only: a launch this team has finished is still listed under
+      // Cleared, but it is not something the badge should keep asking about.
+      .then((d) => setCounts((c) => ({ ...c,
+        "ob:readiness": (d.rows || []).filter((r) => r.readiness_state !== "cleared").length })))
       .catch(() => {});
   }, [me, tick]);
 
