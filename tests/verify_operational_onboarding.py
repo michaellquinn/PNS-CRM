@@ -137,10 +137,13 @@ assert not [i for i in m.ob_readiness_points(p) if i["item_key"] in
              "pickup_function", "delivery_function", "complexity_tier", "delivery_mode")]
 # One team on BOTH legs gets a shared point once, not twice — it is the same team
 # answering the same question (Michael, 2026-09-25).
-_both = m.ob_readiness_points({**p, "pickup_function": "4W", "delivery_function": "4W"})
+_both = m.ob_readiness_points({**p, "pickup_function": "4W", "delivery_function": "4W",
+                               "rdo": "Yes"})
 _keys = [(i["owner_group"], i["item_key"]) for i in _both]
 assert len(_keys) == len(set(_keys)), [k for k in _keys if _keys.count(k) > 1]
-assert len([k for k in _keys if k == ("4W", "rdo")]) == 1
+# RDO and Surat Jalan belong to both legs; one team running both owns each once.
+assert len([k for k in _keys if k == ("4W", "rdo")]) == 1, _keys
+assert len([k for k in _keys if k == ("4W", "surat_jalan")]) == 1, _keys
 # 6W is a fleet team like the others (Michael, 2026-09-25).
 assert "6W" in m.OB_FUNCTIONS and "6W" in m.OPERATIONAL_GROUPS
 assert any(c["owner_group"] == "6W" and c["label"] == "6W Team"
