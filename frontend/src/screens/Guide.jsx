@@ -119,12 +119,13 @@ const TASKS = [
   },
   {
     q: "I want to hand a won deal to Ops",
-    who: "Sales, then PNS",
-    go: "handover",
+    who: "Sales, then the operational teams",
+    go: "onboarding",
     steps: [
-      "Open To hand over under Onboarding. It lists every accepted deal that Ops cannot start yet.",
-      "Fill in the shipper ID and go-live date inline — parent shipper ID and branch ID too if you have them — and save. The ticket moves to Onboarding, sorted by go-live date.",
-      "Then open the ticket and press Send Kick-off to PNS, Sales & Ops. That email carries no pricing at all and points back at the Charter as the source of truth.",
+      "Open Pending Information under Ops Onboarding: every accepted deal waiting for its operational requirements.",
+      "Open the ticket's Onboarding tab, fill the form in (A to G) and submit. That raises one readiness card per team, each carrying its own points.",
+      "The teams confirm their points on Ops Readiness. A point that belongs to another team is handed over with a note.",
+      "When shipping actually starts, press Go live. Points still open stay on Ops Readiness with the team that owes them, and the history records what was unconfirmed at go-live.",
     ],
   },
   {

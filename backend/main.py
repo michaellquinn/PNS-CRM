@@ -1610,7 +1610,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-28.1"
+BUILD = "2026-09-28.2"
 
 
 class Me(BaseModel):
@@ -9953,7 +9953,7 @@ class OperationalMasterResponse(OperationalRowsResponse):
 @app.get("/api/onboarding-v2", response_model=OperationalWorklistResponse)
 async def operational_worklist(view: str = "onboarding", u: User = Depends(current_user)):
     """List operational opportunities by intake, readiness, launch or QC handover milestone."""
-    if view not in ("onboarding", "readiness", "golive", "handover", "completed"):
+    if view not in ("onboarding", "readiness", "golive"):
         raise HTTPException(400, "Unknown onboarding view")
     checks = await q("SELECT * FROM onboarding_checks ORDER BY id")
     by_ticket = {}
@@ -10003,16 +10003,14 @@ async def operational_worklist(view: str = "onboarding", u: User = Depends(curre
             # happened rather than pretending the paperwork gated it.
             if state == "cleared" and r["actual_golive"]:
                 continue
-        if view == "golive" and (ready not in ("Ready", "Approved with exception") or r["actual_golive"]):
-            continue
-        if view == "handover" and (not due or r["qc_accepted_at"]):
-            continue
-        if view == "completed" and not r["qc_accepted_at"]:
+        # Everything submitted and not yet live, however far along its points are: a
+        # launch goes live when it goes live (Michael, 2026-09-28).
+        if view == "golive" and (not r["submitted_at"] or r["actual_golive"]):
             continue
         deadline = ob_deadline(r["submitted_at"], ob_pickup_moment(p)) if r["submitted_at"] and p.get("pickup_at") else None
         result.append({"ref": r["ticket_ref"], "opportunity_id": r["opportunity_id"], "opportunity_name": r["opportunity_name"] or r["shipper"],
                        "shipper": r["shipper"], "service": r["service_type"], "sales": r["sales_name"],
-                       "status": "QC accepted" if r["qc_accepted_at"] else "Shipper List QC" if due else "Monitoring · 7 days" if r["actual_golive"] else ready,
+                       "status": "Live" if r["actual_golive"] else ready,
                        "pickup_at": p.get("pickup_at"), "deadline": str(deadline) if deadline else None,
                        "overdue": bool(deadline and pending and ob_now() >= deadline), "pending": [c["label"] + " · " + c["owner_group"] for c in pending],
                        "actual_golive": str(r["actual_golive"]) if r["actual_golive"] else None,
@@ -10174,8 +10172,18 @@ async def operational_save(ref: str, body: OperationalSave, u: User = Depends(cu
             old = await cur.fetchone()
             if (old or {}).get("revision", 0) != body.revision:
                 raise HTTPException(409, "Onboarding changed in another tab; reload before saving")
+            # A launch is finished -- and its record fixed -- once it has gone live AND
+            # every point is confirmed (Michael, 2026-09-28). Until then Sales may still
+            # correct it, including after go-live: requirements change at the weekend and
+            # the app should carry the correction rather than refuse it. Reopening a
+            # point unlocks a finished launch again.
             if old and old.get("actual_golive"):
-                raise HTTPException(409, "Actual go-live is confirmed; preserve this launch record")
+                await cur.execute("SELECT COUNT(*) AS n FROM onboarding_check_items "
+                                  "WHERE ticket_id=%s AND status<>'confirmed'", (t["id"],))
+                still_open = int(((await cur.fetchone()) or {}).get("n") or 0)
+                if not still_open:
+                    raise HTTPException(409, "This launch is live and every point is "
+                                             "confirmed; reopen a point to change it")
             revision = body.revision + 1
             now = ob_now()
             await cur.execute("INSERT INTO onboarding_intake(ticket_id,payload,revision,updated_at) VALUES(%s,%s,%s,%s) "
@@ -10393,6 +10401,18 @@ async def operational_item(iid: int, body: OperationalItemAction,
                               "confirmed_by=%s, confirmed_name=%s, confirmed_at=%s WHERE id=%s",
                               (body.note[:4000] or None, u.email, actor, ob_now(), iid))
             body_text = f"{it['label']} · confirmed by {actor}"
+        elif body.action == "reopen":
+            # Something broke after the team said yes -- the truck went, the driver is
+            # sick (Michael, 2026-09-28). The owning team takes its own confirmation
+            # back, with a reason, and the launch returns to that team's list.
+            if it["status"] != "confirmed":
+                raise HTTPException(409, "That point is already open")
+            if not body.note.strip():
+                raise HTTPException(400, "Say what changed — the note is the record")
+            await cur.execute("UPDATE onboarding_check_items SET status='pending', note=%s,"
+                              "confirmed_by=NULL, confirmed_name=NULL, confirmed_at=NULL "
+                              "WHERE id=%s", (body.note[:4000], iid))
+            body_text = f"{it['label']} · reopened by {actor}: {body.note.strip()}"
         elif body.action == "move":
             to = body.to_group.strip()
             if to not in OPERATIONAL_GROUPS:
@@ -10506,13 +10526,14 @@ async def ob_apply_golive(cur, t, intake, checks, body, u):
     await cur.execute("INSERT INTO onboarding_events(ticket_id,actor,body,at) VALUES(%s,%s,%s,%s)", (t["id"], u.name, f"Actual go-live confirmed: {actual}; seven-day monitoring begins", ob_now()))
 
 
-@app.post("/api/onboarding-v2/tickets/{ref}/handover", response_model=Ok)
-async def operational_handover(ref: str, u: User = Depends(current_user)):
-    """Move a ready launch from Go Live to Shipper List QC in one step.
+@app.post("/api/onboarding-v2/tickets/{ref}/go-live-now", response_model=Ok)
+async def operational_go_live_now(ref: str, u: User = Depends(current_user)):
+    """Record that this launch has gone live, today.
 
-    Replaces confirming an actual go-live date and waiting seven days (Michael,
-    2026-09-18). Today is recorded as the go-live, which also locks the launch
-    requirements as the old confirmation did."""
+    The last step (Michael, 2026-09-28). The QC handover screen and its acceptance are
+    gone: with go-live no longer gated on readiness, "move to handover" was a second
+    button doing what this one does, and nobody was waiting on the acceptance. Points
+    still open stay on Ops Readiness until the teams close them."""
     t = await get_ticket(ref)
     require(u, "editOnboarding", t)
     async with ob_locked(t["id"]) as cur:
@@ -10522,8 +10543,8 @@ async def operational_handover(ref: str, u: User = Depends(current_user)):
         checks = await cur.fetchall()
         if not intake or not intake["submitted_at"]:
             raise HTTPException(409, "Sales must submit the onboarding requirements first")
-        if intake.get("handover_at"):
-            raise HTTPException(409, f"{ref} is already on the Shipper List QC")
+        if intake.get("actual_golive"):
+            raise HTTPException(409, f"{ref} already went live on {intake['actual_golive']}")
         # Deliberately NOT gated on readiness (Michael, 2026-09-28): a launch goes live
         # when it goes live. What is still unconfirmed is recorded instead, so the gap is
         # visible afterwards rather than quietly lost -- and those points stay on Ops
@@ -10534,48 +10555,23 @@ async def operational_handover(ref: str, u: User = Depends(current_user)):
         open_points = await cur.fetchall()
         gap = ", ".join(f"{r['owner_group']} {int(r['n'])}" for r in open_points)
         now = ob_now()
-        await cur.execute("UPDATE onboarding_intake SET handover_at=%s, handover_by=%s, "
-                          "actual_golive=COALESCE(actual_golive,%s), actual_by=COALESCE(actual_by,%s), "
-                          "actual_at=COALESCE(actual_at,%s) WHERE ticket_id=%s",
-                          (now, u.email, now.date(), u.email, now, t["id"]))
+        await cur.execute("UPDATE onboarding_intake SET actual_golive=%s, actual_by=%s, "
+                          "actual_at=%s WHERE ticket_id=%s", (now.date(), u.email, now, t["id"]))
         await cur.execute("INSERT INTO onboarding_events(ticket_id,actor,body,at) VALUES(%s,%s,%s,%s)",
-                          (t["id"], u.name, "Moved to Shipper List QC"
+                          (t["id"], u.name, f"Went live on {now.date()}"
                            + (f" with points still open: {gap}" if gap else
                               " with every point confirmed"), now))
-    await notify(f"{ref}, {t['shipper']}: moved to the Shipper List QC by {u.name}",
-                 groups=["QC"], ticket_ref=ref)
+    await notify(f"{ref}, {t['shipper']}: went live on {ob_now().date()} (confirmed by "
+                 f"{u.name})" + (f" — still unconfirmed: {gap}" if gap else ""),
+                 groups=["QC", "Ops"], ticket_ref=ref)
     return {"ok": True}
 
 
-@app.post("/api/onboarding-v2/tickets/{ref}/qc-accept", response_model=Ok)
-async def operational_qc_accept(ref: str, u: User = Depends(current_user)):
-    """Accept operational handover as QC after the seven-day monitoring period."""
-    if u.group != "QC":
-        raise HTTPException(403, "QC must accept the handover; assign QC users first")
-    t = await get_ticket(ref)
-    async with ob_locked(t["id"]) as cur:
-        await cur.execute("SELECT * FROM onboarding_intake WHERE ticket_id=%s FOR UPDATE", (t["id"],))
-        intake = await cur.fetchone()
-        await ob_apply_qc(cur, t, intake, u)
-    return {"ok": True}
-
-
-async def ob_apply_qc(cur, t, intake, u):
-    # Two ways onto the Shipper List QC, so two ways to accept it (Michael, 2026-09-23):
-    # the Go Live button hands it over there and then, and QC confirms when they have
-    # looked; the older route waits seven days after a confirmed actual go-live.
-    if not intake:
-        raise HTTPException(409, "Sales must submit the onboarding requirements first")
-    if not intake.get("handover_at") and (
-            not intake["actual_golive"]
-            or ob_now().date() <= intake["actual_golive"] + timedelta(days=7)):
-        raise HTTPException(409, "Move it to the Shipper List QC first, or wait for the "
-                                 "seven-day monitoring to finish")
-    if intake["qc_accepted_at"]:
-        raise HTTPException(409, "QC already accepted")
-    await cur.execute("UPDATE onboarding_intake SET qc_accepted_by=%s,qc_accepted_at=%s WHERE ticket_id=%s AND qc_accepted_at IS NULL", (u.email, ob_now(), t["id"]))
-    await cur.execute("INSERT INTO onboarding_events(ticket_id,actor,body,at) VALUES(%s,%s,%s,%s)", (t["id"], u.name, "QC accepted operational handover", ob_now()))
-
+# QC acceptance lived here until 2026-09-28 (Michael). With go-live no longer gated on
+# readiness there was nothing left for QC to accept: the launch is live, and whatever is
+# still unconfirmed stays on Ops Readiness with the team that owes it. onboarding_intake
+# keeps its qc_accepted_* and handover_* columns so the launches that went through the
+# old flow still read correctly.
 
 OB_MASTER_HEADERS = ["Global ID", "Opportunity Name", "Service", "Pickup", "Delivery"]
 

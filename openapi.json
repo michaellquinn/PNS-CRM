@@ -1702,7 +1702,7 @@
       "Me": {
         "properties": {
           "build": {
-            "default": "2026-09-25.5",
+            "default": "2026-09-28.2",
             "title": "Build",
             "type": "string"
           },
@@ -4891,7 +4891,7 @@
   "info": {
     "description": "Ninja PNS - solutioning and pricing workflow for Ninja Xpress Indonesia. Every route below requires a signed-in session: identity arrives from the platform's auth proxy as an X-Forwarded-Email header the browser cannot set, and the app resolves a role from it. GET /health is the only unauthenticated route. Generated from the app's own route table by tools/gen_openapi.py - do not hand-edit.",
     "title": "Ninja PNS, Solutioning",
-    "version": "2026-09-25.5"
+    "version": "2026-09-28.2"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -6166,6 +6166,46 @@
         "summary": "Upload operational product photos or pickup points before Sales publishes this launch."
       }
     },
+    "/api/onboarding-v2/tickets/{ref}/go-live-now": {
+      "post": {
+        "description": "Record that this launch has gone live, today.\n\nThe last step (Michael, 2026-09-28). The QC handover screen and its acceptance are\ngone: with go-live no longer gated on readiness, \"move to handover\" was a second\nbutton doing what this one does, and nobody was waiting on the acceptance. Points\nstill open stay on Ops Readiness until the teams close them.",
+        "operationId": "operational_go_live_now_api_onboarding_v2_tickets__ref__go_live_now_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ok"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Record that this launch has gone live, today."
+      }
+    },
     "/api/onboarding-v2/tickets/{ref}/golive": {
       "post": {
         "description": "Record Sales-confirmed actual go-live after readiness and start seven-day monitoring.",
@@ -6216,46 +6256,6 @@
         "summary": "Record Sales-confirmed actual go-live after readiness and start seven-day monitoring."
       }
     },
-    "/api/onboarding-v2/tickets/{ref}/handover": {
-      "post": {
-        "description": "Move a ready launch from Go Live to Shipper List QC in one step.\n\nReplaces confirming an actual go-live date and waiting seven days (Michael,\n2026-09-18). Today is recorded as the go-live, which also locks the launch\nrequirements as the old confirmation did.",
-        "operationId": "operational_handover_api_onboarding_v2_tickets__ref__handover_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "ref",
-            "required": true,
-            "schema": {
-              "title": "Ref",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Ok"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Move a ready launch from Go Live to Shipper List QC in one step."
-      }
-    },
     "/api/onboarding-v2/tickets/{ref}/intake": {
       "post": {
         "description": "Save a private Sales draft or publish complete requirements and synchronize the operational database.",
@@ -6304,46 +6304,6 @@
           }
         },
         "summary": "Save a private Sales draft or publish complete requirements and synchronize the operational database."
-      }
-    },
-    "/api/onboarding-v2/tickets/{ref}/qc-accept": {
-      "post": {
-        "description": "Accept operational handover as QC after the seven-day monitoring period.",
-        "operationId": "operational_qc_accept_api_onboarding_v2_tickets__ref__qc_accept_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "ref",
-            "required": true,
-            "schema": {
-              "title": "Ref",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Ok"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Accept operational handover as QC after the seven-day monitoring period."
       }
     },
     "/api/onboarding/export.csv": {

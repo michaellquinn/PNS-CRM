@@ -3,6 +3,22 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-09-28",
+    title: "Go live is the last step; the QC handover screen is gone",
+    by: "Michael + Claude",
+    changes: [
+      "Shipper List QC and QC's acceptance are removed. With go-live no longer gated on readiness, “move to handover” was a second button doing what Go live already does, and nobody was waiting on the acceptance. Ops Onboarding is now three screens: Pending Information → Ops Readiness → Go Live.",
+      "Go Live lists every submitted launch that has not gone live, whatever state its points are in. Pressing Go live records today and names in the history which teams still had open points.",
+      "A team can REOPEN one of its own confirmed points with a note — the truck went, the driver is sick — and the launch returns to that team's Ops Readiness list.",
+      "Sales can correct a launch after go-live, as long as a point is still open. A launch that is live with everything confirmed is finished and locks; reopening a point unlocks it again.",
+      "QC keeps its read-only view of every launch and has no button.",
+    ],
+    overruled: [
+      "QC accepting the operational handover, and the seven-day monitoring that preceded it (operational onboarding).",
+      "Requirements locking the moment a launch went live.",
+    ],
+  },
+  {
+    date: "2026-09-28",
     title: "Ops Readiness holds a launch until its points are closed, live or not",
     by: "Michael + Claude",
     changes: [

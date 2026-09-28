@@ -174,7 +174,6 @@ const NAV = [
       keywords: "go live ops kick off onboarding schedule" },
     { id: "readiness", label: "Ops Readiness", icon: "◷", count: "ob:readiness" },
     { id: "golive", label: "Go Live", icon: "▷" },
-    { id: "handover", label: "Shipper List QC", icon: "⇥" },
     { id: "operational-db", label: "Operational Database", icon: "▤" },
   ]],
   ["CAPA", [
@@ -536,7 +535,7 @@ export default function App() {
 
   useEffect(() => { api.me().then(setMe).catch((e) => setErr(e.message)); }, []);
   useEffect(() => {
-    if (me?.permissions.operationalOnly && !["onboarding", "readiness", "golive", "handover", "operational-db", "detail"].includes(screen)) setScreen("readiness");
+    if (me?.permissions.operationalOnly && !["onboarding", "readiness", "golive", "operational-db", "detail"].includes(screen)) setScreen("readiness");
   }, [me, screen]);
 
   // Back goes back through the app, instead of leaving it.
@@ -731,7 +730,6 @@ export default function App() {
     "capa-closed": <Capa view="closed" me={me} notify={notify} onRaise={() => go("capa-raise")} />,
     "capa-raise": <NewCapa notify={notify} onCreated={() => go("capa-all")} />,
     guide: <Guide onGo={go} />,
-    handover: <OperationalList view="handover" me={me} notify={notify} onOpen={ref => open(ref, "__onboarding__")} />,
     onboarding: <OperationalList me={me} onOpen={ref => open(ref, "__onboarding__")} />,
     readiness: <OperationalList view="readiness" me={me} onOpen={ref => open(ref, "__onboarding__")} />,
     golive: <OperationalList view="golive" me={me} notify={notify} onOpen={ref => open(ref, "__onboarding__")} />,
@@ -745,7 +743,7 @@ export default function App() {
   const sidebar = (
     <nav className="flex h-full flex-col gap-5 overflow-y-auto p-4">
       {NAV.map(([group, items]) => {
-        const shown = items.filter((i) => (!me.permissions.operationalOnly || ["onboarding", "readiness", "golive", "handover", "operational-db"].includes(i.id)) && (!i.when || i.when(me)));
+        const shown = items.filter((i) => (!me.permissions.operationalOnly || ["onboarding", "readiness", "golive", "operational-db"].includes(i.id)) && (!i.when || i.when(me)));
         if (!shown.length) return null;
         return (
           <div key={group}>
@@ -831,7 +829,7 @@ export default function App() {
         )}
         <main className="min-w-0 flex-1 p-4 sm:p-6">
           <ScreenError screen={screen}>
-            {me.permissions.operationalOnly && !["onboarding", "readiness", "golive", "handover", "operational-db", "detail"].includes(screen) ? screens.readiness : (screens[screen] || screens.dashboard)}
+            {me.permissions.operationalOnly && !["onboarding", "readiness", "golive", "operational-db", "detail"].includes(screen) ? screens.readiness : (screens[screen] || screens.dashboard)}
           </ScreenError>
         </main>
       </div>

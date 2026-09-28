@@ -2,12 +2,10 @@ import { useEffect, useState } from "react";
 import { api } from "../api";
 import { Btn, Card, Empty, Head, Pill, inputCls } from "../ui";
 
-const TITLES = { onboarding: "Pending Information", readiness: "Ops Readiness", golive: "Go Live", handover: "Shipper List QC" };
+const TITLES = { onboarding: "Pending Information", readiness: "Ops Readiness", golive: "Go Live" };
 const HELP = { onboarding: "Waiting on Sales to fill in and submit the onboarding requirements. Once submitted, a launch moves to Pending Readiness.",
   readiness: "Launches your team has points on, nearest go-live first. It leaves this list once your team has confirmed everything AND the launch has gone live — one that went live with points still open stays here.",
-  golive: "Every team is ready (or has an approved exception). Move each one to the Shipper List QC when it goes live.",
-  handover: "Shippers that have gone live and are handed to QC. QC confirms each one here." };
-// The go-live countdown on Pending Readiness (Michael, 2026-09-25): red once it is
+  golive: "Submitted launches that have not gone live yet. Press Go live when shipping actually starts — points still open stay on Ops Readiness with the team that owes them." };// The go-live countdown on Pending Readiness (Michael, 2026-09-25): red once it is
 // today or past, amber inside three days, plain after that.
 const goLiveTone = (d) => d == null ? "bg-slate-100 text-slate-600"
   : d < 0 ? "bg-rose-100 text-rose-800"
@@ -28,20 +26,11 @@ export function OperationalList({ view = "onboarding", me, onOpen, notify = () =
   const [moving, setMoving] = useState("");
   const load = () => api.operationalList(view).then(setData).catch(e => setErr(e.message));
   useEffect(() => { setData(null); setErr(""); load(); }, [view]);
-  // QC's own confirmation (Michael, 2026-09-23): nothing leaves the Shipper List QC
-  // until QC says they have looked at it.
-  const qcAccept = async (ref) => {
-    if (!window.confirm(`Confirm QC accepts the operational handover for ${ref}?`)) return;
+  // The last step (Michael, 2026-09-28): the launch went live today.
+  const goLiveNow = async (ref) => {
+    if (!window.confirm(`Confirm ${ref} has gone live today? Points still open stay on Ops Readiness with the team that owes them.`)) return;
     setMoving(ref);
-    try { await api.operationalQcAccept(ref); notify(`${ref} accepted by QC`); await load(); }
-    catch (e) { notify(e.message); }
-    finally { setMoving(""); }
-  };
-  // Go Live's one step onward (Michael, 2026-09-18).
-  const handover = async (ref) => {
-    if (!window.confirm(`Move ${ref} to the Shipper List QC? Today is recorded as its go-live. Any point still unconfirmed stays on Ops Readiness and is recorded in the history.`)) return;
-    setMoving(ref);
-    try { await api.operationalHandover(ref); notify(`${ref} moved to Shipper List QC`); await load(); }
+    try { await api.operationalGoLiveNow(ref); notify(`${ref} is live`); await load(); }
     catch (e) { notify(e.message); }
     finally { setMoving(""); }
   };
@@ -86,14 +75,9 @@ export function OperationalList({ view = "onboarding", me, onOpen, notify = () =
             </Pill>
           )}
           <Btn className="ml-auto" onClick={() => onOpen(r.ref)}>Open onboarding</Btn>
-          {view === "handover" && me.group === "QC" && r.status !== "QC accepted" && (
-            <Btn kind="primary" disabled={moving === r.ref} onClick={() => qcAccept(r.ref)}>
-              QC accepts handover
-            </Btn>
-          )}
           {view === "golive" && me.permissions.editOnboarding && (
-            <Btn kind="primary" disabled={moving === r.ref} onClick={() => handover(r.ref)}>
-              Move to Shipper List QC
+            <Btn kind="primary" disabled={moving === r.ref} onClick={() => goLiveNow(r.ref)}>
+              Go live
             </Btn>
           )}
         </div>
@@ -140,9 +124,16 @@ function CheckItem({ it, me, frozen, run, teams }) {
       <span className="shrink-0 text-[11px] text-sky-700" title={it.moved_note || ""}>from {it.origin_group}</span>
     )}
     {done ? (
-      <span className="shrink-0 text-[11px] text-slate-500">
-        {it.confirmed_name}{it.note ? ` · ${it.note}` : ""}
-      </span>
+      <>
+        <span className="shrink-0 text-[11px] text-slate-500">
+          {it.confirmed_name}{it.note ? ` · ${it.note}` : ""}
+        </span>
+        {mine && <button type="button" className="shrink-0 text-[11px] text-slate-400 underline"
+          onClick={() => {
+            const why = window.prompt("What changed? This reopens the point for your team.");
+            if (why && why.trim()) act({ action: "reopen", note: why.trim() });
+          }}>reopen</button>}
+      </>
     ) : mine ? (
       <>
         <input className={`${field} w-[150px] shrink-0`} placeholder="Note"
