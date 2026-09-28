@@ -61,7 +61,6 @@ export const api = {
   operationalDecision: (id, body) => call(`/onboarding-v2/checks/${id}`, { method: "POST", body: JSON.stringify(body) }),
   operationalGolive: (ref, on) => call(`/onboarding-v2/tickets/${encodeURIComponent(ref)}/golive`, { method: "POST", body: JSON.stringify({ on }) }),
   operationalItem: (id, body) => call(`/onboarding-v2/items/${id}`, { method: "POST", body: JSON.stringify(body) }),
-  operationalGoLiveNow: ref => call(`/onboarding-v2/tickets/${encodeURIComponent(ref)}/go-live-now`, { method: "POST", body: "{}" }),
   operationalMaster: () => call("/operational-master"),
   operationalImport: form => upload("/operational-master/import", form),
   operationalLegacy: () => call("/onboarding-v2/legacy"),

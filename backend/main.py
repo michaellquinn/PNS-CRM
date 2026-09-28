@@ -1610,7 +1610,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-28.2"
+BUILD = "2026-09-28.3"
 
 
 class Me(BaseModel):
@@ -9976,10 +9976,12 @@ async def operational_worklist(view: str = "onboarding", u: User = Depends(curre
         if u.group in OPERATIONAL_GROUPS:
             pending = [c for c in pending if c["owner_group"] == u.group]
         ready = ob_readiness(cs)
-        # Handed to QC by the Go Live button (Michael, 2026-09-18), or the older route:
-        # seven days after a confirmed actual go-live.
-        due = bool(r.get("handover_at")) or bool(
-            r["actual_golive"] and ob_now().date() > r["actual_golive"] + timedelta(days=7))
+        # LIVE IS A DATE, not a button (Michael, 2026-09-28). A launch is live once its
+        # planned go-live has arrived; nobody has to remember to press anything, and the
+        # screens follow the calendar the way the operation does. A date recorded by the
+        # old button still counts, so launches from before this read correctly.
+        days_left = ob_days_to(p.get("planned_golive"))
+        live = bool(r["actual_golive"]) or (days_left is not None and days_left <= 0)
         # Pending Information is only what still waits on Sales (Michael, 2026-09-18):
         # once submitted, a launch belongs to Pending Readiness and the steps after it.
         if view == "onboarding" and r["submitted_at"]:
@@ -10001,16 +10003,18 @@ async def operational_worklist(view: str = "onboarding", u: User = Depends(curre
             # live with points still open stays here, flagged: requirements change at
             # the weekend and teams coordinate on WhatsApp, so the app records what
             # happened rather than pretending the paperwork gated it.
-            if state == "cleared" and r["actual_golive"]:
+            # It leaves once the team has confirmed everything AND the launch is live.
+            # Live with points still open keeps it here; confirmed but not yet live keeps
+            # it here too, because the date is still coming.
+            if state == "cleared" and live:
                 continue
-        # Everything submitted and not yet live, however far along its points are: a
-        # launch goes live when it goes live (Michael, 2026-09-28).
-        if view == "golive" and (not r["submitted_at"] or r["actual_golive"]):
+        # Go Live is what IS live: the go-live date has arrived. Nothing to press.
+        if view == "golive" and (not r["submitted_at"] or not live):
             continue
         deadline = ob_deadline(r["submitted_at"], ob_pickup_moment(p)) if r["submitted_at"] and p.get("pickup_at") else None
         result.append({"ref": r["ticket_ref"], "opportunity_id": r["opportunity_id"], "opportunity_name": r["opportunity_name"] or r["shipper"],
                        "shipper": r["shipper"], "service": r["service_type"], "sales": r["sales_name"],
-                       "status": "Live" if r["actual_golive"] else ready,
+                       "status": "Live" if live else ready,
                        "pickup_at": p.get("pickup_at"), "deadline": str(deadline) if deadline else None,
                        "overdue": bool(deadline and pending and ob_now() >= deadline), "pending": [c["label"] + " · " + c["owner_group"] for c in pending],
                        "actual_golive": str(r["actual_golive"]) if r["actual_golive"] else None,
@@ -10020,7 +10024,7 @@ async def operational_worklist(view: str = "onboarding", u: User = Depends(curre
                        "planned_golive": p.get("planned_golive") or None,
                        "days_to_golive": ob_days_to(p.get("planned_golive")),
                        "points_done": done, "points_total": len(mine),
-                       "readiness_state": state, "already_live": bool(r["actual_golive"])})
+                       "readiness_state": state, "already_live": live})
     # Pending Readiness is worked nearest-first: the launch closest to its go-live is the
     # one that hurts if it slips. Everything overdue still floats to the top, and a row
     # with no planned date sorts last rather than first.
@@ -10177,7 +10181,8 @@ async def operational_save(ref: str, body: OperationalSave, u: User = Depends(cu
             # correct it, including after go-live: requirements change at the weekend and
             # the app should carry the correction rather than refuse it. Reopening a
             # point unlocks a finished launch again.
-            if old and old.get("actual_golive"):
+            _days = ob_days_to(ob_json((old or {}).get("released_payload")).get("planned_golive"))
+            if old and (old.get("actual_golive") or (_days is not None and _days <= 0)):
                 await cur.execute("SELECT COUNT(*) AS n FROM onboarding_check_items "
                                   "WHERE ticket_id=%s AND status<>'confirmed'", (t["id"],))
                 still_open = int(((await cur.fetchone()) or {}).get("n") or 0)
@@ -10526,46 +10531,11 @@ async def ob_apply_golive(cur, t, intake, checks, body, u):
     await cur.execute("INSERT INTO onboarding_events(ticket_id,actor,body,at) VALUES(%s,%s,%s,%s)", (t["id"], u.name, f"Actual go-live confirmed: {actual}; seven-day monitoring begins", ob_now()))
 
 
-@app.post("/api/onboarding-v2/tickets/{ref}/go-live-now", response_model=Ok)
-async def operational_go_live_now(ref: str, u: User = Depends(current_user)):
-    """Record that this launch has gone live, today.
-
-    The last step (Michael, 2026-09-28). The QC handover screen and its acceptance are
-    gone: with go-live no longer gated on readiness, "move to handover" was a second
-    button doing what this one does, and nobody was waiting on the acceptance. Points
-    still open stay on Ops Readiness until the teams close them."""
-    t = await get_ticket(ref)
-    require(u, "editOnboarding", t)
-    async with ob_locked(t["id"]) as cur:
-        await cur.execute("SELECT * FROM onboarding_intake WHERE ticket_id=%s FOR UPDATE", (t["id"],))
-        intake = await cur.fetchone()
-        await cur.execute("SELECT * FROM onboarding_checks WHERE ticket_id=%s FOR UPDATE", (t["id"],))
-        checks = await cur.fetchall()
-        if not intake or not intake["submitted_at"]:
-            raise HTTPException(409, "Sales must submit the onboarding requirements first")
-        if intake.get("actual_golive"):
-            raise HTTPException(409, f"{ref} already went live on {intake['actual_golive']}")
-        # Deliberately NOT gated on readiness (Michael, 2026-09-28): a launch goes live
-        # when it goes live. What is still unconfirmed is recorded instead, so the gap is
-        # visible afterwards rather than quietly lost -- and those points stay on Ops
-        # Readiness until the teams close them.
-        await cur.execute("SELECT owner_group, COUNT(*) AS n FROM onboarding_check_items "
-                          "WHERE ticket_id=%s AND status<>'confirmed' GROUP BY owner_group",
-                          (t["id"],))
-        open_points = await cur.fetchall()
-        gap = ", ".join(f"{r['owner_group']} {int(r['n'])}" for r in open_points)
-        now = ob_now()
-        await cur.execute("UPDATE onboarding_intake SET actual_golive=%s, actual_by=%s, "
-                          "actual_at=%s WHERE ticket_id=%s", (now.date(), u.email, now, t["id"]))
-        await cur.execute("INSERT INTO onboarding_events(ticket_id,actor,body,at) VALUES(%s,%s,%s,%s)",
-                          (t["id"], u.name, f"Went live on {now.date()}"
-                           + (f" with points still open: {gap}" if gap else
-                              " with every point confirmed"), now))
-    await notify(f"{ref}, {t['shipper']}: went live on {ob_now().date()} (confirmed by "
-                 f"{u.name})" + (f" — still unconfirmed: {gap}" if gap else ""),
-                 groups=["QC", "Ops"], ticket_ref=ref)
-    return {"ok": True}
-
+# The "Go live" button lived here until 2026-09-28 (Michael). It recorded a date a
+# person pressed, which is a second version of a date the form already holds: a launch
+# is live when its planned go-live arrives. Ops Readiness and Go Live both read that
+# date, so there is nothing to press and nothing to forget. onboarding_intake keeps
+# actual_golive for the launches that were confirmed by hand before this.
 
 # QC acceptance lived here until 2026-09-28 (Michael). With go-live no longer gated on
 # readiness there was nothing left for QC to accept: the launch is live, and whatever is

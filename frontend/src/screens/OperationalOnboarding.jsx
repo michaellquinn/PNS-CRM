@@ -5,8 +5,7 @@ import { Btn, Card, Empty, Head, Pill, inputCls } from "../ui";
 const TITLES = { onboarding: "Pending Information", readiness: "Ops Readiness", golive: "Go Live" };
 const HELP = { onboarding: "Waiting on Sales to fill in and submit the onboarding requirements. Once submitted, a launch moves to Pending Readiness.",
   readiness: "Launches your team has points on, nearest go-live first. It leaves this list once your team has confirmed everything AND the launch has gone live — one that went live with points still open stays here.",
-  golive: "Submitted launches that have not gone live yet. Press Go live when shipping actually starts — points still open stay on Ops Readiness with the team that owes them." };// The go-live countdown on Pending Readiness (Michael, 2026-09-25): red once it is
-// today or past, amber inside three days, plain after that.
+  golive: "Launches whose go-live date has arrived. A launch appears here on its date — there is nothing to press." };// today or past, amber inside three days, plain after that.
 const goLiveTone = (d) => d == null ? "bg-slate-100 text-slate-600"
   : d < 0 ? "bg-rose-100 text-rose-800"
   : d === 0 ? "bg-rose-100 text-rose-800"
@@ -23,17 +22,8 @@ export function OperationalList({ view = "onboarding", me, onOpen, notify = () =
   // Where each launch stands for the team reading it (Michael, 2026-09-25).
   const [state, setState] = useState("");
   const [query, setQuery] = useState("");
-  const [moving, setMoving] = useState("");
   const load = () => api.operationalList(view).then(setData).catch(e => setErr(e.message));
   useEffect(() => { setData(null); setErr(""); load(); }, [view]);
-  // The last step (Michael, 2026-09-28): the launch went live today.
-  const goLiveNow = async (ref) => {
-    if (!window.confirm(`Confirm ${ref} has gone live today? Points still open stay on Ops Readiness with the team that owes them.`)) return;
-    setMoving(ref);
-    try { await api.operationalGoLiveNow(ref); notify(`${ref} is live`); await load(); }
-    catch (e) { notify(e.message); }
-    finally { setMoving(""); }
-  };
   if (err) return <Empty>{err}</Empty>;
   const rows = (data?.rows || []).filter(r => (!filter || r.status === filter)
     && (!state || r.readiness_state === state)
@@ -75,11 +65,7 @@ export function OperationalList({ view = "onboarding", me, onOpen, notify = () =
             </Pill>
           )}
           <Btn className="ml-auto" onClick={() => onOpen(r.ref)}>Open onboarding</Btn>
-          {view === "golive" && me.permissions.editOnboarding && (
-            <Btn kind="primary" disabled={moving === r.ref} onClick={() => goLiveNow(r.ref)}>
-              Go live
-            </Btn>
-          )}
+
         </div>
         <h3 className="mt-2 text-[15px] font-semibold">{r.opportunity_name}</h3>
         <p className="mt-1 text-[12px] text-slate-500">CRM {r.opportunity_id || "—"} · {r.shipper} · {r.service} · Sales {r.sales || "unassigned"}</p>
