@@ -2,6 +2,21 @@ import { Card, Head, Pill } from "../ui";
 
 const ENTRIES = [
   {
+    date: "2026-09-28",
+    title: "Ops Readiness holds a launch until its points are closed, live or not",
+    by: "Michael + Claude",
+    changes: [
+      "Pending Readiness is now Ops Readiness, with filters All / Pending / Ongoing / Cleared and a x/y confirmed count — all counted on YOUR team's points.",
+      "Each team sees only launches it owns points on. Pickup and delivery both on 4W means 2W and Sameday never see that launch.",
+      "A launch leaves Ops Readiness only when your team has confirmed everything AND it has gone live. One that went live with points still open stays, marked “Already live · points still open”.",
+      "Go Live no longer requires every team to have confirmed. Requirements change at the weekend and teams coordinate outside the app, so the app records what happened: the history names which teams still had open points when it went live.",
+    ],
+    overruled: [
+      "Go Live gated on every team confirming readiness (or an approved exception).",
+      "Cleared launches dropping off the readiness list before go-live.",
+    ],
+  },
+  {
     date: "2026-09-25",
     title: "Onboarding: parcel handling, claim and insurance, and point-by-point readiness",
     by: "Michael + Claude",

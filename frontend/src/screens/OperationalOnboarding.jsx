@@ -4,7 +4,7 @@ import { Btn, Card, Empty, Head, Pill, inputCls } from "../ui";
 
 const TITLES = { onboarding: "Pending Information", readiness: "Ops Readiness", golive: "Go Live", handover: "Shipper List QC" };
 const HELP = { onboarding: "Waiting on Sales to fill in and submit the onboarding requirements. Once submitted, a launch moves to Pending Readiness.",
-  readiness: "Launches your team has points on, nearest go-live first. A launch your team owns nothing on is not listed here at all.",
+  readiness: "Launches your team has points on, nearest go-live first. It leaves this list once your team has confirmed everything AND the launch has gone live — one that went live with points still open stays here.",
   golive: "Every team is ready (or has an approved exception). Move each one to the Shipper List QC when it goes live.",
   handover: "Shippers that have gone live and are handed to QC. QC confirms each one here." };
 // The go-live countdown on Pending Readiness (Michael, 2026-09-25): red once it is
@@ -39,7 +39,7 @@ export function OperationalList({ view = "onboarding", me, onOpen, notify = () =
   };
   // Go Live's one step onward (Michael, 2026-09-18).
   const handover = async (ref) => {
-    if (!window.confirm(`Move ${ref} to the Shipper List QC? Today is recorded as its go-live and the launch requirements lock.`)) return;
+    if (!window.confirm(`Move ${ref} to the Shipper List QC? Today is recorded as its go-live. Any point still unconfirmed stays on Ops Readiness and is recorded in the history.`)) return;
     setMoving(ref);
     try { await api.operationalHandover(ref); notify(`${ref} moved to Shipper List QC`); await load(); }
     catch (e) { notify(e.message); }
@@ -70,6 +70,9 @@ export function OperationalList({ view = "onboarding", me, onOpen, notify = () =
         <div className="flex flex-wrap items-center gap-2">
           <button className="font-mono font-semibold text-[#EE1B2C] hover:underline" onClick={() => onOpen(r.ref)}>{r.ref}</button>
           <Pill>{r.status}</Pill>{r.overdue && <Pill tone="bg-rose-100 text-rose-800">Confirmation overdue</Pill>}
+          {view === "readiness" && r.already_live && (
+            <Pill tone="bg-orange-100 text-orange-800">Already live · points still open</Pill>
+          )}
           {view === "readiness" && r.points_total > 0 && (
             <Pill tone={r.readiness_state === "cleared" ? "bg-emerald-100 text-emerald-800"
               : r.readiness_state === "ongoing" ? "bg-sky-50 text-sky-700"

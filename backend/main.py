@@ -1610,7 +1610,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-25.14"
+BUILD = "2026-09-28.1"
 
 
 class Me(BaseModel):
@@ -9994,11 +9994,14 @@ async def operational_worklist(view: str = "onboarding", u: User = Depends(curre
                  else "ongoing" if done else "pending")
         if view == "readiness":
             # A launch this team owns no point on never appears for them at all.
-            if u.group in OPERATIONAL_GROUPS and not mine:
+            if not mine:
                 continue
-            # Cleared launches stay listed so a team can see what it has finished; they
-            # leave when the launch goes live.
-            if r["actual_golive"] or not mine:
+            # It leaves this screen only when the team has confirmed everything AND the
+            # launch has actually gone live (Michael, 2026-09-28). A launch that went
+            # live with points still open stays here, flagged: requirements change at
+            # the weekend and teams coordinate on WhatsApp, so the app records what
+            # happened rather than pretending the paperwork gated it.
+            if state == "cleared" and r["actual_golive"]:
                 continue
         if view == "golive" and (ready not in ("Ready", "Approved with exception") or r["actual_golive"]):
             continue
@@ -10019,7 +10022,7 @@ async def operational_worklist(view: str = "onboarding", u: User = Depends(curre
                        "planned_golive": p.get("planned_golive") or None,
                        "days_to_golive": ob_days_to(p.get("planned_golive")),
                        "points_done": done, "points_total": len(mine),
-                       "readiness_state": state})
+                       "readiness_state": state, "already_live": bool(r["actual_golive"])})
     # Pending Readiness is worked nearest-first: the launch closest to its go-live is the
     # one that hurts if it slips. Everything overdue still floats to the top, and a row
     # with no planned date sorts last rather than first.
@@ -10521,16 +10524,24 @@ async def operational_handover(ref: str, u: User = Depends(current_user)):
             raise HTTPException(409, "Sales must submit the onboarding requirements first")
         if intake.get("handover_at"):
             raise HTTPException(409, f"{ref} is already on the Shipper List QC")
-        if ob_readiness(checks) not in ("Ready", "Approved with exception"):
-            raise HTTPException(409, "Every team must confirm readiness (or have an approved "
-                                     "exception) before it moves to QC")
+        # Deliberately NOT gated on readiness (Michael, 2026-09-28): a launch goes live
+        # when it goes live. What is still unconfirmed is recorded instead, so the gap is
+        # visible afterwards rather than quietly lost -- and those points stay on Ops
+        # Readiness until the teams close them.
+        await cur.execute("SELECT owner_group, COUNT(*) AS n FROM onboarding_check_items "
+                          "WHERE ticket_id=%s AND status<>'confirmed' GROUP BY owner_group",
+                          (t["id"],))
+        open_points = await cur.fetchall()
+        gap = ", ".join(f"{r['owner_group']} {int(r['n'])}" for r in open_points)
         now = ob_now()
         await cur.execute("UPDATE onboarding_intake SET handover_at=%s, handover_by=%s, "
                           "actual_golive=COALESCE(actual_golive,%s), actual_by=COALESCE(actual_by,%s), "
                           "actual_at=COALESCE(actual_at,%s) WHERE ticket_id=%s",
                           (now, u.email, now.date(), u.email, now, t["id"]))
         await cur.execute("INSERT INTO onboarding_events(ticket_id,actor,body,at) VALUES(%s,%s,%s,%s)",
-                          (t["id"], u.name, "Moved to Shipper List QC", now))
+                          (t["id"], u.name, "Moved to Shipper List QC"
+                           + (f" with points still open: {gap}" if gap else
+                              " with every point confirmed"), now))
     await notify(f"{ref}, {t['shipper']}: moved to the Shipper List QC by {u.name}",
                  groups=["QC"], ticket_ref=ref)
     return {"ok": True}
