@@ -48,10 +48,12 @@ export function OperationalList({ view = "onboarding", me, onOpen, notify = () =
       {rows.map(r => <Card key={r.ref} className="p-4">
         <div className="flex flex-wrap items-center gap-2">
           <button className="font-mono font-semibold text-[#EE1B2C] hover:underline" onClick={() => onOpen(r.ref)}>{r.ref}</button>
-          <Pill>{r.status}</Pill>{r.overdue && <Pill tone="bg-rose-100 text-rose-800">Confirmation overdue</Pill>}
-          {view === "readiness" && r.already_live && (
-            <Pill tone="bg-orange-100 text-orange-800">Already live · points still open</Pill>
-          )}
+          {/* Ops Readiness carries two tags and no more (Michael, 2026-09-28): how far
+              the team has got, and when it goes live. The go-live pill already says
+              "today" or "overdue", so status, "already live" and "confirmation overdue"
+              only repeated it. The other screens keep their status. */}
+          {view !== "readiness" && <Pill>{r.status}</Pill>}
+          {view !== "readiness" && r.overdue && <Pill tone="bg-rose-100 text-rose-800">Confirmation overdue</Pill>}
           {view === "readiness" && r.points_total > 0 && (
             <Pill tone={r.readiness_state === "cleared" ? "bg-emerald-100 text-emerald-800"
               : r.readiness_state === "ongoing" ? "bg-sky-50 text-sky-700"
