@@ -978,6 +978,9 @@ class User(BaseModel):
     level: str
     team: str | None = None
     sso: bool = False        # True when identity came from the proxy, not DEV_USER_EMAIL
+    # Set when an Admin is looking at the app AS this person or role: the Admin's own
+    # email. Every write is refused while it is set -- see current_user().
+    view_as_by: str | None = None
 
 
 # Commercial is Sales. Visitor, Finance and Sales Planning are read-mostly audiences:
@@ -1028,8 +1031,46 @@ async def current_user(request: Request) -> User:
         raise HTTPException(
             403, f"{email} has no role in this app. Ask an administrator to register you "
                  f"under Administration / Users")
-    return User(email=row["email"], name=row["name"], group=row["role_group"],
+    real = User(email=row["email"], name=row["name"], group=row["role_group"],
                 level=row["role_level"], team=row["team"], sso=bool(sso))
+    return await view_as(request, real)
+
+
+async def view_as(request: Request, real: User) -> User:
+    """Let an Admin see the app exactly as somebody else sees it (Michael, 2026-09-28).
+
+    The X-View-As header names a registered person (their email) or a role
+    ("group:Commercial" or "group:Commercial:head"). The answer is that person's User,
+    so every screen, permission and filter behaves as it would for them.
+
+    Honoured ONLY for a real Admin, established by SSO above -- the header from anyone
+    else is ignored, so nobody can use it to borrow rights they do not have.
+
+    READ-ONLY, and that is the whole safety of it: any request that changes something is
+    refused while viewing as someone else. Otherwise an Admin click would confirm a
+    point, move a ticket or send a notification under another person's name."""
+    target = (request.headers.get("x-view-as") or "").strip()
+    if not target or real.group != "Admin":
+        return real
+    if request.method not in ("GET", "HEAD", "OPTIONS"):
+        raise HTTPException(403, "You are viewing the app as someone else, which is "
+                                 "read-only. Exit View as to make changes.")
+    if target.lower().startswith("group:"):
+        parts = target.split(":")
+        group = parts[1] if len(parts) > 1 else ""
+        level = parts[2] if len(parts) > 2 and parts[2] in ROLE_LEVELS else "staff"
+        if group not in ROLE_GROUPS:
+            raise HTTPException(400, f"{group or 'that'} is not a role in this app")
+        return User(email=f"preview.{group.lower()}@view-as", name=f"{group} (preview)",
+                    group=group, level=level, team=None, sso=real.sso,
+                    view_as_by=real.email)
+    row = await q("SELECT email, name, role_group, role_level, team FROM users "
+                  "WHERE email=%s AND active=1", (target.lower(),), one=True)
+    if not row:
+        raise HTTPException(400, f"{target} is not an active user")
+    return User(email=row["email"], name=row["name"], group=row["role_group"],
+                level=row["role_level"], team=row["team"], sso=real.sso,
+                view_as_by=real.email)
 
 
 # ------------------------------------------------------------------ permissions
@@ -1610,7 +1651,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-28.4"
+BUILD = "2026-09-28.5"
 
 
 class Me(BaseModel):
@@ -1630,6 +1671,8 @@ class Me(BaseModel):
     # interval. Sent to everyone: it is not a setting they can change, it is the answer
     # to "when will my ticket appear?", which is Sales' question, not an admin's.
     sync_every_minutes: int = 5
+    # The Admin who is looking through this person's eyes, when View as is on.
+    view_as_by: str | None = None
 
 
 class Ticket(BaseModel):
@@ -1836,7 +1879,8 @@ async def me(u: User = Depends(current_user)):
               # setting() falls back to the env default if the read fails, so this
               # cannot break /api/me — which every screen depends on.
               sync_every_minutes=await setting_int(
-                  "sync.every_minutes", 1, 1440, AUTO_SYNC_MINUTES or 5))
+                  "sync.every_minutes", 1, 1440, AUTO_SYNC_MINUTES or 5),
+              view_as_by=u.view_as_by)
 
 
 def shape(t: dict, u: User) -> Ticket:

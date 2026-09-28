@@ -3,6 +3,17 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-09-28",
+    title: "View as: Admin sees the app exactly as a person or a role does",
+    by: "Michael + Claude",
+    changes: [
+      "NEW — View as… in the header, for Admin only. Pick a registered person to see exactly their screens, menus and data, or a role (group and level) to see what any member of it sees — useful for teams with nobody registered yet.",
+      "It is READ-ONLY: while View as is on, every change is refused, so nothing is ever confirmed, moved or sent under another person's name. A violet bar says whose view you are in, with Exit View as.",
+      "It lasts for that browser tab only and never reaches anyone else. The server ignores the request from anyone who is not an Admin.",
+    ],
+    overruled: [],
+  },
+  {
+    date: "2026-09-28",
     title: "Go live is the last step; the QC handover screen is gone",
     by: "Michael + Claude",
     changes: [

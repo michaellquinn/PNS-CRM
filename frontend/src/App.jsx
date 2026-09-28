@@ -1,7 +1,7 @@
 import { Component, useCallback, useEffect, useRef, useState } from "react";
 import {
   api, LIVE_STATUSES, NEW_TICKET_DAYS, PENDING_SOLUTION, REQUIREMENT_STATUS,
-  isNewIncoming, isPnsWork,
+  isNewIncoming, isPnsWork, setViewAs,
 } from "./api";
 import Dashboard from "./screens/Dashboard";
 import Matrix from "./screens/Matrix";
@@ -806,8 +806,23 @@ export default function App() {
           </span>
           {!me.permissions.operationalOnly && <Bell notes={notes} onRead={() => api.markRead().then(refreshNotes)}
             onOpen={open} />}
+          {me.group === "Admin" && !me.view_as_by && <ViewAsPicker />}
         </div>
       </header>
+
+      {/* View as is on: say so on every screen, and say it is read-only. */}
+      {me.view_as_by && (
+        <div className="flex flex-wrap items-center gap-3 border-b border-violet-200 bg-violet-50 px-4 py-2.5 text-[12.5px] text-violet-900 sm:px-6">
+          <span>
+            <b>Viewing as {me.name}</b> ({me.group}{me.level !== "staff" ? ` · ${me.level}` : ""}).
+            This is exactly what they see. Read-only — nothing you click here is saved.
+          </span>
+          <button type="button" onClick={() => setViewAs("")}
+            className="ml-auto rounded-lg bg-violet-700 px-3 py-1.5 font-semibold text-white">
+            Exit View as
+          </button>
+        </div>
+      )}
 
       {me.dev_fallback && (
         <div className="border-b border-amber-200 bg-amber-50 px-4 py-2.5 text-[12.5px] text-amber-900 sm:px-6">
@@ -837,6 +852,63 @@ export default function App() {
       {toast && (
         <div className="fixed bottom-5 left-1/2 z-40 -translate-x-1/2 rounded-lg bg-slate-900 px-4 py-2.5 text-[13px] font-medium text-white shadow-lg">
           {toast}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+/* Admin only. Pick a registered person to see exactly their view, or a role to see what
+   any member of it sees — useful for teams nobody is registered in yet. */
+function ViewAsPicker() {
+  const [open, setOpen] = useState(false);
+  const [data, setData] = useState(null);
+  const [who, setWho] = useState("");
+  const [group, setGroup] = useState("");
+  const [level, setLevel] = useState("staff");
+  useEffect(() => {
+    if (open && !data) api.users().then(setData).catch(() => setData({ users: [], groups: [], levels: [] }));
+  }, [open]);
+  return (
+    <div className="relative">
+      <button type="button" onClick={() => setOpen(!open)}
+        className="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50">
+        View as…
+      </button>
+      {open && (
+        <div className="absolute right-0 top-9 z-30 w-80 rounded-xl border border-slate-200 bg-white p-3 text-[12.5px] shadow-lg">
+          <p className="mb-2 text-slate-500">See the app as someone else. Read-only.</p>
+          {!data ? <p>Loading…</p> : <>
+            <label className="mb-1 block font-semibold">A person</label>
+            <select className="mb-2 w-full rounded-lg border border-slate-300 px-2 py-1.5"
+              value={who} onChange={(e) => setWho(e.target.value)}>
+              <option value="">Choose…</option>
+              {(data.users || []).filter((u) => u.active && u.group !== "Admin").map((u) => (
+                <option key={u.email} value={u.email}>{u.name} — {u.group}{u.level !== "staff" ? ` · ${u.level}` : ""}</option>
+              ))}
+            </select>
+            <button type="button" disabled={!who} onClick={() => setViewAs(who)}
+              className="mb-3 w-full rounded-lg bg-[#EE1B2C] px-3 py-1.5 font-semibold text-white disabled:opacity-40">
+              View as this person
+            </button>
+            <label className="mb-1 block font-semibold">Or a role</label>
+            <div className="mb-2 flex gap-2">
+              <select className="flex-1 rounded-lg border border-slate-300 px-2 py-1.5"
+                value={group} onChange={(e) => setGroup(e.target.value)}>
+                <option value="">Group…</option>
+                {(data.groups || []).filter((g) => g !== "Admin").map((g) => <option key={g}>{g}</option>)}
+              </select>
+              <select className="w-28 rounded-lg border border-slate-300 px-2 py-1.5"
+                value={level} onChange={(e) => setLevel(e.target.value)}>
+                {(data.levels || ["staff"]).map((l) => <option key={l}>{l}</option>)}
+              </select>
+            </div>
+            <button type="button" disabled={!group} onClick={() => setViewAs(`group:${group}:${level}`)}
+              className="w-full rounded-lg border border-slate-300 px-3 py-1.5 font-semibold disabled:opacity-40">
+              View as this role
+            </button>
+          </>}
         </div>
       )}
     </div>

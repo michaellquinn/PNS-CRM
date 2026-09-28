@@ -1,10 +1,26 @@
 // Same-origin relative /api paths only. In production the ingress routes /api to the
 // backend; in dev the Vite proxy forwards it to :8000.
 
+// View as (Michael, 2026-09-28): an Admin previews the app as a person or a role. Held
+// per browser tab in sessionStorage, so it never leaks into another tab or a new day, and
+// sent on every request. The server ignores it for anyone who is not an Admin.
+const VIEW_AS_KEY = "pns.viewAs";
+export const getViewAs = () => {
+  try { return sessionStorage.getItem(VIEW_AS_KEY) || ""; } catch { return ""; }
+};
+export const setViewAs = (value) => {
+  try {
+    if (value) sessionStorage.setItem(VIEW_AS_KEY, value);
+    else sessionStorage.removeItem(VIEW_AS_KEY);
+  } catch { /* storage blocked: the header simply is not sent */ }
+  window.location.reload();
+};
+const viewAsHeader = () => (getViewAs() ? { "X-View-As": getViewAs() } : {});
+
 async function call(path, opts = {}) {
   const r = await fetch(`/api${path}`, {
-    headers: { "Content-Type": "application/json" },
     ...opts,
+    headers: { "Content-Type": "application/json", ...viewAsHeader(), ...(opts.headers || {}) },
   });
   const body = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(body.detail || `HTTP ${r.status}`);
@@ -25,7 +41,7 @@ const qs = (params) => {
 // Multipart needs its own path: setting Content-Type by hand would omit the boundary the
 // browser generates, and the server would reject the body.
 async function upload(path, formData) {
-  const r = await fetch(`/api${path}`, { method: "POST", body: formData });
+  const r = await fetch(`/api${path}`, { method: "POST", body: formData, headers: viewAsHeader() });
   const body = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(body.detail || `HTTP ${r.status}`);
   return body;
