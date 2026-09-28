@@ -7,7 +7,7 @@ const ENTRIES = [
     by: "Michael + Claude",
     changes: [
       "Shipper List QC and QC's acceptance are removed. With go-live no longer gated on readiness, “move to handover” was a second button doing what Go live already does, and nobody was waiting on the acceptance. Ops Onboarding is now three screens: Pending Information → Ops Readiness → Go Live.",
-      "LIVE IS A DATE, not a button: a launch is live once its planned go-live arrives. Go Live lists exactly those, and there is nothing to press. A launch leaves Ops Readiness when the team has confirmed everything AND the date has arrived — so 22/22 confirmed with the date past moves on, while 0/22 with the date still coming stays."
+      "LIVE IS A DATE, not a button: a launch is live once its planned go-live arrives. Go Live lists exactly those, and there is nothing to press. A launch leaves Ops Readiness when the team has confirmed everything AND the date has arrived — so 22/22 confirmed with the date past moves on, while 0/22 with the date still coming stays.",
       "A team can REOPEN one of its own confirmed points with a note — the truck went, the driver is sick — and the launch returns to that team's Ops Readiness list.",
       "Sales can correct a launch after go-live, as long as a point is still open. A launch that is live with everything confirmed is finished and locks; reopening a point unlocks it again.",
       "QC keeps its read-only view of every launch and has no button.",
