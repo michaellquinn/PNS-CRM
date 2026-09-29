@@ -45,10 +45,10 @@ const TASKS = [
     who: "Anyone",
     go: "matrix",
     steps: [
-      "Below the tier floor is no longer detected on its own (2026-09-18) — Hypercare and Strategic still reach PSP by rule, and PSP can be asked for with Escalate to PSP.",
+      "Below the tier floor is no longer detected on its own (2026-09-18) — PSP is reached only when someone presses Escalate to PSP.",
       "Sales priced a Hypercare, Strategic or Must Win deal → Pending Review - Head PNS. That queue is the Head of PNS’s own oversight of the three watched groups, and nothing else lands in it.",
       "Sales priced anything else at or above Rp 30 Mio → Pending PNS, assigned like ordinary PNS work. It is still checked, just not by the Head.",
-      "Managed account, Sameday discount over 20%, FTL at or above Rp 30 Mio, or an escalation → Pending Review - PSP.",
+      "Sameday discount over 20%, FTL at or above Rp 30 Mio on a Standard account, or an escalation → Pending Review - PSP. Hypercare, Strategic and Must Win go Head of PNS → C-level instead.",
       "Hypercare or Strategic, after every other gate → Pending Review - C-level (Alex and Dhinesh).",
       "Routing & limits has the full table of ceilings per service and revenue band.",
     ],
@@ -59,9 +59,9 @@ const TASKS = [
     go: "psp-pending",
     steps: [
       "Since 2026-09-18 the app no longer flags a below-floor price: the margin boxes and the Below bottom rate checkbox are gone, and the price category is a tag only. A Standard deal is no longer refused for it, so check the category (Category 3 is below 20% margin) when you review.",
-      "On a watched group (Hypercare, Strategic, Must Win), PSP rules on whether the margin is survivable, then the Head of PNS finalises the solution, then C-level sign it.",
+      "On a watched group (Hypercare, Strategic, Must Win), the Head of PNS finalises the solution, then C-level sign it. PSP is not in that chain (2026-09-29); it comes in only if someone escalates.",
       "The commercial concession itself — whether Sales will wear the discount — is the Head of Sales's call, and they make it in SALES CRM (Baskoro, 2026-08-14). This app no longer holds a queue for it, because a gate nobody opens just leaves the ticket waiting.",
-      "Must Win is priced by PNS and treated exactly like a Strategic account (2026-09-29): PNS prices it, the Head of PNS finalises it, PSP reviews the price and C-level sign it — at any revenue and on any account.",
+      "Must Win is priced by PNS and treated exactly like a Strategic account (2026-09-29): PNS prices it, the Head of PNS finalises it and C-level sign it — at any revenue and on any account.",
     ],
   },
   {
@@ -287,7 +287,7 @@ export default function Guide({ onGo }) {
         </div>
         <p className="text-[13px] leading-relaxed text-slate-600">
           Intake → the responsible side prices it → the gates that its rule triggered clear
-          in order (<b>Head PNS</b> for the three watched groups, <b>PSP</b> for the margin,
+          in order (<b>Head PNS</b> for the three watched groups, <b>PSP</b> only when escalated,
           <b>C-level</b> for managed accounts, always last — the Head of Sales approves in
           Sales CRM, not here) → the proposal goes out → Sales records won or lost → the charter is
           published and Ops onboard. Everything else in this app is a way of seeing where a

@@ -39,15 +39,16 @@ const APPROVAL = [
   ["Inside the tier ceiling", "Nobody. Attach and go.", "—"],
   ["Sameday discount over 20%", "PSP, by rule.", "Pending Review - PSP"],
   ["Either FTL line at or above Rp 30 Mio", "PSP, by rule.", "Pending Review - PSP"],
-  ["Hypercare or Strategic account", "PSP, by rule. Manual review at every band.",
-   "Pending Review - PSP"],
+  // No PSP by rule for the watched groups (Michael, 2026-09-29).
+  ["Hypercare, Strategic or Must Win", "Head of PNS, then C-level. PSP only if escalated.",
+   "Pending Review - Head PNS"],
   // The Head of Sales accepts the concession in Sales CRM now (Baskoro, 2026-08-14),
   // so a below-floor price has no gate of its own here -- it is refused outright on a
   // Standard deal, and on a watched one it rides the normal chain.
   // The below-floor flag is gone (Michael, 2026-09-18): no margin is typed and the
   // Below bottom rate checkbox is removed, so nothing detects a below-floor price.
   ["Margin below the tier floor",
-   "Not detected by the app any more (2026-09-18). Hypercare and Strategic still reach PSP by rule; anything else can be escalated.", "—"],
+   "Not detected by the app any more (2026-09-18). PSP only if someone escalates.", "—"],
   ["Sales Head acknowledges a below-bottom price",
    "Ends there, unless the ticket carries a PSP exception, in which case PSP signs off.",
    "Proposal, or Pending Review - PSP"],

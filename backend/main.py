@@ -896,7 +896,12 @@ def review_level(t: dict) -> str | None:
 # is worse than not having one -- a ticket would sit in a queue waiting on a person who
 # was never going to open this app. Verified zero tickets were sitting at that status
 # when it was removed, so nothing was stranded.
-CHAIN_WATCHED_BELOW = ["Pending Review - PSP", "Pending Review - Head PNS"]
+# Watched deals -- Hypercare, Strategic, Must Win -- go Head of PNS, then C-level, and
+# PSP is NOT in the chain (Michael, 2026-09-29). PSP is reached only when somebody presses
+# Escalate. It was listed first here since 2026-08-13 while pricing sent the ticket to the
+# Head first, so the "rule" never actually fired: the Head's step jumped straight past
+# it to C-level. The chain now says what the app does, on purpose.
+CHAIN_WATCHED_BELOW = ["Pending Review - Head PNS"]
 CHAIN_WATCHED_CLEAN = ["Pending Review - Head PNS"]
 
 
@@ -1662,7 +1667,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-29.1"
+BUILD = "2026-09-29.2"
 
 
 class Me(BaseModel):
@@ -5529,10 +5534,9 @@ async def submit_price(ref: str, body: PriceIn, u: User = Depends(current_user))
                  f"the deal Must Win in Sales CRM if it genuinely warrants the exception.")
 
 
-    # The Head of PNS finalises the solution before anyone else is asked to approve it.
-    # This is checked ahead of the PSP and below-floor branches on purpose: those still
-    # apply, they just apply *after* the solution is finished. next_after_head_pns()
-    # picks the chain back up from the flags recorded here.
+    # The Head of PNS finalises the solution, then C-level signs it -- no PSP by rule for
+    # the watched groups (Michael, 2026-09-29); PSP only if someone escalates. The flags
+    # are still recorded, so the history shows a manual band or a below-floor price.
     if review_level(t) == "head":
         if to_psp:
             await execute("UPDATE tickets SET manual_review=1 WHERE id=%s", (t["id"],))

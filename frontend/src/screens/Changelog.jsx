@@ -3,6 +3,19 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-09-29",
+    title: "Watched deals go Head of PNS → C-level; PSP only on escalation",
+    by: "Michael + Claude",
+    changes: [
+      "Hypercare, Strategic and Must Win deals now run: priced by PNS → Head of PNS finalises → C-level signs. PSP is not in that chain; it comes in only when someone presses Escalate to PSP.",
+      "This is what the app was already doing — since 2026-08-13 the chain LISTED PSP first while pricing sent the ticket to the Head first, so the Head's step went straight past PSP to C-level. The chain, the Guide and Routing & limits now say so on purpose, and the tests walk the chain from where pricing actually puts the ticket.",
+    ],
+    overruled: [
+      "PSP reviewing Hypercare/Strategic deals by rule (Baskoro's approval chain, 2026-08-13: PSP → Head PNS → C-level).",
+      "Must Win reviewed by PSP (earlier today): it follows Strategic, which no longer goes to PSP by rule.",
+    ],
+  },
+  {
+    date: "2026-09-29",
     title: "Must Win is priced by PNS, like a Strategic account",
     by: "Michael + Claude",
     changes: [

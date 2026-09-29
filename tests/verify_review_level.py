@@ -104,14 +104,14 @@ print(f"verify_review_level.py  {len(CASES)} review cases + 5 group cases PASSED
 # expectation read the same.
 S = lambda x: x.replace("Pending ", "")
 CHAINS = [
-    ("Hypercare below floor", {"acct_type": "Hypercare", "must_win": 0, "exec_signoff": 0}, True,
-     ["Review - PSP", "Review - Head PNS", "Review - C-level"]),
-    ("Strategic below floor", {"acct_type": "Strategic", "must_win": 0, "exec_signoff": 0}, True,
-     ["Review - PSP", "Review - Head PNS", "Review - C-level"]),
-    # Must Win ends at C-level like the other two: a deal the business has declared it
-    # must win is one the executives want to see, whatever the account tier says.
-    ("Must Win below floor", {"acct_type": "Standard", "must_win": 1, "exec_signoff": 0}, True,
-     ["Review - PSP", "Review - Head PNS", "Review - C-level"]),
+    # No PSP by rule for the watched groups (Michael, 2026-09-29): Head of PNS, then
+    # C-level, whether or not the price needed a manual decision. PSP only on escalation.
+    ("Hypercare, manual band", {"acct_type": "Hypercare", "must_win": 0, "exec_signoff": 0}, True,
+     ["Review - Head PNS", "Review - C-level"]),
+    ("Strategic, manual band", {"acct_type": "Strategic", "must_win": 0, "exec_signoff": 0}, True,
+     ["Review - Head PNS", "Review - C-level"]),
+    ("Must Win, manual band", {"acct_type": "Standard", "must_win": 1, "exec_signoff": 0}, True,
+     ["Review - Head PNS", "Review - C-level"]),
     ("Hypercare clean", {"acct_type": "Hypercare", "must_win": 0, "exec_signoff": 0}, False,
      ["Review - Head PNS", "Review - C-level"]),
     ("Must Win clean", {"acct_type": "Standard", "must_win": 1, "exec_signoff": 0}, False,
