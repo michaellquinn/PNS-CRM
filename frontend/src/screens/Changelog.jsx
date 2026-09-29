@@ -3,6 +3,16 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-09-29",
+    title: "Sales Planning: weekly stage report for the deck",
+    by: "Michael + Claude",
+    changes: [
+      "New Sales Planning menu with Jabo - WJ Weekly Stage (GJ + WJ) and CJ - EJ Weekly Stage (CJ + EJ). Each lists every open deal PNS has finished with, grouped by its Sales CRM stage: Proposal Submitted (Proposal Submitted, Negotiation), Proposal Accepted (EKYC Approval — always — and Contract Sent) and Ready to Ship.",
+      "The summary counts deals whose Sales CRM close date falls in the next 2 weeks, with their committed revenue in millions; those rows are shaded. Expected M0 Revenue and Commercial Remarks are left blank. Closed-Won deals are not listed.",
+      "Copy table puts it on the clipboard with its colours, ready to paste into Google Slides or PowerPoint.",
+    ],
+  },
+  {
+    date: "2026-09-29",
     title: "Watched deals go Head of PNS → C-level; PSP only on escalation",
     by: "Michael + Claude",
     changes: [

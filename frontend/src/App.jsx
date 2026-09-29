@@ -10,6 +10,7 @@ import Users from "./screens/Users";
 import TicketDetail from "./screens/TicketDetail";
 import Workload from "./screens/Workload";
 import Mine from "./screens/Mine";
+import WeeklyStage from "./screens/WeeklyStage";
 import Sync from "./screens/Sync";
 import ImportQueue from "./screens/ImportQueue";
 import Changelog from "./screens/Changelog";
@@ -169,6 +170,14 @@ const NAV = [
   // Onboarding is deliberately its own section, not a step inside Solutioning:
   // solutioning ends when the shipper accepts, and what follows asks a different
   // question of different people. Ops read it; Sales complete it.
+  // Sales Planning's weekly deck pages (Michael, 2026-09-29): the open pipeline past
+  // PNS for one pair of regions, grouped by Sales CRM stage, ready to paste into a deck.
+  ["Sales Planning", [
+    { id: "weekly-jabo-wj", label: "Jabo - WJ Weekly Stage", icon: "▦",
+      keywords: "weekly stage report deck jabo gj wj pipeline sales planning" },
+    { id: "weekly-cj-ej", label: "CJ - EJ Weekly Stage", icon: "▦",
+      keywords: "weekly stage report deck cj ej pipeline sales planning" },
+  ]],
   ["Ops Onboarding", [
     { id: "onboarding", label: "Pending Information", icon: "◉",
       keywords: "go live ops kick off onboarding schedule" },
@@ -731,6 +740,8 @@ export default function App() {
     "capa-raise": <NewCapa notify={notify} onCreated={() => go("capa-all")} />,
     guide: <Guide onGo={go} />,
     onboarding: <OperationalList me={me} onOpen={ref => open(ref, "__onboarding__")} />,
+    "weekly-jabo-wj": <WeeklyStage report="jabo-wj" notify={notify} onOpen={open} />,
+    "weekly-cj-ej": <WeeklyStage report="cj-ej" notify={notify} onOpen={open} />,
     readiness: <OperationalList view="readiness" me={me} onOpen={ref => open(ref, "__onboarding__")} />,
     golive: <OperationalList view="golive" me={me} notify={notify} onOpen={ref => open(ref, "__onboarding__")} />,
     "operational-db": <OperationalDatabase me={me} notify={notify} onOpen={ref => open(ref, "__onboarding__")} />,

@@ -1667,7 +1667,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-29.2"
+BUILD = "2026-09-29.3"
 
 
 class Me(BaseModel):
@@ -10011,6 +10011,99 @@ class OperationalRowsResponse(BaseModel):
 
 class OperationalMasterResponse(OperationalRowsResponse):
     columns: list[str]
+
+
+# ------------------------------------------------------------------ weekly stage report
+# Sales Planning's weekly deck page (Michael, 2026-09-29): every deal PNS has finished
+# with, grouped by where it stands in Sales CRM, for one pair of regions at a time.
+#
+# The PNS status alone cannot draw it -- Negotiation, EKYC Approval and Contract Sent all
+# read "Proposal Submitted" here -- but every synced ticket keeps Sales CRM's RAW stage,
+# so the grouping is done on that. The rules, as agreed:
+#
+#   Proposal Submitted   Proposal Submitted, Proposal Sent, Quotation Sent, Negotiation
+#   Proposal Accepted    EKYC Approval (always), Contract Sent
+#   Ready to Ship        Agreed to Ship, Onboarding, Ready to Ship
+#
+# Closed-Won is left out on purpose: the deal is done, and the page is the open pipeline.
+# "Closing in the next 2 weeks" is Sales CRM's close date from today to today + 14.
+WEEKLY_GROUPS = [
+    ("Proposal Submitted", ("Proposal Submitted", "Proposal Sent", "Quotation Sent",
+                            "Negotiation")),
+    ("Proposal Accepted", ("EKYC Approval", "Contract Sent")),
+    ("Ready to Ship", ("Agreed to Ship", "Onboarding", "Ready to Ship")),
+]
+WEEKLY_REPORTS = {"jabo-wj": ["GJ", "WJ"], "cj-ej": ["CJ", "EJ"]}
+
+
+def weekly_group(stage) -> str | None:
+    s = _norm_stage(stage)
+    for group, stages in WEEKLY_GROUPS:
+        if s in {_norm_stage(x) for x in stages}:
+            return group
+    return None
+
+
+def _money(raw) -> int | None:
+    """Sales CRM sends revenue as text ("75000000", "75,000,000.00"); None when absent."""
+    digits = re.sub(r"[^0-9.,]", "", str(raw or ""))
+    # Thousands may be dotted the Indonesian way (20.000.000) or commaed (20,000,000);
+    # a separator that appears more than once is a thousands mark, not a decimal point.
+    if digits.count(".") > 1:
+        digits = digits.replace(".", "")
+    digits = digits.replace(",", "")
+    try:
+        return int(float(digits)) if digits else None
+    except ValueError:
+        return None
+
+
+@app.get("/api/reports/weekly-stage")
+async def weekly_stage(report: str = "jabo-wj", u: User = Depends(current_user)):
+    """One pair of regions' open pipeline after PNS, grouped by Sales CRM stage."""
+    if u.group in OPERATIONAL_GROUPS:
+        raise HTTPException(403, "The weekly stage report is for Sales Planning and PNS")
+    regions = WEEKLY_REPORTS.get(report)
+    if not regions:
+        raise HTTPException(404, f"No weekly report called {report}")
+    marks = ",".join(["%s"] * len(regions))
+    rows = await q(
+        "SELECT t.ticket_ref, t.opportunity_id, t.opportunity_name, t.stage, t.region, "
+        "t.status, t.sales_name, s.name AS shipper, i.payload "
+        "FROM tickets t JOIN shippers s ON s.id=t.shipper_id "
+        "LEFT JOIN ticket_input i ON i.ticket_id=t.id "
+        f"WHERE t.deleted_at IS NULL AND t.region IN ({marks}) "
+        "AND t.status IN ('Proposal Submitted','Proposal Accepted / Ready to Ship')",
+        tuple(regions))
+    today = date.today()
+    horizon = today + timedelta(days=14)
+    out = []
+    for r in rows:
+        group = weekly_group(r.get("stage"))
+        if not group:
+            continue
+        p = r["payload"] if isinstance(r["payload"], dict) else json.loads(r["payload"] or "{}")
+        close = None
+        try:
+            close = date.fromisoformat(str(p.get("sfCloseDate") or "")[:10])
+        except ValueError:
+            pass
+        out.append({
+            "ref": r["ticket_ref"], "opportunity_id": r["opportunity_id"],
+            "shipper": r.get("opportunity_name") or r["shipper"], "region": r["region"],
+            "crm_status": r.get("stage"), "group": group,
+            "committed": _money(p.get("committedRev")),
+            "close_date": str(close) if close else None,
+            "closing_soon": bool(close and today <= close <= horizon),
+            "sales": r.get("sales_name"),
+        })
+    order = [g for g, _ in WEEKLY_GROUPS]
+    out.sort(key=lambda x: (order.index(x["group"]), -(x["committed"] or 0), x["shipper"]))
+    soon = [x for x in out if x["closing_soon"]]
+    return {"report": report, "regions": regions, "rows": out, "groups": order,
+            "summary": {"opportunities": len(soon),
+                        "committed": sum(x["committed"] or 0 for x in soon)},
+            "as_of": str(today)}
 
 
 @app.get("/api/onboarding-v2", response_model=OperationalWorklistResponse)
