@@ -5,7 +5,8 @@ import { Card, Head, Pill } from "../ui";
 // high-value Standard band as normal work.
 const ROUTING = [
   ["Hypercare / Strategic", "any service", "any revenue", "PNS", "— (PNS prices it)"],
-  ["Must Win (any account)", "any service", "any revenue", "as the account decides",
+  // Must Win is priced by PNS and treated like a Strategic account (Michael, 2026-09-29).
+  ["Must Win (any account)", "any service", "any revenue", "PNS",
    "Head of PNS → Pending Review - Head PNS"],
   ["Standard", "FTL monthly / Sameday", "any revenue", "PNS", "— (PNS prices it)"],
   ["Standard", "LTL / B2BR / B2C / FTL on-call", "≥ Rp 30 Mio", "Sales",

@@ -98,6 +98,25 @@ for svc, rev, m, d, exp, why in cases:
         fails.append('BREACH %s: exp=%s got=%s' % (why, exp, got))
 print("breach cases checked:", len(cases), "| cumulative failures:", len(fails))
 
+# Must Win is PNS's to price and is treated like a Strategic account (Michael,
+# 2026-09-29): same queue, no PNS-review-of-PNS, and no published ceiling -- the price is
+# a decision PSP reviews. Checked on the cases that USED to go to Sales.
+print("Must Win")
+for svc, rev in (("LTL", 5_000_000), ("B2BR", 20_000_000), ("LTL", 40_000_000),
+                 ("FTL on-call", 40_000_000), ("B2C", 5_000_000)):
+    r = route("Standard", svc, rev, True)
+    if r != {"resp": "PNS", "review": False}:
+        fails.append("Must Win %s %s routed to %s" % (svc, rev, r))
+    g = guard_for("Standard", svc, rev, True)
+    if g["kind"] != "manual":
+        fails.append("Must Win %s %s guard is %s, not manual like Strategic" % (svc, rev, g["kind"]))
+    if route("Standard", svc, rev, True) != route("Strategic", svc, rev):
+        fails.append("Must Win %s %s is not routed like a Strategic account" % (svc, rev))
+# ...and the flag defaults off, so nothing that does not pass it changes behaviour.
+if route("Standard", "LTL", 5_000_000) != {"resp": "Sales", "review": False}:
+    fails.append("a Standard LTL deal without Must Win must still be Sales'")
+print("must win cases checked | cumulative failures:", len(fails))
+
 print()
 if fails:
     print("FAILURES:")

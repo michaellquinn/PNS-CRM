@@ -2,6 +2,19 @@ import { Card, Head, Pill } from "../ui";
 
 const ENTRIES = [
   {
+    date: "2026-09-29",
+    title: "Must Win is priced by PNS, like a Strategic account",
+    by: "Michael + Claude",
+    changes: [
+      "A Must Win opportunity is now PNS's to price on ANY account, service and revenue — before, it followed the account tier, so a Must Win on a Standard account under 30 Mio was priced by Sales.",
+      "From there it is treated exactly like a Strategic account: no published price ceiling applies (the price is a decision), the Head of PNS finalises it, PSP reviews it and C-level sign it, at any revenue.",
+      "Must Win still comes only from Sales CRM's Lead Source Detail. When the sync turns it on or off, the ticket's routing is re-derived.",
+    ],
+    overruled: [
+      "Must Win pricing decided by the account tier (“as the account decides”, Routing & limits).",
+    ],
+  },
+  {
     date: "2026-09-28",
     title: "View as: Admin sees the app exactly as a person or a role does",
     by: "Michael + Claude",

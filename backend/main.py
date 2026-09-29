@@ -447,13 +447,18 @@ for _done in ("Lost", "Cancel", "Proposal Accepted / Ready to Ship"):
     MANUAL_MOVES.pop(_done, None)
 
 
-def route(acct: str, svc: str, rev: int) -> dict:
+def route(acct: str, svc: str, rev: int, must_win: bool = False) -> dict:
     """Who prices it, and whether PNS reviews afterwards (5A responsibility matrix).
 
     Service is tested before revenue on purpose: some lines go to PNS at *every* revenue
     band, whatever the account tier. Testing revenue first made that branch unreachable
-    above 30 Mio and quietly handed the most complex products to Sales."""
-    if acct in MANAGED_ACCTS:
+    above 30 Mio and quietly handed the most complex products to Sales.
+
+    A Must Win deal is PNS's to price, exactly like a Strategic account (Michael,
+    2026-09-29). It used to follow the account tier, so a Must Win on a Standard account
+    under 30 Mio was priced by Sales -- the deal the business most wants to win, priced
+    by the side that does not own solutioning."""
+    if acct in MANAGED_ACCTS or must_win:
         return {"resp": "PNS", "review": False}
     # "FTL" is provisional and PNS is who resolves it, so it comes to PNS rather than
     # being priced by Sales against a line nobody has confirmed. Once PNS sets on-call or
@@ -807,11 +812,17 @@ def status_for_stage(stage: str | None, resp: str) -> str | None:
     return None          # New, Negotiation, EKYC, Contract Sent...
 
 
-def guard_for(acct: str, svc: str, rev: int) -> dict:
-    """The pricing ceiling that applies to one ticket."""
+def guard_for(acct: str, svc: str, rev: int, must_win: bool = False) -> dict:
+    """The pricing ceiling that applies to one ticket.
+
+    Must Win takes the Strategic treatment here too (Michael, 2026-09-29): no published
+    ceiling applies, the price is a decision, and PSP reviews it by rule."""
     if acct in MANAGED_ACCTS:
         return {"kind": "manual", "limit": None,
                 "why": f"{acct} account, priced under manual review"}
+    if must_win:
+        return {"kind": "manual", "limit": None,
+                "why": "Must Win deal, priced under manual review"}
     kind, limit = PRICING_GUARD.get(svc, {}).get(tier_of(rev), ("manual", None))
     why = {
         "margin":   f"minimum margin {limit}%" if limit is not None else "",
@@ -1651,7 +1662,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-28.5"
+BUILD = "2026-09-29.1"
 
 
 class Me(BaseModel):
@@ -4684,7 +4695,7 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
                         plan["provisional"] = provisional
                         plan["sales_unknown"] = bool(plan["sales_name"]) and \
                             plan["sales_name"] not in known_people
-                        r = route(acct_type, service, revenue)
+                        r = route(acct_type, service, revenue, bool(plan.get("must_win")))
                         plan["routes_to"] = r["resp"]
 
                         if not body.dry_run:
@@ -4907,7 +4918,7 @@ async def _refresh_from_salescrm(o: dict, account: dict | None = None,
         # and the ticket bounced back to a queue somebody had deliberately taken it out
         # of, with the sync's own note as the only clue.
         over = str(t.get("resp_override") or "").strip()
-        rr = route(new_tier, new_service, new_rev)
+        rr = route(new_tier, new_service, new_rev, bool(mw))
         sets += ["potential_rev=%s", "service_type=%s"]
         args += [new_rev, new_service]
         if over in ("PNS", "Sales"):
@@ -5492,7 +5503,8 @@ async def submit_price(ref: str, body: PriceIn, u: User = Depends(current_user))
     # Two mechanisms, deliberately both live. The 5A guard computes a ceiling for every
     # service and catches a breach the pricer did not declare; the checkbox catches one
     # the numbers do not show, on the two services with a published floor.
-    g = guard_for(t["acct_type"], t["service_type"], int(t["potential_rev"] or 0))
+    g = guard_for(t["acct_type"], t["service_type"], int(t["potential_rev"] or 0),
+                  bool(t.get("must_win")))
     breach = guard_breached(g, body.margin_pct, body.discount_pct)
     if g["kind"] == "standard" and (body.discount_pct or 0) > 0:
         breach = True          # a standard-rate tier permits no deviation at all
@@ -5750,7 +5762,8 @@ async def requirement_supplied(ref: str, body: RequirementDoneIn,
                   "AS o FROM ticket_input WHERE ticket_id=%s", (t["id"],), one=True)
     over = str((row or {}).get("o") or "").strip()
     resp = over if over in ("PNS", "Sales") else route(
-        t["acct_type"], t["service_type"], int(t.get("potential_rev") or 0))["resp"]
+        t["acct_type"], t["service_type"], int(t.get("potential_rev") or 0),
+        bool(t.get("must_win")))["resp"]
     nxt = pending_for(resp)
     await execute("UPDATE tickets SET resp=%s WHERE id=%s", (resp, t["id"]))
     note = "requirement supplied" + (f": {body.note.strip()}" if body.note.strip() else "")
@@ -5877,7 +5890,7 @@ async def edit_input(ref: str, body: InputPatch, u: User = Depends(current_user)
 
     # Re-run the routing rule on the corrected facts. Status is deliberately left alone:
     # a correction should not yank the ticket out of the queue it is sitting in.
-    r = route(acct, service, int(revenue))
+    r = route(acct, service, int(revenue), bool(t.get("must_win")))
     if service != t["service_type"] or routing_changed:
         # An admin override outranks the matrix here for the same reason it does in the
         # sync: it was a deliberate decision about who prices this one deal, and a
@@ -5944,7 +5957,8 @@ async def set_priced_by(ref: str, body: PricedByIn, u: User = Depends(current_us
 
     # PNS does not re-check its own routine work, so a ticket moved to PNS carries no
     # PNS review; moved to Sales, the 5A answer for this deal applies again.
-    r = route(t["acct_type"], t["service_type"], int(t.get("potential_rev") or 0))
+    r = route(t["acct_type"], t["service_type"], int(t.get("potential_rev") or 0),
+                  bool(t.get("must_win")))
     review = int(body.resp == "Sales" and bool(r["review"]))
     await execute("UPDATE tickets SET resp=%s, needs_review=%s WHERE id=%s",
                   (body.resp, review, t["id"]))
@@ -6160,7 +6174,8 @@ async def reopen(ref: str, body: ReopenIn, u: User = Depends(current_user)):
         _ov = await q("SELECT JSON_UNQUOTE(JSON_EXTRACT(payload, '" + RESP_OVERRIDE_PATH
                       + "')) AS v FROM ticket_input WHERE ticket_id=%s", (t["id"],), one=True)
         over = str((_ov or {}).get("v") or "").strip()
-        r = route(t["acct_type"], t["service_type"], int(t.get("potential_rev") or 0))
+        r = route(t["acct_type"], t["service_type"], int(t.get("potential_rev") or 0),
+                  bool(t.get("must_win")))
         resp = over if over in ("PNS", "Sales") else r["resp"]
         review = int(resp == "Sales" and bool(r["review"]))
         await execute("UPDATE tickets SET outcome=NULL, loss_reason=NULL, resp=%s, "

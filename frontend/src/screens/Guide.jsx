@@ -61,7 +61,7 @@ const TASKS = [
       "Since 2026-09-18 the app no longer flags a below-floor price: the margin boxes and the Below bottom rate checkbox are gone, and the price category is a tag only. A Standard deal is no longer refused for it, so check the category (Category 3 is below 20% margin) when you review.",
       "On a watched group (Hypercare, Strategic, Must Win), PSP rules on whether the margin is survivable, then the Head of PNS finalises the solution, then C-level sign it.",
       "The commercial concession itself — whether Sales will wear the discount — is the Head of Sales's call, and they make it in SALES CRM (Baskoro, 2026-08-14). This app no longer holds a queue for it, because a gate nobody opens just leaves the ticket waiting.",
-      "Where PSP does not take the ticket at all (a Must Win on a Standard account with no exception recorded), the Head of PNS is the remaining gate here.",
+      "Must Win is priced by PNS and treated exactly like a Strategic account (2026-09-29): PNS prices it, the Head of PNS finalises it, PSP reviews the price and C-level sign it — at any revenue and on any account.",
     ],
   },
   {
