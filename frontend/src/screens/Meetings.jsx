@@ -4,7 +4,7 @@ import { api, GENERAL_TITLE, PENDING_SOLUTION, REQUIREMENT_STATUS, groupTone, rp
 import {
   Btn, Card, Head, MultiSelect, Pill, inputCls, useScrollMemory, useSticky,
 } from "../ui";
-import { ProposalActions, RequirementActions } from "./Queues";
+import { BackToRequirement, ProposalActions, RequirementActions } from "./Queues";
 
 // Pending, and Proposal submitted — two screens run by region. Pick the regions in the
 // room, and both people lists — the salesperson who sold it and the PNS PIC holding
@@ -524,8 +524,9 @@ function Review({ half, me, onOpen, notify }) {
       )}
       {half === "pending" && (
         <Block label="Pending solution" sub="Being worked. Raise a point here, or open the ticket for the full discussion."
-          rows={pendRows} tone="bg-amber-50 text-amber-700" offset={0}
-          onOpen={onOpen} notify={notify} onDone={load} />
+          rows={pendRows} tone="bg-amber-50 text-amber-700" offset={0} onOpen={onOpen}
+          actions={(t) => <BackToRequirement t={t} me={me} notify={notify} onDone={load} />}
+          notify={notify} onDone={load} />
       )}
       {half === "requirement" && (
         <Block label="Waiting on Sales" sub="PNS asked for data before this can be priced. Open the ticket to see the remark, or add a note to the row."

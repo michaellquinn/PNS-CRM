@@ -101,6 +101,10 @@ CASES = [
     # Sales recording the outcome.
     ("Proposal Submitted", "Proposal Accepted / Ready to Ship", True),
     ("Proposal Submitted", "Pending PNS", True),
+    # Back for a missing requirement instead of to Pending Sales (Michael, 2026-09-29):
+    # Requirement supplied then routes it to whoever owes the price.
+    ("Proposal Submitted", "Pending Requirement", True),
+    ("Proposal Submitted", "Pending Sales", False),
     # Lost and Cancel are reachable from anywhere still open.
     ("Pending Sales", "Lost", True),
     ("Pending CRM ID", "Cancel", True),

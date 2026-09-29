@@ -3,6 +3,18 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-09-29",
+    title: "Back to Pending requirement from Pending solution and Proposal submitted",
+    by: "Michael + Claude",
+    changes: [
+      "Pending solution: every row has a Back to Pending requirement button with a box for what is unclear or missing. The review is done on this screen, so the send-back is right there instead of inside the ticket. The note is what Sales is notified with.",
+      "Proposal submitted: the send-back choices are now Pending Requirement and Pending PNS. When Sales mark the requirement supplied, the ticket goes on to whoever owes the price — PNS or Sales — automatically.",
+    ],
+    overruled: [
+      "Sending a submitted proposal back to Pending Sales. It goes to Pending Requirement instead, and Requirement supplied works out who prices it.",
+    ],
+  },
+  {
+    date: "2026-09-29",
     title: "Sales Planning: weekly stage report for the deck",
     by: "Michael + Claude",
     changes: [

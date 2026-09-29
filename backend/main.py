@@ -401,7 +401,12 @@ TRANSITIONS = [
      "The shipper accepts", "Sales", "POST /status"),
     ("Proposal Submitted", "Pending PNS", "Sent back for rework, with a reason",
      "PNS or Sales", "POST /status"),
-    ("Proposal Submitted", "Pending Sales", "Sent back for rework, with a reason",
+    # A submitted proposal goes back to Pending Requirement, not Pending Sales (Michael,
+    # 2026-09-29): when a proposal comes back it is because something about the ask was
+    # unclear, and Requirement supplied then routes it to whoever owes the price on its
+    # own -- PNS or Sales, worked out on the server -- so nobody has to pick.
+    ("Proposal Submitted", REQUIREMENT_STATUS,
+     "Sent back because a requirement is missing or unclear, with a remark saying which",
      "PNS or Sales", "POST /status"),
 
     ("*", "Lost", "Sales records the loss with a reason", "Sales", "POST /status"),
@@ -1667,7 +1672,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-29.4"
+BUILD = "2026-09-29.5"
 
 
 class Me(BaseModel):

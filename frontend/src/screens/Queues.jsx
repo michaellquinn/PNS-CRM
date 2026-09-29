@@ -977,6 +977,33 @@ export function ExecSignoff({ me, onOpen, notify }) {
   );
 }
 
+/* Back to Pending requirement from the Pending solution walk (Michael, 2026-09-29). The
+   review happens on that screen, so when something is unclear the button is right on the
+   row instead of inside the ticket. Same move and same mandatory remark as the pricing
+   queues' "Back to Sales for requirements" — the remark is what Sales is notified with. */
+export function BackToRequirement({ t, me, notify, onDone }) {
+  const [why, setWhy] = useState("");
+  const [busy, setBusy] = useState(false);
+  if (!me.permissions.sendBackProposal) return null;
+  const go = async () => {
+    setBusy(true);
+    try {
+      await api.status(t.ref, { status: REQUIREMENT_STATUS, reason: why.trim() });
+      notify(`${t.ref} is back in Pending requirement`);
+      setWhy("");
+      await onDone();
+    } catch (e) { notify(e.message); }
+    finally { setBusy(false); }
+  };
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <input className={`${inputCls} max-w-[340px]`} placeholder="What is unclear or missing (goes to Sales)"
+        value={why} onChange={(e) => setWhy(e.target.value)} />
+      <Btn disabled={busy || !why.trim()} onClick={go}>Back to Pending requirement</Btn>
+    </div>
+  );
+}
+
 /* ---------------------------------------------------------------- proposals */
 /* The status controls for a submitted proposal. Extracted so the Proposal submitted
    screen and anything else that records an outcome run the same code — a second copy of "what may a
@@ -1053,7 +1080,8 @@ export function ProposalActions({ t, me, notify, onDone }) {
           </optgroup>
         )}
       </select>
-      <input className={`${inputCls} max-w-[300px]`} placeholder="Reason — required to send back"
+      <input className={`${inputCls} max-w-[300px]`}
+        placeholder={next === REQUIREMENT_STATUS ? "What is unclear or missing (goes to Sales)" : "Reason — required to send back"}
         value={reason} onChange={(e) => setReason(e.target.value)} />
       <Btn disabled={busy} onClick={() => act(() => api.status(t.ref,
         next.startsWith("Lost:")

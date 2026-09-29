@@ -331,7 +331,10 @@ export const PENDING_SOLUTION = AWAIT_STATUSES;
 // defined for a different question and borrowing one puts options in this dropdown that
 // the server refuses with a 409 — the screen offers a move and the ticket does not take
 // it, which reads as the app being broken.
-export const SEND_BACK_STATUSES = ["Pending PNS", "Pending Sales"];
+//
+// Pending Requirement replaced Pending Sales here (Michael, 2026-09-29): Requirement
+// supplied sends it on to whoever owes the price, so the choice is made for you.
+export const SEND_BACK_STATUSES = ["Pending Requirement", "Pending PNS"];
 
 // Everything still being worked, mirroring the backend's PENDING_STATUSES. "Pending CRM
 // ID" is deliberately out: it is blocked on an id rather than waiting on a person, it
