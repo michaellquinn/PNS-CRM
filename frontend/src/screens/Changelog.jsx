@@ -9,6 +9,7 @@ const ENTRIES = [
       "New Sales Planning menu with Jabo - WJ Weekly Stage (GJ + WJ) and CJ - EJ Weekly Stage (CJ + EJ). Each lists every open deal PNS has finished with, grouped by its Sales CRM stage: Proposal Submitted (Proposal Submitted, Negotiation), Proposal Accepted (EKYC Approval — always — and Contract Sent) and Ready to Ship.",
       "The summary counts deals whose Sales CRM close date falls in the next 2 weeks, with their committed revenue in millions; those rows are shaded. Expected M0 Revenue and Commercial Remarks are left blank. Closed-Won deals are not listed.",
       "Copy table puts it on the clipboard with its colours, ready to paste into Google Slides or PowerPoint.",
+      "Dev only: twelve sample deals (refs SOF-W01 to SOF-W12) so both pages have a table to try Copy table on. Production never gets them.",
     ],
   },
   {

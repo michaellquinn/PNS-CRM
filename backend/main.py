@@ -1667,7 +1667,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-29.3"
+BUILD = "2026-09-29.4"
 
 
 class Me(BaseModel):
@@ -3805,6 +3805,63 @@ async def seed_sample_onboarding() -> str:
     return "seeded " + ", ".join(seeded)
 
 
+# Sample deals for the Sales Planning weekly pages (Michael, 2026-09-29), so Dev has a
+# table to copy into a deck. Dev only -- same switch as the sample onboarding -- and
+# marked: refs SOF-W.., opportunity ids SAMPLE-W.. (which also keeps the onboarding
+# seeder, which only takes tickets with no opportunity, off them).
+# (ref, shipper, region, service, Sales CRM stage, committed rev, close date in days)
+SAMPLE_WEEKLY = [
+    ("SOF-W01", "PT Sentosa Retail Nusantara", "GJ", "B2BR", "Proposal Submitted", 75_000_000, 5),
+    ("SOF-W02", "CV Maju Bersama Logistik", "GJ", "LTL", "Negotiation", 42_500_000, 30),
+    ("SOF-W03", "PT Indo Fresh Mart", "WJ", "Sameday", "Proposal Sent", 18_000_000, 12),
+    ("SOF-W04", "PT Graha Elektrindo", "GJ", "FTL monthly", "EKYC Approval", 120_000_000, 3),
+    ("SOF-W05", "Toko Kain Priangan", "WJ", "B2BR", "Contract Sent", 26_000_000, 21),
+    ("SOF-W06", "PT Mitra Farma Sehat", "GJ", "B2BR", "Agreed to Ship", 55_000_000, 9),
+    ("SOF-W07", "PT Bandung Kreasi Mebel", "WJ", "LTL", "Onboarding", 33_750_000, 40),
+    ("SOF-W08", "PT Solo Batik Mandiri", "CJ", "B2BR", "Proposal Submitted", 22_000_000, 7),
+    ("SOF-W09", "CV Semarang Agro Niaga", "CJ", "FTL monthly", "Negotiation", 88_000_000, 25),
+    ("SOF-W10", "PT Surabaya Plastik Jaya", "EJ", "LTL", "EKYC Approval", 47_000_000, 10),
+    ("SOF-W11", "PT Malang Fashion Hub", "EJ", "Sameday", "Ready to Ship", 15_500_000, 2),
+    ("SOF-W12", "PT Kediri Snack Nusantara", "EJ", "B2BR", "Contract Sent", 64_000_000, 35),
+]
+
+
+async def seed_sample_weekly() -> str:
+    if not SEED_SAMPLE_ONBOARDING:
+        return "off"
+    if await q("SELECT 1 AS n FROM tickets WHERE ticket_ref='SOF-W01'", one=True):
+        return "already seeded"
+    if _pool is None:
+        return "no database"
+    today = date.today()
+    async with _pool.acquire() as conn, conn.cursor(DictCursor) as cur:
+        await conn.begin()
+        try:
+            for n, (ref, name, region, svc, stage, rev, days) in enumerate(SAMPLE_WEEKLY, 1):
+                group = weekly_group(stage)
+                status = ("Proposal Accepted / Ready to Ship" if group == "Ready to Ship"
+                          else "Proposal Submitted")
+                await cur.execute("INSERT INTO shippers(name,acct_type,region) VALUES(%s,%s,%s)",
+                                  (name, "Non-Strategic", region))
+                await cur.execute(
+                    "INSERT INTO tickets(ticket_ref,opportunity_id,opportunity_name,stage,shipper_id,"
+                    "service_type,potential_rev,status,resp,sales_email,sales_name,region,"
+                    "submitted_on) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                    (ref, f"SAMPLE-W{n:02d}", name, stage, cur.lastrowid, svc, rev, status,
+                     "Sales", "sample@ninjavan.co", "Sample Sales", region,
+                     today - timedelta(days=20)))
+                await cur.execute(
+                    "INSERT INTO ticket_input(ticket_id,payload,updated_by) VALUES(%s,%s,%s)",
+                    (cur.lastrowid, json.dumps({"committedRev": str(rev),
+                                                "sfCloseDate": str(today + timedelta(days=days))}),
+                     "Sample data"))
+            await conn.commit()
+        except Exception:
+            await conn.rollback()
+            raise
+    return f"seeded {len(SAMPLE_WEEKLY)} sample deals"
+
+
 async def _auto_sync_loop() -> None:
     """Run the Sales CRM sweep on a timer, as the sync owner.
 
@@ -3821,6 +3878,10 @@ async def _auto_sync_loop() -> None:
         log.warning("sample onboarding: %s", await seed_sample_onboarding())
     except Exception:                                   # noqa: BLE001
         log.exception("sample onboarding seed failed")
+    try:
+        log.warning("sample weekly deals: %s", await seed_sample_weekly())
+    except Exception:                                   # noqa: BLE001
+        log.exception("sample weekly seed failed")
     while True:
         # Read every tick, not once at import. The interval, the window, the floor and
         # whether the queue governs imports are all settings now (Baskoro, 2026-08-28),
