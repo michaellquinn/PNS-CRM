@@ -1672,7 +1672,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-30.1"
+BUILD = "2026-09-30.2"
 
 
 class Me(BaseModel):
@@ -10275,8 +10275,12 @@ async def operational_detail(ref: str, u: User = Depends(current_user)):
             if value and (not options or value in options):
                 p[key] = value
         p["shipper_name"] = t.get("shipper", "")
-        p["service"] = t["service_type"]
-        p["opportunity_id"] = str(t.get("opportunity_id") or "")
+    # Service and opportunity id are the TICKET's, read fresh every time (Michael,
+    # 2026-09-30). They used to be copied in once, when the draft was first opened, so a
+    # Sales CRM id added to the ticket afterwards never reached the draft -- and submit
+    # then refused it for not matching the ticket, with no field on the form to fix it.
+    p["service"] = t["service_type"]
+    p["opportunity_id"] = str(t.get("opportunity_id") or "")
 
     # Which answers the Project Charter already holds, and which therefore must not be
     # retyped here (Michael, 2026-09-14). Asking the same question twice gets two
@@ -10313,12 +10317,21 @@ async def operational_detail(ref: str, u: User = Depends(current_user)):
     # Sales have submitted, it stops following: the answers the teams are confirming
     # against must not shift under them, and a changed charter is picked up when Sales
     # resubmit, which is also what re-fingerprints the checks.
+    srcs = {k: sk for k, _, _, _, _, sk in OB_FIELDS}
     if not (intake and intake.get("submitted_at")):
-        srcs = {k: sk for k, _, _, _, _, sk in OB_FIELDS}
         for key in locked:
             v = ob_source_value(source, srcs.get(key))
             if v or key in OB_FOLLOW_CHARTER:
                 p[key] = v
+    elif u.group not in OPERATIONAL_GROUPS:
+        # Sales' own copy after submit (Michael, 2026-09-30): the charter-only fields show
+        # what the charter says NOW, because that is what the next save and resubmit
+        # will send -- the save takes them from the charter regardless. Showing the old
+        # submitted value (blank, when the charter was filled in later) looked like the
+        # form had lost the answer and offered no way to type it. The teams still read
+        # the released copy, which only changes when Sales resubmit.
+        for key in OB_FOLLOW_CHARTER:
+            p[key] = ob_source_value(source, srcs.get(key))
     # One handling box became three (Michael, 2026-09-25). A draft written before that
     # keeps its note, shown against pickup, so nothing typed is silently lost.
     legacy_handling = str(ob_json((intake or {}).get("payload")).get("handling") or "").strip()
@@ -10379,6 +10392,11 @@ async def operational_save(ref: str, body: OperationalSave, u: User = Depends(cu
     srcs = {k: sk for k, _, _, _, _, sk in OB_FIELDS}
     for key in OB_FOLLOW_CHARTER:
         p[key] = ob_source_value(source, srcs[key])
+    # And the ticket's own service and opportunity id, for the same reason: they are not
+    # answers typed on this form, and a draft started before the id existed must not be
+    # refused for carrying the blank it was started with.
+    p["service"] = t["service_type"]
+    p["opportunity_id"] = str(t.get("opportunity_id") or "")
     for key in ("pickup_wait", "delivery_wait"):
         p[key] = ob_wait_bucket(p.get(key))
     ob_zero_counts(p)

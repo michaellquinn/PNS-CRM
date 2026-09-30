@@ -3,6 +3,15 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-09-30",
+    title: "FIXED — onboarding kept an old opportunity id and shipment mode",
+    by: "Michael + Claude",
+    changes: [
+      "FIXED — a Sales CRM id added to a ticket after its onboarding was started never reached the onboarding form, so Submit refused it (“must match the linked Sales CRM opportunity”) with no field to correct. The form now always reads the ticket's own service and opportunity id.",
+      "FIXED — after onboarding was submitted, Sales' form kept showing the charter answers as they were at submit time, so Shipment mode filled in on the charter later still read blank. Sales' form now shows what the charter says now, which is what the next save sends anyway. The teams keep reading the submitted copy until Sales resubmit.",
+    ],
+  },
+  {
+    date: "2026-09-30",
     title: "Pending solution shows who prices each deal",
     by: "Michael + Claude",
     changes: [

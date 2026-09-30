@@ -255,6 +255,16 @@ async def main():
     await denied(lambda: m.operational_save("SOF-1", m.OperationalSave(payload=p, revision=0), sales), 409)
     assert m._pool.conn.rolled_back and not m._pool.conn.committed
     safe = await m.operational_detail("SOF-1", team)
+    # A draft started before the Sales CRM id and the charter's shipment mode were filled
+    # in (Michael, 2026-09-30, SOF-1279 on Dev): Sales see the ticket's id and the
+    # charter's answer, and submitting is not refused for the blanks the draft began with.
+    old_draft = {**p, "opportunity_id": "", "delivery_mode": ""}
+    mine = await m.operational_detail("SOF-1", sales)
+    assert mine["payload"]["opportunity_id"] == "123", mine["payload"]["opportunity_id"]
+    assert mine["payload"]["delivery_mode"] == p["delivery_mode"]
+    savecur = Cur(); m._pool = Pool(savecur)
+    await m.operational_save("SOF-1", m.OperationalSave(payload=old_draft, revision=0, submit=True, documents_reviewed=True), sales)
+    assert m._pool.conn.committed
     assert "SECRET" not in json.dumps(safe, default=str) and "potential_rev" not in safe
 
     import httpx
