@@ -2,6 +2,14 @@ import { Card, Head, Pill } from "../ui";
 
 const ENTRIES = [
   {
+    date: "2026-09-30",
+    title: "Pending solution shows who prices each deal",
+    by: "Michael + Claude",
+    changes: [
+      "Each row on Pending solution now says “priced by PNS team” or “priced by Sales”, next to the service and revenue.",
+    ],
+  },
+  {
     date: "2026-09-29",
     title: "Back to Pending requirement from Pending solution and Proposal submitted",
     by: "Michael + Claude",

@@ -51,7 +51,7 @@ function ageDays(iso) {
 
 /* One line of the list. `children` is where a proposal's status controls go; a pending
    ticket passes none, because what happens to it happens inside the ticket. */
-function Line({ n, t, onOpen, right, children }) {
+function Line({ n, t, onOpen, right, pricer, children }) {
   return (
     <div className="border-b border-slate-100 py-2.5 last:border-0">
       <div className="flex flex-wrap items-center gap-3">
@@ -86,6 +86,12 @@ function Line({ n, t, onOpen, right, children }) {
         <Pill dot>{t.status}</Pill>
         {t.group && <Pill tone={groupTone(t.group)}>{t.group}</Pill>}
         <span className="text-[12px] text-slate-500">{t.service} &middot; {rp(t.revenue)}</span>
+        {/* Who owes the price, on Pending solution (Michael, 2026-09-30). */}
+        {pricer && t.priced_by && (
+          <span className={`text-[11.5px] font-semibold ${t.priced_by === "PNS" ? "text-violet-700" : "text-sky-700"}`}>
+            priced by {t.priced_by === "PNS" ? "PNS team" : "Sales"}
+          </span>
+        )}
         <span className="ml-auto text-[12px] text-slate-400">{right}</span>
       </div>
       {children && <div className="mt-2.5">{children}</div>}
@@ -302,7 +308,7 @@ function QuickComment({ t, notify, onDone }) {
 }
 
 
-function Block({ label, sub, rows, tone, offset, onOpen, actions, notify, onDone }) {
+function Block({ label, sub, rows, tone, offset, onOpen, actions, notify, onDone, pricer }) {
   return (
     <Card>
       <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
@@ -317,7 +323,7 @@ function Block({ label, sub, rows, tone, offset, onOpen, actions, notify, onDone
           <p className="text-center text-sm text-slate-400">Nothing here.</p>
         )}
         {rows.map((t, i) => (
-          <Line key={t.ref} n={offset + i + 1} t={t} onOpen={onOpen}
+          <Line key={t.ref} n={offset + i + 1} t={t} onOpen={onOpen} pricer={pricer}
             right={`${t.region} · ${t.sales || "no sales PIC"} · PNS ${t.owner || "unassigned"}`}>
             {actions ? actions(t) : null}
             <QuickComment t={t} notify={notify} onDone={onDone} />
@@ -524,7 +530,7 @@ function Review({ half, me, onOpen, notify }) {
       )}
       {half === "pending" && (
         <Block label="Pending solution" sub="Being worked. Raise a point here, or open the ticket for the full discussion."
-          rows={pendRows} tone="bg-amber-50 text-amber-700" offset={0} onOpen={onOpen}
+          rows={pendRows} tone="bg-amber-50 text-amber-700" offset={0} onOpen={onOpen} pricer
           actions={(t) => <BackToRequirement t={t} me={me} notify={notify} onDone={load} />}
           notify={notify} onDone={load} />
       )}
