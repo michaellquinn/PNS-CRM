@@ -82,7 +82,11 @@ function Line({ n, t, onOpen, right, pricer, children }) {
             )}
           </span>
         </div>
-        <b className="text-[13px]">{t.shipper}</b>
+        {/* The OPPORTUNITY name, not the account's (Michael, 2026-10-02): one account
+            can have several deals on the list, and the walk is about the deal. The
+            account name is the fallback for a ticket raised here with no Sales CRM
+            name yet, and stays on hover. */}
+        <b className="text-[13px]" title={t.shipper}>{t.opportunity_name || t.shipper}</b>
         <Pill dot>{t.status}</Pill>
         {t.group && <Pill tone={groupTone(t.group)}>{t.group}</Pill>}
         <span className="text-[12px] text-slate-500">{t.service} &middot; {rp(t.revenue)}</span>

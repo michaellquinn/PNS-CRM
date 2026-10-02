@@ -3,6 +3,14 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-10-02",
+    title: "Pending requirement, Pending solution and Proposal submitted show the opportunity name",
+    by: "Michael + Claude",
+    changes: [
+      "Each row's title is now the Sales CRM opportunity name instead of the account name, so two deals on one account read as two deals. A ticket with no opportunity name yet still shows the account name, and hovering the title shows the account.",
+    ],
+  },
+  {
+    date: "2026-10-02",
     title: "Sales regions: one region per salesperson",
     by: "Michael + Claude",
     changes: [
