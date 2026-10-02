@@ -230,6 +230,9 @@ export const api = {
       { method: "POST", body: JSON.stringify(body || {}) }),
 
   users: () => call("/users"),
+  salesRegions: () => call("/sales-regions"),
+  setSalesRegion: (name, region) =>
+    call("/sales-regions", { method: "PUT", body: JSON.stringify({ name, region }) }),
   directory: () => call("/users/directory"),
   // Who is worth tagging on THIS ticket, most relevant first with a reason attached.
   // The plain directory is everyone in the company, alphabetical, which is the wrong

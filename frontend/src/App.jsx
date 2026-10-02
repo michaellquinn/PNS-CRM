@@ -7,6 +7,7 @@ import Dashboard from "./screens/Dashboard";
 import Matrix from "./screens/Matrix";
 import Capa from "./screens/Capa";
 import Users from "./screens/Users";
+import SalesRegions from "./screens/SalesRegions";
 import TicketDetail from "./screens/TicketDetail";
 import Workload from "./screens/Workload";
 import Mine from "./screens/Mine";
@@ -212,6 +213,8 @@ const NAV = [
   ]],
   ["Administration", [
     { id: "users", label: "Users & roles", icon: "👤", when: (m) => m.permissions.manageUsers },
+    { id: "sales-regions", label: "Sales regions", icon: "⌖", when: (m) => m.permissions.manageUsers,
+      keywords: "region team gj wj cj ej salesperson jabo territory" },
     { id: "bin", label: "Recycle bin", icon: "♲", when: (m) => m.permissions.deleteTicket },
     // Out of Solutioning on purpose: it makes deals silently not appear.
     { id: "ignored", label: "Sync ignore list", icon: "⊘",
@@ -748,6 +751,7 @@ export default function App() {
     matrix: <Matrix />,
     changelog: <Changelog />,
     users: <Users me={me} notify={notify} />,
+    "sales-regions": <SalesRegions notify={notify} />,
     bin: <RecycleBin me={me} notify={notify} onOpen={open} />,
   };
 

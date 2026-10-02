@@ -2,6 +2,16 @@ import { Card, Head, Pill } from "../ui";
 
 const ENTRIES = [
   {
+    date: "2026-10-02",
+    title: "Sales regions: one region per salesperson",
+    by: "Michael + Claude",
+    changes: [
+      "FIXED — Sales CRM sends no region, so every deal the sync imported was stamped GJ. A salesperson's deals ended up split across regions (Dandy in GJ and EJ), which put deals in the wrong meeting filters and the wrong Sales Planning page.",
+      "NEW — Administration / Sales regions (Admin): every salesperson on a ticket, where their deals sit today, and one region for them. Saving moves all of that person's deals to it. The screen suggests a region from where their deals already are, ignoring GJ when there is anything else, because GJ was the import's default.",
+      "From then on a deal follows its Sales PIC: the import, the sync (including when Sales CRM hands a deal to someone else), New request and a Sales PIC handover in this app all use the salesperson's region. A salesperson with no region set behaves as before and is listed at the top as not set.",
+    ],
+  },
+  {
     date: "2026-09-30",
     title: "FIXED — onboarding kept an old opportunity id and shipment mode",
     by: "Michael + Claude",

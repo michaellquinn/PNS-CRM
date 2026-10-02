@@ -1672,7 +1672,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-09-30.2"
+BUILD = "2026-10-02.1"
 
 
 class Me(BaseModel):
@@ -4906,6 +4906,12 @@ async def _refresh_from_salescrm(o: dict, account: dict | None = None,
             "opportunity_name=COALESCE(%s, opportunity_name)",
             "sales_name=COALESCE(%s, sales_name)"]
     args = [o.get("stage"), o.get("parent_stage"), o.get("name"), o.get("owner_name")]
+    # The region follows the Sales PIC (Michael, 2026-10-02), including when Sales CRM
+    # hands the deal to somebody else. Only when that person has a region set.
+    _region = await sales_region_for(o.get("owner_name") or t.get("sales_name"))
+    if _region:
+        sets.append("region=%s")
+        args.append(_region)
     # Must Win rides the same rule as the tier now: Sales CRM decides, both ways. It
     # used to be written only when the field was PRESENT, so clearing the Lead Source
     # Detail value in Sales CRM left the flag standing here forever — a deal stayed in a
@@ -5198,7 +5204,8 @@ async def _import_opportunity(o: dict, account: dict | None, plan: dict,
         (ref, plan["opportunity_id"], plan["opportunity_name"], plan["stage"],
          plan["parent_stage"], shipper_id, plan["service"], plan["revenue"], status,
          r["resp"], int(r["review"]), int(plan.get("must_win") or 0), None,
-         plan["sales_name"], "GJ", date.today()))
+         plan["sales_name"], await sales_region_for(plan["sales_name"]) or "GJ",
+         date.today()))
     await execute("UPDATE tickets SET first_synced_at=NOW() WHERE id=%s", (tid,))
 
     # NOT while the ticket is parked in Open (Michael, 2026-09-14). Open means "arrived,
@@ -5453,7 +5460,7 @@ async def create_ticket(body: NewTicket, u: User = Depends(current_user)):
         "region, submitted_on) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
         (ref, oid, shipper_id, body.service, body.revenue, status, r["resp"],
          int(r["review"]), int(body.must_win), body.sales_email or u.email, u.name,
-         body.region, date.today()))
+         await sales_region_for(u.name) or body.region, date.today()))
 
     # Only PNS-owned tickets get an owner here. A Sales-priced ticket has no PNS work
     # yet, and pre-assigning one would put it in someone's queue before it is theirs.
@@ -6079,8 +6086,9 @@ async def change_sales(ref: str, body: SalesIn, u: User = Depends(current_user))
         raise HTTPException(
             400, f"{name} is not registered in this app, so notifications would go "
                  f"nowhere. Ask an administrator to add them under Administration / Users.")
-    await execute("UPDATE tickets SET sales_name=%s, sales_email=%s WHERE id=%s",
-                  (name, (row or {}).get("email"), t["id"]))
+    await execute("UPDATE tickets SET sales_name=%s, sales_email=%s, "
+                  "region=COALESCE(%s, region) WHERE id=%s",
+                  (name, (row or {}).get("email"), await sales_region_for(name), t["id"]))
     await log_note(t["id"], t["status"], u.name,
                    f"sales PIC changed from {t['sales_name'] or 'unassigned'} to {name}")
     await notify(f"{ref}, {t['shipper']} reassigned to you by {u.name}",
@@ -10077,6 +10085,96 @@ class OperationalRowsResponse(BaseModel):
 
 class OperationalMasterResponse(OperationalRowsResponse):
     columns: list[str]
+
+
+# ------------------------------------------------------------------ sales regions
+# A deal's region is its salesperson's (Michael, 2026-10-02). Sales CRM sends no region,
+# so every import was stamped "GJ" and a salesperson's deals split across regions --
+# Dandy in GJ and EJ at once. One region per salesperson, kept by an Admin on the Sales
+# regions screen; saving it re-labels that person's deals, and the import, the sync,
+# New request and a Sales PIC handover all follow it from then on. A name with no region
+# set keeps today's behaviour (GJ on import, the chosen region on New request) and is
+# listed at the top of the screen as not set.
+SALES_REGIONS = ["GJ", "WJ", "CJ", "EJ"]
+
+
+async def sales_region_for(name: str | None) -> str | None:
+    if not str(name or "").strip():
+        return None
+    row = await q("SELECT region FROM sales_regions WHERE sales_name=%s",
+                  (str(name).strip(),), one=True)
+    return (row or {}).get("region")
+
+
+def suggest_region(counts: dict) -> str:
+    """The region a salesperson most likely belongs to, from where their deals sit.
+    GJ only wins when there is nothing else: it is what the import stamped by default,
+    so a GJ next to another region is usually that default and not the person's team."""
+    other = {r: n for r, n in counts.items() if r in SALES_REGIONS and r != "GJ" and n}
+    if other:
+        return max(sorted(other), key=lambda r: other[r])
+    return "GJ"
+
+
+class SalesRegionRow(BaseModel):
+    name: str
+    region: str | None           # what is set; None = not set yet
+    suggested: str
+    deals: dict[str, int]        # region -> number of tickets (not deleted)
+
+
+class SalesRegionsOut(BaseModel):
+    rows: list[SalesRegionRow]
+    regions: list[str]
+
+
+class SalesRegionIn(BaseModel):
+    name: str
+    region: str                  # one of SALES_REGIONS, or "" to clear
+
+
+@app.get("/api/sales-regions", response_model=SalesRegionsOut)
+async def list_sales_regions(u: User = Depends(current_user)):
+    """Every salesperson on a ticket, where their deals sit today and the region set."""
+    require(u, "manageUsers")
+    counts = await q("SELECT sales_name, COALESCE(region,'-') AS region, COUNT(*) AS n "
+                     "FROM tickets WHERE deleted_at IS NULL AND sales_name IS NOT NULL "
+                     "AND sales_name<>'' GROUP BY sales_name, COALESCE(region,'-')")
+    mapped = {r["sales_name"]: r["region"]
+              for r in await q("SELECT sales_name, region FROM sales_regions")}
+    deals: dict[str, dict[str, int]] = {}
+    for r in counts:
+        deals.setdefault(r["sales_name"], {})[r["region"]] = int(r["n"])
+    for name in mapped:
+        deals.setdefault(name, {})
+    rows = [SalesRegionRow(name=n, region=mapped.get(n), suggested=suggest_region(d), deals=d)
+            for n, d in deals.items()]
+    rows.sort(key=lambda r: (r.region is not None, r.name.casefold()))
+    return {"rows": rows, "regions": SALES_REGIONS}
+
+
+@app.put("/api/sales-regions", response_model=Ok)
+async def set_sales_region(body: SalesRegionIn, u: User = Depends(current_user)):
+    """Set one salesperson's region and move every one of their deals to it."""
+    require(u, "manageUsers")
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(400, "name the salesperson")
+    old = await sales_region_for(name)
+    if not body.region:
+        await execute("DELETE FROM sales_regions WHERE sales_name=%s", (name,))
+        await audit(u.email, "sales_region", "sales", name, "region", old, None)
+        return {"ok": True}
+    if body.region not in SALES_REGIONS:
+        raise HTTPException(400, f"region must be one of {', '.join(SALES_REGIONS)}")
+    await execute("INSERT INTO sales_regions (sales_name, region, updated_by) VALUES (%s,%s,%s) "
+                  "ON DUPLICATE KEY UPDATE region=VALUES(region), updated_by=VALUES(updated_by)",
+                  (name, body.region, u.email))
+    # Every one of their deals, open or closed, so the reports and the meeting filters
+    # all tell the same story about where this person sells.
+    await execute("UPDATE tickets SET region=%s WHERE sales_name=%s", (body.region, name))
+    await audit(u.email, "sales_region", "sales", name, "region", old, body.region)
+    return {"ok": True}
 
 
 # ------------------------------------------------------------------ weekly stage report

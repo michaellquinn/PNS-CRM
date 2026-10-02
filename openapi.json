@@ -1702,7 +1702,7 @@
       "Me": {
         "properties": {
           "build": {
-            "default": "2026-09-29.5",
+            "default": "2026-10-02.1",
             "title": "Build",
             "type": "string"
           },
@@ -3605,6 +3605,86 @@
         "title": "SalesIn",
         "type": "object"
       },
+      "SalesRegionIn": {
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "region": {
+            "title": "Region",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "region"
+        ],
+        "title": "SalesRegionIn",
+        "type": "object"
+      },
+      "SalesRegionRow": {
+        "properties": {
+          "deals": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Deals",
+            "type": "object"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "region": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Region"
+          },
+          "suggested": {
+            "title": "Suggested",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "region",
+          "suggested",
+          "deals"
+        ],
+        "title": "SalesRegionRow",
+        "type": "object"
+      },
+      "SalesRegionsOut": {
+        "properties": {
+          "regions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Regions",
+            "type": "array"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/SalesRegionRow"
+            },
+            "title": "Rows",
+            "type": "array"
+          }
+        },
+        "required": [
+          "rows",
+          "regions"
+        ],
+        "title": "SalesRegionsOut",
+        "type": "object"
+      },
       "SettingsIn": {
         "properties": {
           "values": {
@@ -4902,7 +4982,7 @@
   "info": {
     "description": "Ninja PNS - solutioning and pricing workflow for Ninja Xpress Indonesia. Every route below requires a signed-in session: identity arrives from the platform's auth proxy as an X-Forwarded-Email header the browser cannot set, and the app resolves a role from it. GET /health is the only unauthenticated route. Generated from the app's own route table by tools/gen_openapi.py - do not hand-edit.",
     "title": "Ninja PNS, Solutioning",
-    "version": "2026-09-29.5"
+    "version": "2026-10-02.1"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -6894,6 +6974,62 @@
           }
         },
         "summary": "The owning team acknowledge one specific requirement."
+      }
+    },
+    "/api/sales-regions": {
+      "get": {
+        "description": "Every salesperson on a ticket, where their deals sit today and the region set.",
+        "operationId": "list_sales_regions_api_sales_regions_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SalesRegionsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Every salesperson on a ticket, where their deals sit today and the region set."
+      },
+      "put": {
+        "description": "Set one salesperson's region and move every one of their deals to it.",
+        "operationId": "set_sales_region_api_sales_regions_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SalesRegionIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ok"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set one salesperson's region and move every one of their deals to it."
       }
     },
     "/api/salescrm/account/{account_id}": {
