@@ -1702,7 +1702,7 @@
       "Me": {
         "properties": {
           "build": {
-            "default": "2026-10-02.1",
+            "default": "2026-10-05.1",
             "title": "Build",
             "type": "string"
           },
@@ -1945,6 +1945,67 @@
           "body"
         ],
         "title": "NewComment",
+        "type": "object"
+      },
+      "NewOnboardingIn": {
+        "properties": {
+          "delivery_mode": {
+            "default": "",
+            "title": "Delivery Mode",
+            "type": "string"
+          },
+          "mps": {
+            "default": "",
+            "title": "Mps",
+            "type": "string"
+          },
+          "opportunity_id": {
+            "title": "Opportunity Id",
+            "type": "string"
+          },
+          "pickup_frequency": {
+            "default": "",
+            "title": "Pickup Frequency",
+            "type": "string"
+          },
+          "product_type": {
+            "default": "",
+            "title": "Product Type",
+            "type": "string"
+          },
+          "rdo": {
+            "default": "",
+            "title": "Rdo",
+            "type": "string"
+          },
+          "service": {
+            "title": "Service",
+            "type": "string"
+          }
+        },
+        "required": [
+          "opportunity_id",
+          "service"
+        ],
+        "title": "NewOnboardingIn",
+        "type": "object"
+      },
+      "NewOnboardingOut": {
+        "properties": {
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "ref": {
+            "title": "Ref",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ok",
+          "ref"
+        ],
+        "title": "NewOnboardingOut",
         "type": "object"
       },
       "NewTicket": {
@@ -4357,6 +4418,11 @@
             ],
             "title": "Region"
           },
+          "request_type": {
+            "default": "solutioning",
+            "title": "Request Type",
+            "type": "string"
+          },
           "revenue": {
             "title": "Revenue",
             "type": "integer"
@@ -4982,7 +5048,7 @@
   "info": {
     "description": "Ninja PNS - solutioning and pricing workflow for Ninja Xpress Indonesia. Every route below requires a signed-in session: identity arrives from the platform's auth proxy as an X-Forwarded-Email header the browser cannot set, and the app resolves a role from it. GET /health is the only unauthenticated route. Generated from the app's own route table by tools/gen_openapi.py - do not hand-edit.",
     "title": "Ninja PNS, Solutioning",
-    "version": "2026-10-02.1"
+    "version": "2026-10-05.1"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -6118,6 +6184,45 @@
           }
         },
         "summary": "List preserved legacy monitoring dates without exposing old commercial notes or revenue."
+      }
+    },
+    "/api/onboarding-v2/new": {
+      "post": {
+        "description": "Raise a launch straight into onboarding, with no solutioning (Michael, 2026-10-05).\n\nNot every deal needs solutioning, but every launch needs onboarding. The deal must\nexist in Sales CRM: the opportunity id is required and is what supplies the account,\nthe Sales PIC and the region, exactly as the sync does. The ticket is marked\nrequest_type 'onboarding', lands Ready to Ship, and stays out of every solutioning\nqueue and count. Sales then fill in the onboarding form as usual.",
+        "operationId": "new_onboarding_api_onboarding_v2_new_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewOnboardingIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NewOnboardingOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Raise a launch straight into onboarding, with no solutioning (Michael, 2026-10-05)."
       }
     },
     "/api/onboarding-v2/tickets/{ref}": {

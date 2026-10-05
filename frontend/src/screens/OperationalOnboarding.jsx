@@ -2,8 +2,10 @@ import { useEffect, useState } from "react";
 import { api } from "../api";
 import { Btn, Card, Empty, Head, Pill, inputCls } from "../ui";
 
-const TITLES = { onboarding: "Pending Information", readiness: "Ops Readiness", golive: "Go Live" };
-const HELP = { onboarding: "Waiting on Sales to fill in and submit the onboarding requirements. Once submitted, a launch moves to Pending Readiness.",
+const TITLES = { onboarding: "Go live from Solutioning", readiness: "Ops Readiness", golive: "Go Live",
+  direct: "Not submitted yet" };
+const HELP = { onboarding: "Won deals from solutioning, waiting on Sales to fill in and submit the onboarding requirements. Once submitted, a launch moves to Ops Readiness.",
+  direct: "Launches raised on this page that Sales have not submitted yet. Open one to finish its onboarding form; once submitted it moves to Ops Readiness.",
   readiness: "Launches your team has points on, nearest go-live first. It leaves this list once your team has confirmed everything AND the launch has gone live — one that went live with points still open stays here.",
   golive: "Launches whose go-live date has arrived. A launch appears here on its date — there is nothing to press." };// today or past, amber inside three days, plain after that.
 const goLiveTone = (d) => d == null ? "bg-slate-100 text-slate-600"
@@ -33,7 +35,7 @@ export function OperationalList({ view = "onboarding", me, onOpen, notify = () =
     <Head title={TITLES[view]} sub={HELP[view]} right={data && <Pill>{rows.length} opportunities</Pill>} />
     <div className="mb-4 flex flex-wrap gap-2">
       <input className={`${inputCls} max-w-sm`} placeholder="Search opportunity or shipper" value={query} onChange={e => setQuery(e.target.value)} />
-      {/* Status filter removed: Pending Information lists one status only. */}
+      {/* Status filter removed: Go live from Solutioning lists one status only. */}
       {view === "readiness" && <div className="flex flex-wrap gap-1">
         {[["", "All"], ["pending", "Pending"], ["ongoing", "Ongoing"], ["cleared", "Cleared"]].map(([v, label]) => (
           <button key={v} type="button" onClick={() => setState(v)} aria-pressed={state === v}
@@ -53,6 +55,11 @@ export function OperationalList({ view = "onboarding", me, onOpen, notify = () =
               "today" or "overdue", so status, "already live" and "confirmation overdue"
               only repeated it. The other screens keep their status. */}
           {view !== "readiness" && <Pill>{r.status}</Pill>}
+          {/* Which way it came in (Michael, 2026-10-05). Only the newer route is
+              tagged; a launch from solutioning is the ordinary case. */}
+          {r.source === "New onboarding" && view !== "direct" && (
+            <Pill tone="bg-violet-50 text-violet-700">New onboarding</Pill>
+          )}
           {view !== "readiness" && r.overdue && <Pill tone="bg-rose-100 text-rose-800">Confirmation overdue</Pill>}
           {view === "readiness" && r.points_total > 0 && (
             <Pill tone={r.readiness_state === "cleared" ? "bg-emerald-100 text-emerald-800"

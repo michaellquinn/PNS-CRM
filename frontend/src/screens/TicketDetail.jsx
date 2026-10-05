@@ -232,6 +232,9 @@ function CommercialTicketDetail({ ticketRef: initialRef, me, notify, onBack,
           <div className="flex flex-wrap items-center gap-2">
             <select className="rounded-lg border border-slate-300 px-3 py-2 text-[13px]"
               value={ref} onChange={(e) => setRef(e.target.value)}>
+              {/* An onboarding-only launch is not in the solutioning list this is
+                  built from, so it is added here rather than showing a wrong name. */}
+              {!all.some((x) => x.ref === ref) && <option value={ref}>{ref} — {t.shipper}</option>}
               {all.map((x) => <option key={x.ref} value={x.ref}>{x.ref} — {x.shipper}</option>)}
             </select>
             {p.deleteTicket && (

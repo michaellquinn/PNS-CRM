@@ -122,10 +122,21 @@ const TASKS = [
     who: "Sales, then the operational teams",
     go: "onboarding",
     steps: [
-      "Open Pending Information under Ops Onboarding: every accepted deal waiting for its operational requirements.",
+      "Open Go live from Solutioning under Ops Onboarding: every accepted deal waiting for its operational requirements.",
       "Open the ticket's Onboarding tab, fill the form in (A to G) and submit. That raises one readiness card per team, each carrying its own points.",
       "The teams confirm their points on Ops Readiness. A point that belongs to another team is handed over with a note.",
       "When shipping actually starts, press Go live. Points still open stay on Ops Readiness with the team that owes them, and the history records what was unconfirmed at go-live.",
+    ],
+  },
+  {
+    q: "A deal is going live without a solutioning ticket",
+    who: "Sales or AM",
+    go: "new-onboarding",
+    steps: [
+      "Open New onboarding under Ops Onboarding.",
+      "Enter the Sales CRM opportunity id (required), the Ninja service and the five charter answers: product type, shipment mode, MPS, RDO and shipment frequency. The account, Sales PIC and region come from Sales CRM.",
+      "The onboarding form opens. Fill it in (A to G) and submit: Ops, QC and PNS are told, and the teams confirm their points on Ops Readiness as for any launch.",
+      "If the opportunity already has a ticket, the form says which one — use that ticket's Onboarding tab instead.",
     ],
   },
   {

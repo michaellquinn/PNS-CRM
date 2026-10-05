@@ -1322,6 +1322,9 @@ def can(u: User, action: str, t: dict | None = None) -> bool:
         # and Sales Planning are in for the same reason they hold editInput: during the
         # rollout they enter most of it on Sales' behalf.
         "startOnboarding":  u.group in (*SELLING_GROUPS, "PNS", "Sales Planning") or admin,
+        # A launch that never went through solutioning (Michael, 2026-10-05): raised by
+        # Sales or AM for their own deal, or by Admin. Not PNS, not Sales Planning.
+        "createOnboarding": u.group in SELLING_GROUPS or admin,
         # The OPV2 ids, which arrive over the following days as Sales get confirmation.
         "editOnboardingIds": u.group in (*SELLING_GROUPS, "PNS", "Sales Planning") or admin,
         # Confirming the shipper actually started shipping. Sales', because they are the
@@ -1672,7 +1675,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-10-02.2"
+BUILD = "2026-10-05.1"
 
 
 class Me(BaseModel):
@@ -1698,6 +1701,9 @@ class Me(BaseModel):
 
 class Ticket(BaseModel):
     ref: str
+    # "onboarding" for a launch raised straight into onboarding, with no solutioning
+    # behind it (Michael, 2026-10-05); "solutioning" for everything else.
+    request_type: str = "solutioning"
     shipper: str
     acct_type: str
     service: str
@@ -1892,7 +1898,7 @@ async def me(u: User = Depends(current_user)):
                "queueSync", "editSyncSettings", "bulkDelete", "manageImportQueue",
                "seePrice", "operationalOnly", "editOnboarding", "confirmOperational",
                "approveOnboardingException", "importOperational",
-               "startOnboarding", "editOnboardingIds", "confirmGolive", "ackGolive",
+               "startOnboarding", "createOnboarding", "editOnboardingIds", "confirmGolive", "ackGolive",
                "markReady", "raiseRequirement", "ackRequirement"]
     return Me(email=u.email, name=u.name, group=u.group, level=u.level, team=u.team,
               permissions={a: can(u, a) for a in actions},
@@ -1911,6 +1917,7 @@ def shape(t: dict, u: User) -> Ticket:
     sees_price = can(u, "seePrice")
     out = Ticket(
         ref=t["ticket_ref"], shipper=t["shipper"], acct_type=t["acct_type"],
+        request_type=t.get("request_type") or "solutioning",
         service=t["service_type"], revenue=int(t["potential_rev"]), status=t["status"],
         priced_by=t["resp"], needs_review=needs_pns_review(t),
         owner=t["owner_name"], sales=t["sales_name"],
@@ -2018,6 +2025,11 @@ async def list_tickets(
            "LEFT JOIN pricing p ON p.ticket_id=t.id "
            "LEFT JOIN ticket_input i ON i.ticket_id=t.id "
            "WHERE t.deleted_at IS NULL")
+    # Onboarding-only launches are not solutioning work (Michael, 2026-10-05): they stay
+    # out of every queue, meeting list and count built on this endpoint. A search still
+    # finds them, so a deal can always be looked up by its number or name.
+    if not search:
+        sql += " AND t.request_type<>'onboarding'"
     args: list = []
 
     # The "Finished" PSP queue: every ticket PSP has ever decided on, regardless of where
@@ -2292,7 +2304,8 @@ async def accounts(u: User = Depends(current_user),
 
 @app.get("/api/stats", response_model=Stats)
 async def stats(u: User = Depends(current_user)):
-    rows = await q("SELECT status, outcome FROM tickets WHERE deleted_at IS NULL")
+    rows = await q("SELECT status, outcome FROM tickets WHERE deleted_at IS NULL "
+                   "AND request_type<>'onboarding'")
     ongoing = sum(1 for r in rows if str(r["status"]).startswith(("Pending", "Proposal Submitted")))
     won = sum(1 for r in rows if r["outcome"] == "accepted")
     lost = sum(1 for r in rows if r["outcome"] == "lost")
@@ -4872,7 +4885,7 @@ async def _refresh_from_salescrm(o: dict, account: dict | None = None,
     when no ticket holds this opportunity."""
     oid = str(o.get("id"))
     t = await q("SELECT id, ticket_ref, status, resp, stage, potential_rev, service_type, "
-                "must_win, "
+                "must_win, request_type, "
                 # Needed by ticket_people(): without them a notice from the sweep falls
                 # back to the PNS Head and drops the deal's own salesperson entirely.
                 "owner_name, sales_name, sales_email, "
@@ -5040,6 +5053,11 @@ async def _refresh_from_salescrm(o: dict, account: dict | None = None,
 
     moved, missing = None, []
     wants = status_for_stage(o.get("stage"), t["resp"])
+    # A launch raised straight into onboarding never entered solutioning, so a Sales CRM
+    # stage like Proposal Submitted must not pull it into a solutioning status (Michael,
+    # 2026-10-05). It still follows Sales CRM to Lost or Cancel: a dead deal is dead.
+    if t.get("request_type") == "onboarding" and wants not in ("Lost", "Cancel"):
+        wants = None
     # Only open tickets follow the stage; a decided ticket keeps its recorded outcome.
     # "Proposal Submitted" additionally must never pull a ticket BACKWARDS: it is the one
     # non-terminal stage we follow, and Sales CRM can report it long after the shipper
@@ -5132,28 +5150,32 @@ async def _refresh_from_salescrm(o: dict, account: dict | None = None,
             "overwritten": changed}
 
 
-async def _import_opportunity(o: dict, account: dict | None, plan: dict,
-                              r: dict, u: User) -> str:
-    """Write one opportunity in as a ticket. Returns the new ticket ref."""
+async def _upsert_shipper(plan: dict, account: dict | None) -> int:
+    """The shipper row for an opportunity's account: found and refreshed, or created."""
     sh = await q("SELECT id FROM shippers WHERE account_id=%s OR name=%s",
                  (plan["account_id"], plan["shipper"]), one=True)
     if sh:
-        shipper_id = sh["id"]
         await execute("UPDATE shippers SET account_id=%s, parent_account_id=%s, "
                       "account_name=%s, customer_success_manager=%s, acct_type=%s "
                       "WHERE id=%s",
                       (plan["account_id"] or None, plan["parent_account_id"] or None,
                        plan["shipper"], (account or {}).get("customer_success_manager"),
-                       plan["acct_type"], shipper_id))
-    else:
-        shipper_id = await execute(
-            "INSERT INTO shippers (name, acct_type, region, account_id, parent_account_id, "
-            "account_name, customer_success_manager, global_shipper_id) "
-            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
-            (plan["shipper"], plan["acct_type"], "GJ", plan["account_id"] or None,
-             plan["parent_account_id"] or None, plan["shipper"],
-             (account or {}).get("customer_success_manager"),
-             (account or {}).get("global_id")))
+                       plan["acct_type"], sh["id"]))
+        return sh["id"]
+    return await execute(
+        "INSERT INTO shippers (name, acct_type, region, account_id, parent_account_id, "
+        "account_name, customer_success_manager, global_shipper_id) "
+        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+        (plan["shipper"], plan["acct_type"], "GJ", plan["account_id"] or None,
+         plan["parent_account_id"] or None, plan["shipper"],
+         (account or {}).get("customer_success_manager"),
+         (account or {}).get("global_id")))
+
+
+async def _import_opportunity(o: dict, account: dict | None, plan: dict,
+                              r: dict, u: User) -> str:
+    """Write one opportunity in as a ticket. Returns the new ticket ref."""
+    shipper_id = await _upsert_shipper(plan, account)
 
     # Revenue decides who prices the deal, which 5A ceiling applies and whether PNS
     # reviews it, and change_status() refuses to enter any working status without it.
@@ -10009,7 +10031,7 @@ async def ob_event(tid, u, body):
 
 
 async def ob_rows():
-    return await q("SELECT t.id, t.ticket_ref, t.opportunity_id, t.opportunity_name, t.service_type, t.sales_name, t.sales_email, s.name AS shipper, "
+    return await q("SELECT t.id, t.ticket_ref, t.opportunity_id, t.opportunity_name, t.service_type, t.sales_name, t.sales_email, t.request_type, s.name AS shipper, "
                    "i.payload, i.released_payload, i.revision, i.submitted_at, i.actual_golive, i.qc_accepted_at, "
                    "i.handover_at "
                    "FROM tickets t JOIN shippers s ON s.id=t.shipper_id LEFT JOIN onboarding_intake i ON i.ticket_id=t.id "
@@ -10237,6 +10259,7 @@ async def weekly_stage(report: str = "jabo-wj", u: User = Depends(current_user))
         "FROM tickets t JOIN shippers s ON s.id=t.shipper_id "
         "LEFT JOIN ticket_input i ON i.ticket_id=t.id "
         f"WHERE t.deleted_at IS NULL AND t.region IN ({marks}) "
+        "AND t.request_type<>'onboarding' "
         "AND t.status IN ('Proposal Submitted','Proposal Accepted / Ready to Ship')",
         tuple(regions))
     today = date.today()
@@ -10270,10 +10293,119 @@ async def weekly_stage(report: str = "jabo-wj", u: User = Depends(current_user))
             "as_of": str(today)}
 
 
+class NewOnboardingIn(BaseModel):
+    opportunity_id: str
+    service: str
+    # The five charter answers onboarding reads. A launch raised here has no Project
+    # Charter, so they are asked once, on this form, and stored where the charter keeps
+    # them -- the onboarding form then reads them exactly as it does for any ticket.
+    product_type: str = ""
+    delivery_mode: str = ""
+    mps: str = ""
+    rdo: str = ""
+    pickup_frequency: str = ""
+
+
+class NewOnboardingOut(BaseModel):
+    ok: bool
+    ref: str
+
+
+@app.post("/api/onboarding-v2/new", response_model=NewOnboardingOut, status_code=201)
+async def new_onboarding(body: NewOnboardingIn, u: User = Depends(current_user)):
+    """Raise a launch straight into onboarding, with no solutioning (Michael, 2026-10-05).
+
+    Not every deal needs solutioning, but every launch needs onboarding. The deal must
+    exist in Sales CRM: the opportunity id is required and is what supplies the account,
+    the Sales PIC and the region, exactly as the sync does. The ticket is marked
+    request_type 'onboarding', lands Ready to Ship, and stays out of every solutioning
+    queue and count. Sales then fill in the onboarding form as usual."""
+    require(u, "createOnboarding")
+    oid = re.sub(r"\D", "", body.opportunity_id or "")
+    if not oid:
+        raise HTTPException(400, "The Sales CRM opportunity id is required, as a number")
+    if body.service not in SERVICES:
+        raise HTTPException(400, f"service must be one of {', '.join(SERVICES)}")
+    charter = {"product_type": body.product_type, "delivery_mode": body.delivery_mode,
+               "mps": body.mps, "rdo": body.rdo, "pickup_frequency": body.pickup_frequency}
+    fields = {k: (label, options, src) for k, label, _, _, options, src in OB_FIELDS}
+    for key, value in charter.items():
+        value = str(value or "").strip()
+        label, options, _ = fields[key]
+        if not value:
+            raise HTTPException(400, f"{label} is required")
+        if options and value not in options:
+            raise HTTPException(400, f"Choose a valid {label}")
+        charter[key] = value[:500]
+    held = await q("SELECT ticket_ref, deleted_at FROM tickets WHERE opportunity_id=%s",
+                   (oid,), one=True)
+    if held:
+        where = (" — it is in the Recycle bin; restore it there" if held["deleted_at"]
+                 else ". Open that ticket and use its Onboarding tab")
+        raise HTTPException(409, f"Opportunity {oid} is already {held['ticket_ref']}{where}.")
+    if not SALESCRM_API_KEY:
+        raise HTTPException(503, "Sales CRM is not connected here (SALESCRM_API_KEY is not set)")
+
+    import httpx
+    async with httpx.AsyncClient(timeout=12,
+                                 headers={"X-API-Key": SALESCRM_API_KEY}) as client:
+        crm = SalesCrm(client)
+        try:
+            d = await crm.records("Opportunity", id=oid)
+        except Exception as e:                                   # noqa: BLE001
+            why = getattr(getattr(e, "response", None), "status_code", None)
+            raise HTTPException(502, f"Sales CRM could not be read (HTTP {why}). Try again."
+                                if why else "Sales CRM could not be read. Try again.")
+        o = (d.get("items") or [None])[0]
+        if not o:
+            raise HTTPException(404, f"Opportunity {oid} was not found in Sales CRM. "
+                                     f"Check the id on the opportunity there.")
+        if _norm_stage(o.get("stage")) in _LOST_N:
+            raise HTTPException(409, f"Opportunity {oid} is {o.get('stage')} in Sales CRM.")
+        account = await crm.account(o.get("account_id"))
+        acct_type = await crm.tier_for(account)
+    shipper_name = _crm_shipper_name(o, account)
+    if not shipper_name:
+        raise HTTPException(400, f"Opportunity {oid} has no account name in Sales CRM. "
+                                 f"Attach or name the account there first.")
+    plan = {"account_id": str(o.get("account_id") or ""), "shipper": shipper_name,
+            "parent_account_id": str((account or {}).get("parent_account_id") or ""),
+            "acct_type": acct_type}
+    shipper_id = await _upsert_shipper(plan, account)
+    owner_name = o.get("owner_name")
+    mw, _ = read_must_win(o)
+    revenue = int(float(o.get("total_potential_revenue_mth") or 0))
+    status = "Proposal Accepted / Ready to Ship"
+    last = await q("SELECT MAX(id) AS n FROM tickets", one=True)
+    ref = f"SOF-{1300 + int((last or {}).get('n') or 0)}"
+    # sales_email is the person who raised it, so they can fill the form in even when
+    # Sales CRM names somebody else as the Owner; sales_name is the Owner, as the sync
+    # keeps it. No PNS owner and no review: there is no pricing here.
+    tid = await execute(
+        "INSERT INTO tickets (ticket_ref, request_type, opportunity_id, opportunity_name, "
+        "stage, parent_stage, shipper_id, service_type, potential_rev, status, resp, "
+        "needs_review, must_win, sales_email, sales_name, region, submitted_on) "
+        "VALUES (%s,'onboarding',%s,%s,%s,%s,%s,%s,%s,%s,'Sales',0,%s,%s,%s,%s,%s)",
+        (ref, oid, o.get("name"), o.get("stage"), o.get("parent_stage"), shipper_id,
+         body.service, revenue, status, int(mw or 0), u.email, owner_name or u.name,
+         await sales_region_for(owner_name or u.name) or "GJ", date.today()))
+    await execute("UPDATE tickets SET first_synced_at=NOW() WHERE id=%s", (tid,))
+    payload = merge_crm_payload({"shipper": shipper_name}, o, account)
+    for key, value in charter.items():
+        src = fields[key][2]
+        payload[src[0] if isinstance(src, tuple) else src] = value
+    await execute("INSERT INTO ticket_input (ticket_id, payload, updated_by) VALUES (%s,%s,%s)",
+                  (tid, json.dumps({k: v for k, v in payload.items() if v}), u.email))
+    await log_status(tid, status, u.name,
+                     f"raised for onboarding only — no solutioning (Sales CRM {o.get('stage') or 'no stage'})")
+    await audit(u.email, "new_onboarding", "ticket", ref, "opportunity_id", None, oid)
+    return {"ok": True, "ref": ref}
+
+
 @app.get("/api/onboarding-v2", response_model=OperationalWorklistResponse)
 async def operational_worklist(view: str = "onboarding", u: User = Depends(current_user)):
     """List operational opportunities by intake, readiness, launch or QC handover milestone."""
-    if view not in ("onboarding", "readiness", "golive"):
+    if view not in ("onboarding", "readiness", "golive", "direct"):
         raise HTTPException(400, "Unknown onboarding view")
     checks = await q("SELECT * FROM onboarding_checks ORDER BY id")
     by_ticket = {}
@@ -10306,6 +10438,14 @@ async def operational_worklist(view: str = "onboarding", u: User = Depends(curre
         # once submitted, a launch belongs to Pending Readiness and the steps after it.
         if view == "onboarding" and r["submitted_at"]:
             continue
+        # Two ways in (Michael, 2026-10-05). "onboarding" is Go live from Solutioning:
+        # won deals waiting on Sales. "direct" is New onboarding: launches Sales raised
+        # straight into onboarding and have not submitted yet.
+        direct = r.get("request_type") == "onboarding"
+        if view == "onboarding" and direct:
+            continue
+        if view == "direct" and (not direct or r["submitted_at"]):
+            continue
         # What this reader owes on this launch: their team's points, or every point for
         # Sales, PNS and Admin, who watch the whole thing.
         mine = items_by_ticket.get(r["id"], [])
@@ -10333,6 +10473,7 @@ async def operational_worklist(view: str = "onboarding", u: User = Depends(curre
             continue
         deadline = ob_deadline(r["submitted_at"], ob_pickup_moment(p)) if r["submitted_at"] and p.get("pickup_at") else None
         result.append({"ref": r["ticket_ref"], "opportunity_id": r["opportunity_id"], "opportunity_name": r["opportunity_name"] or r["shipper"],
+                       "source": "New onboarding" if direct else "Solutioning",
                        "shipper": r["shipper"], "service": r["service_type"], "sales": r["sales_name"],
                        "status": "Live" if live else ready,
                        "pickup_at": p.get("pickup_at"), "deadline": str(deadline) if deadline else None,
@@ -10594,6 +10735,12 @@ async def operational_save(ref: str, body: OperationalSave, u: User = Depends(cu
             raise
     if body.submit:
         await notify(f"{ref}: Sales submitted onboarding. Related teams: confirm readiness before pickup.", groups=list({s["owner_group"] for s in ob_check_specs(p)}), ticket_ref=ref)
+        # A launch with no solutioning behind it is news to Ops, QC and PNS, who would
+        # otherwise first hear of it here (Michael, 2026-10-05). In-app, as a group.
+        if t.get("request_type") == "onboarding":
+            await notify(f"{ref}, {t.get('opportunity_name') or t['shipper']}: new onboarding "
+                         f"submitted by {u.name} — no solutioning ticket behind it.",
+                         groups=["Ops", "QC", "PNS"], ticket_ref=ref)
     return {"ok": True, "revision": revision, "status": "Submitted and database synced" if body.submit else "Draft saved"}
 
 

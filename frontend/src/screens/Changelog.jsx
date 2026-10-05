@@ -2,6 +2,18 @@ import { Card, Head, Pill } from "../ui";
 
 const ENTRIES = [
   {
+    date: "2026-10-05",
+    title: "New onboarding: launches that never went through solutioning",
+    by: "Michael + Claude",
+    changes: [
+      "NEW — Ops Onboarding / New onboarding (Sales, AM and Admin). Not every deal needs solutioning, but every launch needs onboarding. Enter the Sales CRM opportunity id (required — the account, Sales PIC and region come from Sales CRM), the Ninja service and the five charter answers onboarding reads: product type, shipment mode, MPS, RDO and shipment frequency. The onboarding form then opens as usual; submitting it sends the launch to Ops Readiness.",
+      "Submitting one also tells Ops, QC and PNS in the app, since there is no solutioning ticket that would have told them before.",
+      "These launches are marked New onboarding on the Ops Onboarding screens and stay out of solutioning: no pricing queue, meeting list, dashboard count or Sales Planning page. Search still finds them. The sync keeps their Sales PIC, name and region current but only follows Sales CRM to Lost or Cancelled.",
+      "An opportunity that already has a ticket is refused with its ticket number, so one deal cannot be onboarded twice.",
+      "Pending Information is renamed Go live from Solutioning.",
+    ],
+  },
+  {
     date: "2026-10-02",
     title: "Pending requirement, Pending solution and Proposal submitted show the opportunity name",
     by: "Michael + Claude",

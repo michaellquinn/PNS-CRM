@@ -17,6 +17,7 @@ import ImportQueue from "./screens/ImportQueue";
 import Changelog from "./screens/Changelog";
 import Guide from "./screens/Guide";
 import { OperationalList, OperationalDatabase } from "./screens/OperationalOnboarding";
+import NewOnboarding from "./screens/NewOnboarding";
 import { NewRequest, NewCapa } from "./screens/Forms";
 import Accounts from "./screens/Accounts";
 import Ignored from "./screens/Ignored";
@@ -180,8 +181,13 @@ const NAV = [
       keywords: "weekly stage report deck cj ej pipeline sales planning" },
   ]],
   ["Ops Onboarding", [
-    { id: "onboarding", label: "Pending Information", icon: "◉",
-      keywords: "go live ops kick off onboarding schedule" },
+    // Two ways in (Michael, 2026-10-05): a launch raised straight into onboarding, and
+    // a won deal coming from solutioning — which was "Pending Information".
+    { id: "new-onboarding", label: "New onboarding", icon: "＋",
+      when: (m) => m.permissions.createOnboarding,
+      keywords: "add new onboarding launch without solutioning direct request" },
+    { id: "onboarding", label: "Go live from Solutioning", icon: "◉",
+      keywords: "go live ops kick off onboarding schedule pending information" },
     { id: "readiness", label: "Ops Readiness", icon: "◷", count: "ob:readiness" },
     { id: "golive", label: "Go Live", icon: "▷" },
     { id: "operational-db", label: "Operational Database", icon: "▤" },
@@ -743,6 +749,7 @@ export default function App() {
     "capa-raise": <NewCapa notify={notify} onCreated={() => go("capa-all")} />,
     guide: <Guide onGo={go} />,
     onboarding: <OperationalList me={me} onOpen={ref => open(ref, "__onboarding__")} />,
+    "new-onboarding": <NewOnboarding me={me} notify={notify} onOpen={ref => open(ref, "__onboarding__")} />,
     "weekly-jabo-wj": <WeeklyStage report="jabo-wj" notify={notify} onOpen={open} />,
     "weekly-cj-ej": <WeeklyStage report="cj-ej" notify={notify} onOpen={open} />,
     readiness: <OperationalList view="readiness" me={me} onOpen={ref => open(ref, "__onboarding__")} />,
