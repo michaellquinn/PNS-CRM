@@ -615,28 +615,81 @@ async def auto_assignee(service: str, seed: int, shipper_id: int | None = None) 
     if not AUTO_ASSIGN:
         return None
 
+    # The rules come from the Workload page now (Michael, 2026-10-07), so a change of
+    # people is a Save, not a deploy. Read on every call: a rule saved at 10:00 decides
+    # the 10:01 ticket. It is only ever asked about a ticket that has NO owner yet, so
+    # a change never moves work that is already somebody's.
+    rules = await assign_rules()
     if service == "Complex Logistics":
         live = await shipper_is_live(shipper_id)
-        candidates = [COMPLEX_LOGISTICS_LIVE if live else COMPLEX_LOGISTICS_NEW]
+        candidates = rules["complex_live"] if live else rules["complex_new"]
     else:
-        candidates = SERVICE_SPECIALIST.get(service) or PNS_DEFAULT_PAIR
-    ph = ",".join(["%s"] * len(candidates))
-    rows = await q(f"SELECT name FROM users WHERE email IN ({ph}) AND active=1",
-                   tuple(candidates))
-    names = [r["name"] for r in rows]
-    if not names and service in SERVICE_SPECIALIST:
-        # Specialists all away, fall back to the default pair rather than stranding it.
-        ph = ",".join(["%s"] * len(PNS_DEFAULT_PAIR))
-        rows = await q(f"SELECT name FROM users WHERE email IN ({ph}) AND active=1",
-                       tuple(PNS_DEFAULT_PAIR))
-        names = [r["name"] for r in rows]
+        candidates = rules["services"].get(service) or rules["default"]
+    names = await _active_names(candidates)
+    if not names and service != "Complex Logistics" and rules["services"].get(service):
+        # Specialists all away, fall back to the default pool rather than stranding it.
+        names = await _active_names(rules["default"])
     if not names:
         return None
 
     load = await pending_pns_load(names)
     # Ties break on name so a retried request makes the same choice.
     lightest = min(names, key=lambda n: (load[n], n))
-    return lightest if load[lightest] < PNS_WIP_CAP else None
+    return lightest if load[lightest] < rules["cap"] else None
+
+
+async def _active_names(emails: list[str]) -> list[str]:
+    if not emails:
+        return []
+    ph = ",".join(["%s"] * len(emails))
+    rows = await q(f"SELECT name FROM users WHERE email IN ({ph}) AND active=1",
+                   tuple(emails))
+    return [r["name"] for r in rows]
+
+
+# Settings rows that hold the auto-assignment rules (Michael, 2026-10-07). One row per
+# rule, comma-separated emails, so each fits app_settings' 500 characters. An ABSENT row
+# means "the starting value" -- the constants above -- so nothing changes on deploy; a
+# row holding an empty string is a deliberate "nobody", e.g. a service whose specialist
+# was removed and now uses the default pool.
+ASSIGN_KEY_DEFAULT = "assign.default"
+ASSIGN_KEY_COMPLEX_NEW = "assign.complex_new"
+ASSIGN_KEY_COMPLEX_LIVE = "assign.complex_live"
+ASSIGN_KEY_CAP = "assign.cap"
+ASSIGN_SERVICE_PREFIX = "assign.service."
+
+
+def _emails(raw) -> list[str]:
+    return [e.strip().lower() for e in str(raw or "").split(",") if e.strip()]
+
+
+async def assign_rules() -> dict:
+    """Who new PNS work goes to: the default pool, per-service specialists, the Complex
+    Logistics split and the cap. Falls back to the starting values on a failed read, for
+    the same reason setting() does -- assignment must not stop because a read failed."""
+    try:
+        rows = {r["name"]: r["value"] for r in await q(
+            "SELECT name, value FROM app_settings WHERE name LIKE %s", ("assign.%",))}
+    except Exception:                                   # noqa: BLE001
+        rows = {}
+    def pick(key, start):
+        return _emails(rows[key]) if key in rows and rows[key] is not None else list(start)
+    services = {}
+    for svc in SERVICES:
+        if svc == "Complex Logistics":
+            continue
+        got = pick(ASSIGN_SERVICE_PREFIX + svc, SERVICE_SPECIALIST.get(svc, []))
+        if got:
+            services[svc] = got
+    try:
+        cap = max(1, min(100, int(rows.get(ASSIGN_KEY_CAP) or PNS_WIP_CAP)))
+    except (TypeError, ValueError):
+        cap = PNS_WIP_CAP
+    return {"default": pick(ASSIGN_KEY_DEFAULT, PNS_DEFAULT_PAIR),
+            "services": services,
+            "complex_new": pick(ASSIGN_KEY_COMPLEX_NEW, [COMPLEX_LOGISTICS_NEW]),
+            "complex_live": pick(ASSIGN_KEY_COMPLEX_LIVE, [COMPLEX_LOGISTICS_LIVE]),
+            "cap": cap}
 
 
 def tier_of(rev: int) -> str:
@@ -1203,6 +1256,9 @@ def can(u: User, action: str, t: dict | None = None) -> bool:
         # assign: this screen also carries per-person win counts and days-to-clear,
         # which is a performance comparison and stays the Head's — see workload().
         "seeWorkload":      u.group == "PNS" or admin,
+        # The auto-assignment rules on the Workload page (Michael, 2026-10-07): the Head
+        # of PNS and Admin. Everyone who sees Workload can read them.
+        "editAssignRules":  admin or (u.group == "PNS" and u.level == "head"),
         # assignReviewer is retired (Baskoro, 2026-08-14). The separate "PNS price
         # reviewer" slot asked a second question — who is checking this? — on top of the
         # one that matters, who owns this, and nothing a reader could see told them
@@ -1675,7 +1731,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-10-05.1"
+BUILD = "2026-10-07.1"
 
 
 class Me(BaseModel):
@@ -1898,7 +1954,7 @@ async def me(u: User = Depends(current_user)):
                "queueSync", "editSyncSettings", "bulkDelete", "manageImportQueue",
                "seePrice", "operationalOnly", "editOnboarding", "confirmOperational",
                "approveOnboardingException", "importOperational",
-               "startOnboarding", "createOnboarding", "editOnboardingIds", "confirmGolive", "ackGolive",
+               "startOnboarding", "createOnboarding", "editAssignRules", "editOnboardingIds", "confirmGolive", "ackGolive",
                "markReady", "raiseRequirement", "ackRequirement"]
     return Me(email=u.email, name=u.name, group=u.group, level=u.level, team=u.team,
               permissions={a: can(u, a) for a in actions},
@@ -5307,6 +5363,81 @@ async def _import_opportunity(o: dict, account: dict | None, plan: dict,
     return ref
 
 
+class AssignRules(BaseModel):
+    default: list[str]
+    services: dict[str, list[str]]
+    complex_new: list[str]
+    complex_live: list[str]
+    cap: int
+
+
+class AssignRulesOut(BaseModel):
+    rules: AssignRules
+    members: list[dict]          # who may be named: active PNS (and Admin) users
+    services: list[str]          # every service a rule can be set for
+    editable: bool
+    updated_by: str | None = None
+    updated_at: str | None = None
+
+
+@app.get("/api/assign-rules", response_model=AssignRulesOut)
+async def get_assign_rules(u: User = Depends(current_user)):
+    """The auto-assignment rules, as the Workload page shows them."""
+    require(u, "seeWorkload")
+    members = await q("SELECT email, name, role_group FROM users WHERE active=1 "
+                      "AND role_group IN ('PNS','Admin') ORDER BY name")
+    last = await q("SELECT updated_by, updated_at FROM app_settings WHERE name LIKE %s "
+                   "ORDER BY updated_at DESC LIMIT 1", ("assign.%",), one=True)
+    return {"rules": await assign_rules(),
+            "members": [{"email": r["email"], "name": r["name"], "group": r["role_group"]}
+                        for r in members],
+            "services": [s for s in SERVICES if s != "Complex Logistics"],
+            "editable": can(u, "editAssignRules"),
+            "updated_by": (last or {}).get("updated_by"),
+            "updated_at": str(last["updated_at"]) if last and last.get("updated_at") else None}
+
+
+@app.put("/api/assign-rules", response_model=Ok)
+async def set_assign_rules(body: AssignRules, u: User = Depends(current_user)):
+    """Change who new PNS work goes to. Applies to tickets assigned from now on; a
+    ticket that already has a PNS PIC keeps it (Michael, 2026-10-07)."""
+    require(u, "editAssignRules")
+    allowed = {r["email"].lower() for r in await q(
+        "SELECT email FROM users WHERE active=1 AND role_group IN ('PNS','Admin')")}
+    def clean(label, emails):
+        out = list(dict.fromkeys(e.strip().lower() for e in emails if e and e.strip()))
+        bad = [e for e in out if e not in allowed]
+        if bad:
+            raise HTTPException(400, f"{label}: {', '.join(bad)} is not an active PNS "
+                                     f"member. Register them under Users & roles first.")
+        return out
+    if not clean("Default pool", body.default):
+        raise HTTPException(400, "The default pool needs at least one person, or every "
+                                 "service without a specialist is left unassigned")
+    if not 1 <= body.cap <= 100:
+        raise HTTPException(400, "The cap must be between 1 and 100")
+    unknown = set(body.services) - set(SERVICES) - {"Complex Logistics"}
+    if unknown:
+        raise HTTPException(400, f"Unknown service: {', '.join(sorted(unknown))}")
+    values = {ASSIGN_KEY_DEFAULT: clean("Default pool", body.default),
+              ASSIGN_KEY_COMPLEX_NEW: clean("Complex Logistics, new account", body.complex_new),
+              ASSIGN_KEY_COMPLEX_LIVE: clean("Complex Logistics, live account", body.complex_live)}
+    for svc in SERVICES:
+        if svc != "Complex Logistics":
+            values[ASSIGN_SERVICE_PREFIX + svc] = clean(svc, body.services.get(svc, []))
+    before = await assign_rules()
+    for key, emails in values.items():
+        await execute("INSERT INTO app_settings (name, value, updated_by) VALUES (%s,%s,%s) "
+                      "ON DUPLICATE KEY UPDATE value=VALUES(value), updated_by=VALUES(updated_by)",
+                      (key, ",".join(emails), u.email))
+    await execute("INSERT INTO app_settings (name, value, updated_by) VALUES (%s,%s,%s) "
+                  "ON DUPLICATE KEY UPDATE value=VALUES(value), updated_by=VALUES(updated_by)",
+                  (ASSIGN_KEY_CAP, str(body.cap), u.email))
+    await audit(u.email, "assign_rules", "settings", "assign", "rules",
+                json.dumps(before)[:500], json.dumps(await assign_rules())[:500])
+    return {"ok": True}
+
+
 @app.get("/api/workload")
 async def workload(u: User = Depends(current_user)):
     """Who is carrying what, and how fast it clears.
@@ -5364,6 +5495,7 @@ async def workload(u: User = Depends(current_user)):
     lead_by = {name: {"avg_days": round(sum(v) / len(v), 1), "worst_days": max(v),
                       "finished": len(v)} for name, v in days_by.items()}
 
+    cap = (await assign_rules())["cap"]
     team = []
     for r in pns:
         l = lead_by.get(r["name"], {})
@@ -5371,7 +5503,7 @@ async def workload(u: User = Depends(current_user)):
             "name": WORKLOAD_DISPLAY_NAMES.get(r["email"], r["name"]),
             "pending_pns": int(r["pending_pns"] or 0),
             "open_total": int(r["open_total"] or 0),
-            "at_cap": int(r["pending_pns"] or 0) >= PNS_WIP_CAP,
+            "at_cap": int(r["pending_pns"] or 0) >= cap,
         }
         if full:
             row |= {
@@ -5405,7 +5537,7 @@ async def workload(u: User = Depends(current_user)):
         "ORDER BY open_tickets DESC LIMIT 20")
 
     return {
-        "cap": PNS_WIP_CAP,
+        "cap": cap,
         # The screen says which view it is showing rather than leaving a PNS member to
         # wonder whether the missing columns are a bug.
         "full": full,
@@ -5493,7 +5625,7 @@ async def create_ticket(body: NewTicket, u: User = Depends(current_user)):
         # Everyone eligible is at the cap (or auto-assignment is off). Say so, rather
         # than letting it look like the Head simply has not got to it yet.
         await notify(f"{ref}, needs manual assignment: everyone eligible for "
-                     f"{body.service} is at the {PNS_WIP_CAP}-ticket cap",
+                     f"{body.service} is at the {(await assign_rules())['cap']}-ticket cap",
                      roles=["PNS - Head"], ticket_ref=ref)
 
     payload = dict(body.payload or {}); payload["brief"] = body.brief

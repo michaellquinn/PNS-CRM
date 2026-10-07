@@ -7,12 +7,16 @@ import ast, asyncio, os, sys
 SRC = os.path.join(_REPO, "backend", "main.py")
 tree = ast.parse(open(SRC, encoding='utf-8').read())
 
-WANT_FN = {'auto_assignee', 'pending_pns_load', 'shipper_is_live'}
-WANT_VAR = {'SERVICE_SPECIALIST', 'PNS_DEFAULT_PAIR', 'PNS_WIP_CAP', 'AUTO_ASSIGN',
+WANT_FN = {'auto_assignee', 'pending_pns_load', 'shipper_is_live', 'assign_rules',
+           '_active_names', '_emails'}
+WANT_VAR = {'SERVICE_SPECIALIST', 'PNS_DEFAULT_PAIR', 'PNS_WIP_CAP', 'AUTO_ASSIGN', 'SERVICES',
+            'ASSIGN_KEY_DEFAULT', 'ASSIGN_KEY_COMPLEX_NEW', 'ASSIGN_KEY_COMPLEX_LIVE',
+            'ASSIGN_KEY_CAP', 'ASSIGN_SERVICE_PREFIX',
             'COMPLEX_LOGISTICS_NEW', 'COMPLEX_LOGISTICS_LIVE', 'PNS_LOAD_STATUSES',
             'AWAIT_STATUSES', 'PNS_LOAD_SQL', 'REQUIREMENT_STATUS'}
 keep = [n for n in tree.body
         if (isinstance(n, ast.AsyncFunctionDef) and n.name in WANT_FN)
+        or (isinstance(n, ast.FunctionDef) and n.name in WANT_FN)
         or (isinstance(n, ast.Assign) and any(
             isinstance(t, ast.Name) and t.id in WANT_VAR for t in n.targets))]
 ns = {'os': os}
@@ -27,8 +31,12 @@ NAME = {'adila.kestibawani@ninjavan.co': 'Adila Kestibawani',
 ALL = set(NAME)
 
 
-def make_q(active, load, live=False):
+def make_q(active, load, live=False, saved=None):
     async def q(sql, args=(), one=False):
+        if 'FROM app_settings' in sql:
+            # The rules saved on the Workload page (Michael, 2026-10-07). None = nothing
+            # saved yet, which must behave exactly as the code did before.
+            return [{'name': k, 'value': v} for k, v in (saved or {}).items()]
         if 'FROM users WHERE email IN' in sql:
             return [{'name': NAME[e]} for e in args if e in active]
         if 'COUNT(*) AS n FROM tickets' in sql:
@@ -78,11 +86,39 @@ cases = [
     ("Nobody registered -> manual", "LTL", set(), {}, False, None),
 ]
 
+# The rules saved on the Workload page take over (Michael, 2026-10-07): somebody
+# resigns, the Head takes them out, and the next ticket follows the new rule.
+SAVED = {'assign.default': 'niko.yannova@ninjavan.co',          # Ramdhani removed
+         'assign.service.Sameday': '',                           # no specialist now
+         'assign.complex_new': 'adila.kestibawani@ninjavan.co',
+         'assign.cap': '3'}
+saved_cases = [
+    ("saved: LTL -> Niko only, Ramdhani is out of the pool", "LTL", ALL, {}, False,
+     "Niko Yannova", SAVED),
+    ("saved: Sameday with no specialist -> default pool", "Sameday", ALL, {}, False,
+     "Niko Yannova", SAVED),
+    ("saved: Complex new -> Adila", "Complex Logistics", ALL, {}, False,
+     "Adila Kestibawani", SAVED),
+    ("saved: the new cap of 3 applies", "LTL", ALL, {"Niko Yannova": 3}, False, None, SAVED),
+    ("saved: under the new cap still assigns", "LTL", ALL, {"Niko Yannova": 2}, False,
+     "Niko Yannova", SAVED),
+    ("saved: a junk cap falls back to 10", "LTL", ALL, {"Niko Yannova": 9}, False,
+     "Niko Yannova", {**SAVED, 'assign.cap': 'abc'}),
+]
+
 fails = []
 print("%-62s %-22s %s" % ("CASE", "EXPECTED", "GOT"))
 print("-" * 110)
 for desc, svc, active, load, live, exp in cases:
     ns['q'] = make_q(active, load, live)
+    got = asyncio.run(ns['auto_assignee'](svc, 0, 1))
+    ok = got == exp
+    if not ok:
+        fails.append(desc)
+    print("%-62s %-22s %-22s %s" % (desc[:62], exp, got, "" if ok else "<-- MISMATCH"))
+
+for desc, svc, active, load, live, exp, saved in saved_cases:
+    ns['q'] = make_q(active, load, live, saved)
     got = asyncio.run(ns['auto_assignee'](svc, 0, 1))
     ok = got == exp
     if not ok:

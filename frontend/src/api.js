@@ -138,6 +138,8 @@ export const api = {
     call(`/tickets/${encodeURIComponent(ref)}/kickoff/send`,
       { method: "POST", body: JSON.stringify(body || {}) }),
   workload: () => call("/workload"),
+  assignRules: () => call("/assign-rules"),
+  setAssignRules: (rules) => call("/assign-rules", { method: "PUT", body: JSON.stringify(rules) }),
   // Whether the 5-minute timer is on, and what it did last. A failing timer is silent
   // by nature, so the Sync screen reads this and says so.
   autoSync: () => call("/sync/auto"),

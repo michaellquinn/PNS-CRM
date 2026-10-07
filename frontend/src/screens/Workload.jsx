@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
-import { Card, Empty, Head, Pill } from "../ui";
+import { Btn, Card, Empty, Head, Pill } from "../ui";
 
 // Queue depth and lead time belong on one screen. A long queue on someone who clears
 // fast is a different problem from a short one that has stopped moving, and you cannot
@@ -21,7 +21,122 @@ function Bar({ n, cap }) {
 
 const days = (v) => (v === null || v === undefined ? "—" : `${v}d`);
 
-export default function Workload() {
+/* Who new PNS work goes to (Michael, 2026-10-07). It was written into the code, so a
+   change of people — someone resigning, someone joining — needed a deploy. It is edited
+   here now by the Head of PNS or Admin, and a Save decides the very next ticket.
+
+   Only tickets assigned AFTER the Save are affected. A ticket that already has a PNS PIC
+   keeps it: moving existing work is a hand-over on the ticket, on purpose. */
+function People({ members, picked, editing, onChange, empty }) {
+  const name = (e) => members.find((m) => m.email === e)?.name || e;
+  if (!editing) {
+    return picked.length
+      ? <span>{picked.map(name).join(", ")}</span>
+      : <span className="text-slate-400">{empty}</span>;
+  }
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {members.map((m) => {
+        const on = picked.includes(m.email);
+        return (
+          <button key={m.email} type="button" aria-pressed={on}
+            onClick={() => onChange(on ? picked.filter((x) => x !== m.email) : [...picked, m.email])}
+            className={`rounded-full px-2.5 py-1 text-[12px] ${on
+              ? "bg-[#EE1B2C] font-semibold text-white" : "border border-slate-300 text-slate-600"}`}>
+            {m.name}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function AssignRules({ notify }) {
+  const [d, setD] = useState(null);
+  const [err, setErr] = useState("");
+  const [draft, setDraft] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const load = () => api.assignRules().then((x) => { setD(x); setDraft(null); }).catch((e) => setErr(e.message));
+  useEffect(() => { load(); }, []);
+  if (err) return <Card className="mb-4 p-4 text-[13px] text-rose-700">{err}</Card>;
+  if (!d) return null;
+  const r = draft || d.rules;
+  const editing = !!draft;
+  const set = (patch) => setDraft({ ...r, ...patch });
+  const save = async () => {
+    setBusy(true);
+    try { await api.setAssignRules(draft); notify?.("Assignment rules saved — they apply to new tickets from now"); await load(); }
+    catch (e) { notify?.(e.message); }
+    finally { setBusy(false); }
+  };
+  const row = (label, hint, picked, onChange, empty) => (
+    <tr className="border-b border-slate-100 align-top last:border-0">
+      <td className="w-56 px-4 py-2.5">
+        <div className="font-semibold">{label}</div>
+        {hint && <div className="text-[11.5px] text-slate-400">{hint}</div>}
+      </td>
+      <td className="px-4 py-2.5">
+        <People members={d.members} picked={picked} editing={editing} onChange={onChange} empty={empty} />
+      </td>
+    </tr>
+  );
+  return (
+    <Card className="mb-4">
+      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 px-4 py-3">
+        <div>
+          <h2 className="text-[13.5px] font-semibold">Auto-assignment rules</h2>
+          <p className="text-[12px] text-slate-500">
+            Who a new PNS ticket goes to: the lightest-loaded person named for its service, under the cap.
+            A change applies to tickets assigned from the moment you save — tickets that already have a PNS PIC keep it.
+            {d.updated_by && <> Last changed by {d.updated_by}{d.updated_at ? ` on ${d.updated_at}` : ""}.</>}
+          </p>
+        </div>
+        {d.editable && (editing ? (
+          <span className="flex gap-2">
+            <Btn onClick={() => setDraft(null)}>Cancel</Btn>
+            <Btn kind="primary" disabled={busy || !r.default.length} onClick={save}>Save rules</Btn>
+          </span>
+        ) : <Btn onClick={() => setDraft(JSON.parse(JSON.stringify(d.rules)))}>Edit rules</Btn>)}
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-[13px]">
+          <tbody>
+            {row("Default pool", "Every service without its own people below",
+              r.default, (v) => set({ default: v }), "Nobody — every ticket is left for the Head")}
+            {d.services.map((svc) => row(svc, null, r.services[svc] || [],
+              (v) => set({ services: { ...r.services, [svc]: v } }), "Default pool"))}
+            {row("Complex Logistics — new account", "An account not shipping yet",
+              r.complex_new, (v) => set({ complex_new: v }), "Nobody — left for the Head")}
+            {row("Complex Logistics — live account", "An account already shipping",
+              r.complex_live, (v) => set({ complex_live: v }), "Nobody — left for the Head")}
+            <tr>
+              <td className="px-4 py-2.5">
+                <div className="font-semibold">Cap</div>
+                <div className="text-[11.5px] text-slate-400">Pending PNS tickets per person</div>
+              </td>
+              <td className="px-4 py-2.5">
+                {editing
+                  ? <input type="number" min={1} max={100} value={r.cap}
+                      onChange={(e) => set({ cap: Number(e.target.value) })}
+                      className="w-24 rounded-lg border border-slate-300 px-2 py-1.5" />
+                  : <span>{r.cap} — past this, new work is left unassigned for the Head</span>}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      {editing && (
+        <p className="border-t border-slate-100 px-4 py-2.5 text-[11.5px] text-slate-500">
+          A service left empty uses the default pool. If everyone named for a service is away or at the cap, the ticket is left
+          unassigned for the Head — except that a service's specialists falling away hands it to the default pool.
+          Someone who has resigned should also be set inactive under Users &amp; roles; their open tickets stay with them until handed over.
+        </p>
+      )}
+    </Card>
+  );
+}
+
+export default function Workload({ notify }) {
   const [d, setD] = useState(null);
   const [err, setErr] = useState(null);
   useEffect(() => { api.workload().then(setD).catch((e) => setErr(e.message)); }, []);
@@ -35,6 +150,8 @@ export default function Workload() {
         sub={d.full
           ? `Who is carrying what, and how quickly it clears. Pending PNS is each person's share of the Pricing - PNS queue, plus Sales prices they are reviewing and tickets waiting in Pending Requirement (Unassigned included). Past ${d.cap} the auto-assigner stops, and new work is left unassigned for you to place by hand.`
           : `Who is carrying what, so you can tell whether to pick something up. Pending PNS is each person's share of the Pricing - PNS queue, plus Sales prices they are reviewing and tickets waiting in Pending Requirement (Unassigned included). Past ${d.cap} the auto-assigner stops and new work is left unassigned.`} />
+
+      <AssignRules notify={notify} />
 
       <div className="mb-4">
         <Card>

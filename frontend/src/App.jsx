@@ -707,7 +707,7 @@ export default function App() {
   const screens = {
     dashboard: <Dashboard me={me} onOpen={open} />,
     mine: <Mine me={me} onOpen={open} />,
-    workload: <Workload />,
+    workload: <Workload notify={notify} />,
     sync: <Sync me={me} notify={notify} />,
     "import-queue": <ImportQueue me={me} notify={notify} onOpen={open} />,
     new: <NewRequest me={me} notify={notify} onCreated={open} />,

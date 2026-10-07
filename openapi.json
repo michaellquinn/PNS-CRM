@@ -339,6 +339,110 @@
         "title": "AssignIn",
         "type": "object"
       },
+      "AssignRules": {
+        "properties": {
+          "cap": {
+            "title": "Cap",
+            "type": "integer"
+          },
+          "complex_live": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Complex Live",
+            "type": "array"
+          },
+          "complex_new": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Complex New",
+            "type": "array"
+          },
+          "default": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Default",
+            "type": "array"
+          },
+          "services": {
+            "additionalProperties": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "title": "Services",
+            "type": "object"
+          }
+        },
+        "required": [
+          "default",
+          "services",
+          "complex_new",
+          "complex_live",
+          "cap"
+        ],
+        "title": "AssignRules",
+        "type": "object"
+      },
+      "AssignRulesOut": {
+        "properties": {
+          "editable": {
+            "title": "Editable",
+            "type": "boolean"
+          },
+          "members": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Members",
+            "type": "array"
+          },
+          "rules": {
+            "$ref": "#/components/schemas/AssignRules"
+          },
+          "services": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Services",
+            "type": "array"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "updated_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated By"
+          }
+        },
+        "required": [
+          "rules",
+          "members",
+          "services",
+          "editable"
+        ],
+        "title": "AssignRulesOut",
+        "type": "object"
+      },
       "Body_operational_import_api_operational_master_import_post": {
         "properties": {
           "commit": {
@@ -1702,7 +1806,7 @@
       "Me": {
         "properties": {
           "build": {
-            "default": "2026-10-05.1",
+            "default": "2026-10-07.1",
             "title": "Build",
             "type": "string"
           },
@@ -5048,7 +5152,7 @@
   "info": {
     "description": "Ninja PNS - solutioning and pricing workflow for Ninja Xpress Indonesia. Every route below requires a signed-in session: identity arrives from the platform's auth proxy as an X-Forwarded-Email header the browser cannot set, and the app resolves a role from it. GET /health is the only unauthenticated route. Generated from the app's own route table by tools/gen_openapi.py - do not hand-edit.",
     "title": "Ninja PNS, Solutioning",
-    "version": "2026-10-05.1"
+    "version": "2026-10-07.1"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -5123,6 +5227,62 @@
           }
         },
         "summary": "Every ticket, grouped by the account it belongs to."
+      }
+    },
+    "/api/assign-rules": {
+      "get": {
+        "description": "The auto-assignment rules, as the Workload page shows them.",
+        "operationId": "get_assign_rules_api_assign_rules_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssignRulesOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "The auto-assignment rules, as the Workload page shows them."
+      },
+      "put": {
+        "description": "Change who new PNS work goes to. Applies to tickets assigned from now on; a\nticket that already has a PNS PIC keeps it (Michael, 2026-10-07).",
+        "operationId": "set_assign_rules_api_assign_rules_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssignRules"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ok"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Change who new PNS work goes to. Applies to tickets assigned from now on; a"
       }
     },
     "/api/capa": {

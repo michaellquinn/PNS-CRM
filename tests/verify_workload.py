@@ -74,8 +74,12 @@ def can(user, permission):
     return True
 
 
+# The cap is an editable rule now (Michael, 2026-10-07); with nothing saved it is the
+# starting value, which is what this test has always assumed.
+async def assign_rules():
+    return {"cap": 10}
 ns = {"q": q, "require": require, "can": can, "User": object,
-      "datetime": datetime, "timedelta": timedelta}
+      "datetime": datetime, "timedelta": timedelta, "assign_rules": assign_rules}
 exec(compile(ast.fix_missing_locations(ast.Module(body=keep, type_ignores=[])),
              "<workload>", "exec"), ns)
 result = asyncio.run(ns["workload"](object()))

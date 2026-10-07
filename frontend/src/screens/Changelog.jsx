@@ -2,6 +2,17 @@ import { Card, Head, Pill } from "../ui";
 
 const ENTRIES = [
   {
+    date: "2026-10-07",
+    title: "Auto-assignment rules are edited on the Workload page",
+    by: "Michael + Claude",
+    changes: [
+      "NEW — Workload / Auto-assignment rules. Who a new PNS ticket goes to used to be written into the code: the default pair, Sameday's specialist, the Complex Logistics new/live split and the 10-ticket cap. All of it is on the Workload page now, and the Head of PNS or Admin changes it with Edit rules — no deploy.",
+      "A change applies to tickets assigned from the moment it is saved. A ticket that already has a PNS PIC keeps it; existing work moves only by a hand-over on the ticket.",
+      "Only active PNS members (and Admin) can be named. Someone who leaves should also be set inactive under Users & roles: the assigner already skips inactive people, and their open tickets stay with them until handed over.",
+      "The starting rules are exactly what the code did before, so nothing changes until somebody saves.",
+    ],
+  },
+  {
     date: "2026-10-05",
     title: "New onboarding: launches that never went through solutioning",
     by: "Michael + Claude",
