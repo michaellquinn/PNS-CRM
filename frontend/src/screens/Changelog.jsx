@@ -3,6 +3,16 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-10-12",
+    title: "Readiness Overview for Ops and QC, and escalation to Ops before go-live",
+    by: "Michael + Claude",
+    changes: [
+      "NEW — Ops Onboarding / Readiness Overview (Ops, QC, PNS, Admin): every submitted launch with every team's progress — e.g. 4W 3/5 · Sort 2/2 · DE 0/1, green when done, amber when started, red when not — with its go-live date and tags, nearest go-live first. Filters All / Pending / Ongoing / Cleared. A launch leaves once every team has confirmed everything and it has gone live.",
+      "Ops and QC own no readiness points, so Ops Readiness — which shows the reader's own team — was always empty for them. They now land on Readiness Overview instead, and Ops Readiness is hidden for them.",
+      "NEW — escalation: the day before and the day of go-live, if any team still has points open, the Ops group is told in the app, naming every team still open and how many points each. Once per go-live date.",
+    ],
+  },
+  {
+    date: "2026-10-12",
     title: "D-2: Sales are reminded to submit onboarding two days before go-live",
     by: "Michael + Claude",
     changes: [

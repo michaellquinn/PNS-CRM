@@ -77,13 +77,35 @@ async def notify(body, groups=(), **k):
 m.q, m.notify = q2, notify
 m.ob_rows = rows_for(1)
 n = asyncio.run(m.ob_send_reminders())
-check("a reminder per team with open points", n == 2 and {g for g, _ in sent} == {"4W", "Sort"})
+check("a reminder per team with open points", {g for g, _ in sent if g != "Ops"} == {"4W", "Sort"}
+      and n == 3)
+sent_log = list(sent)
 check("it says how many and when", any("4W still has 3 points open" in b and "tomorrow" in b
                                        and "PT C - LTL (Strategic · LTL)" in b for _, b in sent))
 check("once only", asyncio.run(m.ob_send_reminders()) == 0)
 sent.clear(); already.clear()
+m.ob_rows = rows_for(2)
+asyncio.run(m.ob_send_reminders())
+sent_2days = list(sent)
+sent.clear(); already.clear()
 m.ob_rows = rows_for(5)
 check("not while the go-live is further away", asyncio.run(m.ob_send_reminders()) == 0)
+# ---- escalation to Ops the day before go-live (2026-10-12)
+check("the day-before run also told Ops, naming every open team",
+      any(g == "Ops" and "4W 3" in b_ and "Sort 1" in b_ and "points still open" in b_ for g, b_ in sent_log))
+check("but not at 2 days out", not any(g == "Ops" for g, _ in sent_2days))
+
+# ---- the overview's per-team progress
+prog = m.ob_team_progress([{"owner_group": "Sort", "status": "confirmed"},
+                           {"owner_group": "4W", "status": "pending"},
+                           {"owner_group": "4W", "status": "confirmed"},
+                           {"owner_group": "DE", "status": "pending"}])
+check("per-team progress, pickup team first", prog == [{"group": "4W", "done": 1, "total": 2},
+      {"group": "Sort", "done": 1, "total": 1}, {"group": "DE", "done": 0, "total": 1}])
+check("only Ops, QC, PNS and Admin read the overview", m.OB_OVERVIEW_GROUPS == ("Ops", "QC", "PNS", "Admin"))
+check("a 4W account is refused the overview",
+      "if view == \"overview\" and u.group not in OB_OVERVIEW_GROUPS" in open(m.__file__, encoding="utf-8").read())
+
 # ---- D-2: Sales are reminded, never blocked (2026-10-12)
 check("submit-by is two days before go-live", m.ob_submit_by("2026-10-20") == "2026-10-18")
 check("the draft's go-live wins over the charter's",

@@ -1731,7 +1731,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-10-12.6"
+BUILD = "2026-10-12.7"
 
 
 class Me(BaseModel):
@@ -3979,6 +3979,17 @@ async def ob_send_reminders() -> int:
             "WHERE ticket_id=%s AND status<>'confirmed' GROUP BY owner_group", (r["id"],))}
         label = ob_launch_label(r)
         when_txt = "today" if days == 0 else ("tomorrow" if days == 1 else "in 2 days")
+        # Escalation to Ops (Michael, 2026-10-12): the day before and the day of go-live,
+        # if any team still has points open, the Ops group hears it too -- one notice
+        # naming every team still open, once per go-live date.
+        if open_by and days <= 1:
+            mark = f"Escalation · go-live {p.get('planned_golive')}"
+            if not await q("SELECT 1 AS x FROM notifications WHERE ticket_ref=%s AND to_groups=%s "
+                           "AND body LIKE %s LIMIT 1", (r["ticket_ref"], "Ops", f"%{mark}%"), one=True):
+                still = ", ".join(f"{g} {n}" for g, n in sorted(open_by.items()))
+                await notify(f"{label}: goes live {when_txt} with points still open — {still}. "
+                             f"{ob_when(p)}. ({mark})", groups=["Ops"], ticket_ref=r["ticket_ref"])
+                sent += 1
         for group, n in sorted(open_by.items()):
             mark = f"Reminder · go-live {p.get('planned_golive')}"
             if await q("SELECT 1 AS x FROM notifications WHERE ticket_ref=%s AND to_groups=%s "
@@ -10277,6 +10288,22 @@ async def ob_event(tid, u, body):
     await execute("INSERT INTO onboarding_events(ticket_id,actor,body,at) VALUES(%s,%s,%s,%s)", (tid, u.name, body, ob_now()))
 
 
+# Who reads every launch's readiness across all teams (Michael, 2026-10-12).
+OB_OVERVIEW_GROUPS = ("Ops", "QC", "PNS", "Admin")
+
+
+def ob_team_progress(items: list[dict]) -> list[dict]:
+    """Per team: points confirmed out of points held, in the readiness card order."""
+    by: dict[str, list[int]] = {}
+    for i in items:
+        d = by.setdefault(i["owner_group"], [0, 0])
+        d[1] += 1
+        d[0] += i["status"] == "confirmed"
+    order = {g: n for n, g in enumerate(("2W", "4W", "6W", "Sameday", "Sort", "DE", "CL", "QC", "Ops"))}
+    return [{"group": g, "done": d[0], "total": d[1]}
+            for g, d in sorted(by.items(), key=lambda kv: order.get(kv[0], 99))]
+
+
 async def ob_rows():
     return await q("SELECT t.id, t.ticket_ref, t.opportunity_id, t.opportunity_name, t.service_type, t.sales_name, t.sales_email, t.owner_name, t.request_type, t.must_win, s.acct_type, s.name AS shipper, "
                    "(SELECT JSON_UNQUOTE(JSON_EXTRACT(ti.payload,'$.golive')) FROM ticket_input ti WHERE ti.ticket_id=t.id) AS charter_golive, "
@@ -10663,8 +10690,13 @@ async def new_onboarding(body: NewOnboardingIn, u: User = Depends(current_user))
 @app.get("/api/onboarding-v2", response_model=OperationalWorklistResponse)
 async def operational_worklist(view: str = "onboarding", u: User = Depends(current_user)):
     """List operational opportunities by intake, readiness, launch or QC handover milestone."""
-    if view not in ("onboarding", "readiness", "golive", "direct"):
+    if view not in ("onboarding", "readiness", "golive", "direct", "overview"):
         raise HTTPException(400, "Unknown onboarding view")
+    # Readiness Overview (Michael, 2026-10-12): every launch with every team's progress,
+    # for the people who answer for all of them. Ops and QC own no points of their own,
+    # so Ops Readiness -- scoped to the reader's team -- was empty for exactly them.
+    if view == "overview" and u.group not in OB_OVERVIEW_GROUPS:
+        raise HTTPException(403, "Readiness Overview is for Ops, QC, PNS and Admin")
     checks = await q("SELECT * FROM onboarding_checks ORDER BY id")
     by_ticket = {}
     for c in checks:
@@ -10707,11 +10739,16 @@ async def operational_worklist(view: str = "onboarding", u: User = Depends(curre
         # What this reader owes on this launch: their team's points, or every point for
         # Sales, PNS and Admin, who watch the whole thing.
         mine = items_by_ticket.get(r["id"], [])
-        if u.group in OPERATIONAL_GROUPS:
+        if u.group in OPERATIONAL_GROUPS and view != "overview":
             mine = [i for i in mine if i["owner_group"] == u.group]
         done = sum(1 for i in mine if i["status"] == "confirmed")
         state = ("cleared" if mine and done == len(mine)
                  else "ongoing" if done else "pending")
+        if view == "overview":
+            # Every submitted launch with points, until all of them are confirmed AND it
+            # is live -- the same leaving rule as Ops Readiness, over every team.
+            if not r["submitted_at"] or not mine or (state == "cleared" and live):
+                continue
         if view == "readiness":
             # A launch this team owns no point on never appears for them at all.
             if not mine:
@@ -10751,11 +10788,12 @@ async def operational_worklist(view: str = "onboarding", u: User = Depends(curre
                        "days_to_submit_by": None if r["submitted_at"]
                                             else ob_days_to(ob_submit_by(ob_target_golive(r))),
                        "points_done": done, "points_total": len(mine),
+                       "teams": ob_team_progress(items_by_ticket.get(r["id"], [])) if view == "overview" else [],
                        "readiness_state": state, "already_live": live})
     # Pending Readiness is worked nearest-first: the launch closest to its go-live is the
     # one that hurts if it slips. Everything overdue still floats to the top, and a row
     # with no planned date sorts last rather than first.
-    if view == "readiness":
+    if view in ("readiness", "overview"):
         result.sort(key=lambda r: (r["readiness_state"] == "cleared", not r["overdue"],
                                    r["days_to_golive"] if r["days_to_golive"] is not None else 9999,
                                    r["deadline"] or "9999", r["ref"]))

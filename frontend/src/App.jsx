@@ -45,8 +45,14 @@ const works = (m) => !READ_ONLY.includes(m.group);
 // What an ops account (CL, Sort, 2W, 4W, 6W, Sameday, DE, QC, Ops) may open: the
 // onboarding screens, a launch, and CAPA (Michael, 2026-10-12 -- every ops team reads
 // CAPA; QC raises and closes it).
-const OPS_SCREENS = ["onboarding", "readiness", "golive", "operational-db", "detail",
+const OPS_SCREENS = ["onboarding", "readiness", "ob-overview", "golive", "operational-db", "detail",
   "capa-all", "capa-new", "capa-submitted", "capa-closed", "capa-raise"];
+// Readiness Overview: every team's progress on every launch (Michael, 2026-10-12).
+const OVERVIEW_GROUPS = ["Ops", "QC", "PNS", "Admin"];
+// Ops and QC own no readiness points, so Ops Readiness would always be empty for them:
+// they land on the overview instead.
+const OVERSEERS = ["Ops", "QC"];
+const opsHome = (m) => (OVERSEERS.includes(m?.group) ? "ob-overview" : "readiness");
 // CAPA lists are for everyone who works, and for the ops teams.
 const seesCapa = (m) => works(m) || m.permissions.operationalOnly;
 
@@ -195,7 +201,11 @@ const NAV = [
       keywords: "add new onboarding launch without solutioning direct request" },
     { id: "onboarding", label: "Go live from Solutioning", icon: "◉",
       keywords: "go live ops kick off onboarding schedule pending information" },
-    { id: "readiness", label: "Ops Readiness", icon: "◷", count: "ob:readiness" },
+    { id: "ob-overview", label: "Readiness Overview", icon: "▦",
+      when: (m) => OVERVIEW_GROUPS.includes(m.group),
+      keywords: "all teams progress ops head qc overview readiness late" },
+    { id: "readiness", label: "Ops Readiness", icon: "◷", count: "ob:readiness",
+      when: (m) => !OVERSEERS.includes(m.group) },
     { id: "golive", label: "Go Live", icon: "▷" },
     { id: "operational-db", label: "Operational Database", icon: "▤" },
   ]],
@@ -560,7 +570,7 @@ export default function App() {
 
   useEffect(() => { api.me().then(setMe).catch((e) => setErr(e.message)); }, []);
   useEffect(() => {
-    if (me?.permissions.operationalOnly && !OPS_SCREENS.includes(screen)) setScreen("readiness");
+    if (me?.permissions.operationalOnly && !OPS_SCREENS.includes(screen)) setScreen(opsHome(me));
   }, [me, screen]);
 
   // Back goes back through the app, instead of leaving it.
@@ -763,6 +773,7 @@ export default function App() {
     "weekly-jabo-wj": <WeeklyStage report="jabo-wj" notify={notify} onOpen={open} />,
     "weekly-cj-ej": <WeeklyStage report="cj-ej" notify={notify} onOpen={open} />,
     readiness: <OperationalList view="readiness" me={me} onOpen={ref => open(ref, "__onboarding__")} />,
+    "ob-overview": <OperationalList view="overview" me={me} onOpen={ref => open(ref, "__onboarding__")} />,
     golive: <OperationalList view="golive" me={me} notify={notify} onOpen={ref => open(ref, "__onboarding__")} />,
     "operational-db": <OperationalDatabase me={me} notify={notify} onOpen={ref => open(ref, "__onboarding__")} />,
     matrix: <Matrix />,
@@ -878,7 +889,7 @@ export default function App() {
         )}
         <main className="min-w-0 flex-1 p-4 sm:p-6">
           <ScreenError screen={screen}>
-            {me.permissions.operationalOnly && !OPS_SCREENS.includes(screen) ? screens.readiness : (screens[screen] || screens.dashboard)}
+            {me.permissions.operationalOnly && !OPS_SCREENS.includes(screen) ? screens[opsHome(me)] : (screens[screen] || screens.dashboard)}
           </ScreenError>
         </main>
       </div>

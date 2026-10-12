@@ -3,8 +3,9 @@ import { api, groupTone } from "../api";
 import { Btn, Card, Empty, Head, Pill, inputCls } from "../ui";
 
 const TITLES = { onboarding: "Go live from Solutioning", readiness: "Ops Readiness", golive: "Go Live",
-  direct: "Not submitted yet" };
-const HELP = { onboarding: "Won deals from solutioning, waiting on Sales to fill in and submit the onboarding requirements. Once submitted, a launch moves to Ops Readiness.",
+  direct: "Not submitted yet", overview: "Readiness Overview" };
+const HELP = { overview: "Every launch and how far each team has got, nearest go-live first. A launch leaves once every team has confirmed everything AND it has gone live. Ops are told the day before and the day of go-live when a team still has points open.",
+  onboarding: "Won deals from solutioning, waiting on Sales to fill in and submit the onboarding requirements. Once submitted, a launch moves to Ops Readiness.",
   direct: "Launches raised on this page that Sales have not submitted yet. Open one to finish its onboarding form; once submitted it moves to Ops Readiness.",
   readiness: "Launches your team has points on, nearest go-live first. It leaves this list once your team has confirmed everything AND the launch has gone live — one that went live with points still open stays here.",
   golive: "Launches whose go-live date has arrived. A launch appears here on its date — there is nothing to press." };// today or past, amber inside three days, plain after that.
@@ -46,7 +47,7 @@ export function OperationalList({ view = "onboarding", me, onOpen, notify = () =
     <div className="mb-4 flex flex-wrap gap-2">
       <input className={`${inputCls} max-w-sm`} placeholder="Search opportunity or shipper" value={query} onChange={e => setQuery(e.target.value)} />
       {/* Status filter removed: Go live from Solutioning lists one status only. */}
-      {view === "readiness" && <div className="flex flex-wrap gap-1">
+      {(view === "readiness" || view === "overview") && <div className="flex flex-wrap gap-1">
         {[["", "All"], ["pending", "Pending"], ["ongoing", "Ongoing"], ["cleared", "Cleared"]].map(([v, label]) => (
           <button key={v} type="button" onClick={() => setState(v)} aria-pressed={state === v}
             className={`rounded-lg px-3 py-1.5 text-[12.5px] font-medium ${
@@ -64,22 +65,22 @@ export function OperationalList({ view = "onboarding", me, onOpen, notify = () =
               the team has got, and when it goes live. The go-live pill already says
               "today" or "overdue", so status, "already live" and "confirmation overdue"
               only repeated it. The other screens keep their status. */}
-          {view !== "readiness" && <Pill>{r.status}</Pill>}
+          {view !== "readiness" && view !== "overview" && <Pill>{r.status}</Pill>}
           {/* Which way it came in (Michael, 2026-10-05). Only the newer route is
               tagged; a launch from solutioning is the ordinary case. */}
           {r.source === "New onboarding" && view !== "direct" && (
             <Pill tone="bg-violet-50 text-violet-700">New onboarding</Pill>
           )}
           <DealTags service={r.service} acctType={r.acct_type} mustWin={r.must_win} />
-          {view !== "readiness" && r.overdue && <Pill tone="bg-rose-100 text-rose-800">Confirmation overdue</Pill>}
-          {view === "readiness" && r.points_total > 0 && (
+          {view !== "readiness" && view !== "overview" && r.overdue && <Pill tone="bg-rose-100 text-rose-800">Confirmation overdue</Pill>}
+          {(view === "readiness" || view === "overview") && r.points_total > 0 && (
             <Pill tone={r.readiness_state === "cleared" ? "bg-emerald-100 text-emerald-800"
               : r.readiness_state === "ongoing" ? "bg-sky-50 text-sky-700"
               : "bg-slate-100 text-slate-600"}>
               {r.points_done}/{r.points_total} confirmed
             </Pill>
           )}
-          {view === "readiness" && (
+          {(view === "readiness" || view === "overview") && (
             <Pill tone={goLiveTone(r.days_to_golive)}>
               Go live {r.planned_golive || "—"} · {goLiveWords(r.days_to_golive)}
             </Pill>
@@ -102,7 +103,15 @@ export function OperationalList({ view = "onboarding", me, onOpen, notify = () =
           {r.deadline && <span>Confirm by: {format(r.deadline)} (always before pickup)</span>}
           {r.actual_golive && <span>Actual go-live: {r.actual_golive}</span>}
         </div>
-        {!!r.pending.length && <p className="mt-2 text-[12px] text-amber-800">Outstanding: {r.pending.join(" · ")}</p>}
+        {/* Every team's progress on this launch (Readiness Overview, 2026-10-12). */}
+        {view === "overview" && !!r.teams?.length && <div className="mt-2 flex flex-wrap gap-1.5">
+          {r.teams.map((g) => <span key={g.group} className={`rounded-md px-2 py-0.5 text-[12px] font-semibold ${
+            g.done === g.total ? "bg-emerald-100 text-emerald-800"
+              : g.done ? "bg-amber-100 text-amber-800" : "bg-rose-50 text-rose-700"}`}>
+            {g.group} {g.done}/{g.total}
+          </span>)}
+        </div>}
+        {view !== "overview" && !!r.pending.length && <p className="mt-2 text-[12px] text-amber-800">Outstanding: {r.pending.join(" · ")}</p>}
       </Card>)}
     </div>}
     {/* "Existing monitoring records" stood here until 2026-09-14 (Michael). It listed
