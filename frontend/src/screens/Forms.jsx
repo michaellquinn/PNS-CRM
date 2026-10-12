@@ -70,6 +70,7 @@ export function NewRequest({ me, notify, onCreated }) {
     if (!f.brief?.trim()) return notify("Brief summary is required");
     // The contract terms Legal writes from (Michael, 2026-10-12): every one that applies
     // to the answers given must be filled, so a contract is never drafted on a guess.
+    if (!f.shipMode) return notify("Shipment mode is required");
     const TERMS = { rtsFee: "RTS fee", ins: "Insurance", insParcelValue: "Parcel value",
       insRate: "Custom insurance rate", insMaxLiability: "Custom max. liability",
       rdoFee: "RDO fee", rdoSla: "RDO SLA", rdoSlaCustom: "Custom RDO SLA", tkbmFee: "TKBM fee" };
@@ -278,6 +279,19 @@ export function NewRequest({ me, notify, onCreated }) {
           {/* Only when the answer is Yes. PNS cannot price an RDO it has not been told
               the shape of, and "RDO: Yes" on its own is not the shape. Attach the
               example photos on the ticket afterwards, under RDO example from Sales. */}
+          {/* Every follow-up sits directly under the answer it belongs to (Michael,
+              2026-10-13): the RDO terms under RDO, TKBM fee under TKBM, the insurance
+              figures under Insurance. */}
+          {f.rdo === "Yes" && <>
+            <Field label="RDO fee" required>{pick("rdoFee", RDO_FEES)}</Field>
+            <Field label="RDO SLA" required>{pick("rdoSla", RDO_SLAS)}</Field>
+            {f.rdoSla === "Custom" && (
+              <Field label="Custom RDO SLA" required>
+                <input className={inputCls} value={f.rdoSlaCustom || ""} onChange={set("rdoSlaCustom")}
+                  placeholder="e.g. RDO back within 3 days after complete delivery" />
+              </Field>
+            )}
+          </>}
           {f.rdo === "Yes" && (
             <Field label="RDO details from Sales" span
               hint="What the shipper actually wants returned, to whom, and how signed. Attach the example photos to the ticket once it exists — Attachments, RDO example from Sales.">
@@ -300,16 +314,6 @@ export function NewRequest({ me, notify, onCreated }) {
           {(f.tkbmO === "Yes" || f.tkbmD === "Yes") && (
             <Field label="TKBM fee" required>{pick("tkbmFee", TKBM_FEES)}</Field>
           )}
-          {f.rdo === "Yes" && <>
-            <Field label="RDO fee" required>{pick("rdoFee", RDO_FEES)}</Field>
-            <Field label="RDO SLA" required>{pick("rdoSla", RDO_SLAS)}</Field>
-            {f.rdoSla === "Custom" && (
-              <Field label="Custom RDO SLA" required>
-                <input className={inputCls} value={f.rdoSlaCustom || ""} onChange={set("rdoSlaCustom")}
-                  placeholder="e.g. RDO back within 3 days after complete delivery" />
-              </Field>
-            )}
-          </>}
           <Field label="RTS fee" required>{pick("rtsFee", RTS_FEES)}</Field>
           <Field label="Insurance" required span>{pick("ins", INSURANCE_OPTIONS)}</Field>
           {(f.ins === INS_PCT || f.ins === INS_BLENDED) && (
@@ -329,7 +333,7 @@ export function NewRequest({ me, notify, onCreated }) {
                 placeholder={f.ins === INS_CUSTOM ? "per parent TRID, e.g. IDR 5,000,000" : "e.g. IDR 5,000,000"} />
             </Field>
           )}
-          <Field label="Shipment mode" hint="Onboarding reads this from the charter">
+          <Field label="Shipment mode" required hint="Onboarding reads this from the charter">
             <select className={inputCls} value={f.shipMode || ""} onChange={set("shipMode")}>
               <option value="">Choose…</option>
               <option>Port to Port</option><option>Port to Door</option>

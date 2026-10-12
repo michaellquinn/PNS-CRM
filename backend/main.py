@@ -1738,7 +1738,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-10-13.1"
+BUILD = "2026-10-13.2"
 
 
 class Me(BaseModel):
@@ -6710,8 +6710,9 @@ FIELD_RULES = {
     "rdoSlaCustom":   ("Sales", "optional", "Only when the RDO SLA is Custom."),
     "tkbmFee":        ("Sales", "optional", "Only when TKBM is Yes: blended to rate or not."),
     "truck":          ("Sales", "optional", ""),
-    "shipMode":       ("Sales", "optional", "Port to Port, Port to Door, Door to Port or "
-                                            "Door to Door. Onboarding reads it from here."),
+    "shipMode":       ("Sales", "asked", "Required on New request (2026-10-13): Port to "
+                                         "Port, Port to Door, Door to Port or Door to Door. "
+                                         "Onboarding reads it from here."),
     "handling":       ("Sales", "optional", ""),
     "notes":          ("Sales", "optional", ""),
     # 4 · Kick-off

@@ -3,6 +3,15 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-10-13",
+    title: "Shipment mode required; RDO terms sit under RDO",
+    by: "Michael + Claude",
+    changes: [
+      "New request will not submit without a Shipment mode. Onboarding and Legal both read it from the charter.",
+      "RDO fee and RDO SLA (and a custom SLA) now sit directly under RDO, on New request, the Project Charter and Edit intake. Same rule everywhere: a follow-up sits right under the answer it belongs to — TKBM fee under TKBM, the insurance figures under Insurance.",
+    ],
+  },
+  {
+    date: "2026-10-13",
     title: "Legal view, and the contract terms on the Project Charter",
     by: "Michael + Claude",
     changes: [
