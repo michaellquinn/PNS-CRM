@@ -84,4 +84,40 @@ check("once only", asyncio.run(m.ob_send_reminders()) == 0)
 sent.clear(); already.clear()
 m.ob_rows = rows_for(5)
 check("not while the go-live is further away", asyncio.run(m.ob_send_reminders()) == 0)
+# ---- D-2: Sales are reminded, never blocked (2026-10-12)
+check("submit-by is two days before go-live", m.ob_submit_by("2026-10-20") == "2026-10-18")
+check("the draft's go-live wins over the charter's",
+      m.ob_target_golive({"payload": json.dumps({"planned_golive": "2026-10-20"}), "charter_golive": "2026-10-25"}) == "2026-10-20")
+check("the charter's go-live when the draft has none",
+      m.ob_target_golive({"payload": None, "charter_golive": "2026-10-25"}) == "2026-10-25")
+told = []
+async def notify_people(body, groups=(), people=(), **k):
+    told.append((tuple(people), body, k)); already.add(("SOF-8", "sales"))
+async def q3(sql, args=(), one=False):
+    if "FROM notifications WHERE ticket_ref" in sql:
+        return {"x": 1} if ("SOF-8", "sales") in already else None
+    return None if one else []
+async def people_of(t): return ["Dandy", "Niko"]
+def draft_row(days):
+    async def rows():
+        return [dict(id=8, ticket_ref="SOF-8", opportunity_name="PT E - B2BR", shipper="PT E",
+                     service_type="B2BR", acct_type="Standard", must_win=0, submitted_at=None,
+                     actual_golive=None, released_payload=None, payload=None,
+                     charter_golive=str(date.today() + timedelta(days=days)),
+                     owner_name="Niko", sales_name="Dandy", sales_email="d@x")]
+    return rows
+already.clear()
+m.q, m.notify, m.ticket_people = q3, notify_people, people_of
+m.ob_rows = draft_row(1)
+check("Sales are reminded when go-live is tomorrow and nothing is submitted",
+      asyncio.run(m.ob_send_reminders()) == 1 and told[0][0] == ("Dandy", "Niko"))
+check("in the app only", told[0][2].get("email") is False and "not submitted yet" in told[0][1])
+check("once per go-live date", asyncio.run(m.ob_send_reminders()) == 0)
+already.clear(); told.clear()
+m.ob_rows = draft_row(6)
+check("not a week out", asyncio.run(m.ob_send_reminders()) == 0)
+src = open(m.__file__, encoding="utf-8").read()
+check("the D-1 cut-off is unchanged and nothing new blocks a submit",
+      src.count("Sales requirements must be submitted by D-1 20:00 WIB") == 1
+      and "OB_SUBMIT_DAYS_BEFORE" not in src.split("def ob_validate")[1].split("def ob_readiness_points")[0])
 print(f"ops notifications: {ok} checks OK")

@@ -3,6 +3,16 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-10-12",
+    title: "D-2: Sales are reminded to submit onboarding two days before go-live",
+    by: "Michael + Claude",
+    changes: [
+      "NEW — from the ops meeting: Sales aim to submit the onboarding form by D-2, two days before go-live, so the teams have time to confirm. It is a REMINDER, not a rule: when the go-live is two days away or closer and the form is not submitted, the deal's Sales PIC, their manager and the PNS PIC are told in the app, once per go-live date. Nothing is refused for missing it.",
+      "Go live from Solutioning and New onboarding show a “Submit by” date on every launch still waiting on Sales, amber when close and red when late. The go-live date is the onboarding draft's, or the charter's when the draft has none.",
+      "Unchanged: the last possible submit is still D-1 20:00 WIB before the first pickup, which is about getting a truck there, not the paperwork.",
+    ],
+  },
+  {
+    date: "2026-10-12",
     title: "CAPA for the ops teams, and an Onboarding discussion on every launch",
     by: "Michael + Claude",
     changes: [

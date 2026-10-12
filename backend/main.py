@@ -1731,7 +1731,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-10-12.5"
+BUILD = "2026-10-12.6"
 
 
 class Me(BaseModel):
@@ -3937,12 +3937,38 @@ async def seed_sample_weekly() -> str:
 
 
 async def ob_send_reminders() -> int:
-    """Tell a team when a launch goes live within 2 days and it still has points open
-    (Michael, 2026-10-12). Once per team per launch per go-live date: a moved go-live
-    date is a new deadline and is reminded again. Returns how many were sent."""
+    """Two reminders, both once per launch per go-live date (Michael, 2026-10-12):
+
+      * Sales, when the go-live is two days away or closer and onboarding is not
+        submitted (D-2 -- a reminder, never a block);
+      * each team that still has points open when the go-live is that close.
+
+    A moved go-live date is a new deadline and is reminded again. Returns how many."""
     sent = 0
     for r in await ob_rows():
-        if not r["submitted_at"] or r["actual_golive"]:
+        # Sales first (D-2, 2026-10-12): a launch whose go-live is two days away or
+        # closer and is still not submitted. Its own people, in the app. Once per
+        # go-live date, like the team reminder.
+        if not r["submitted_at"]:
+            golive = ob_target_golive(r)
+            days = ob_days_to(golive)
+            if days is None or not 0 <= days <= OB_SUBMIT_DAYS_BEFORE:
+                continue
+            mark = f"Submit reminder · go-live {str(golive)[:10]}"
+            if await q("SELECT 1 AS x FROM notifications WHERE ticket_ref=%s AND body LIKE %s "
+                       "LIMIT 1", (r["ticket_ref"], f"%{mark}%"), one=True):
+                continue
+            people = await ticket_people(r)
+            if not people:
+                continue
+            when_txt = "today" if days == 0 else ("tomorrow" if days == 1 else "in 2 days")
+            await notify(f"{ob_launch_label(r)}: goes live {when_txt} and the onboarding form "
+                         f"is not submitted yet. Submitting by D-2 gives the ops teams time "
+                         f"to confirm. ({mark})",
+                         people=people, email=False, ticket_ref=r["ticket_ref"])
+            sent += 1
+            continue
+        if r["actual_golive"]:
             continue
         p = ob_json(r["released_payload"])
         days = ob_days_to(p.get("planned_golive"))
@@ -10189,6 +10215,27 @@ def ob_readiness(checks):
     return "Approved with exception" if any(c.get("approved_at") for c in checks) else "Ready"
 
 
+# D-2 (ops meeting, 2026-10-12, Michael): Sales aim to submit onboarding two days
+# before go-live so the teams have time to confirm. A REMINDER, not a rule -- nothing is
+# refused for missing it. The hard cut-off stays where it was: D-1 20:00 WIB before the
+# first pickup, which is about the truck, not the paperwork.
+OB_SUBMIT_DAYS_BEFORE = 2
+
+
+def ob_target_golive(r: dict) -> str | None:
+    """The go-live a launch is working to: the onboarding draft's date, else the
+    charter's. A draft nobody has opened yet still has the charter's answer."""
+    p = ob_json(r.get("payload"))
+    return p.get("planned_golive") or r.get("charter_golive") or None
+
+
+def ob_submit_by(golive) -> str | None:
+    try:
+        return str(date.fromisoformat(str(golive)[:10]) - timedelta(days=OB_SUBMIT_DAYS_BEFORE))
+    except (TypeError, ValueError):
+        return None
+
+
 def ob_days_to(day) -> int | None:
     """Whole days from today (WIB) to that date; negative once it has passed."""
     try:
@@ -10231,7 +10278,8 @@ async def ob_event(tid, u, body):
 
 
 async def ob_rows():
-    return await q("SELECT t.id, t.ticket_ref, t.opportunity_id, t.opportunity_name, t.service_type, t.sales_name, t.sales_email, t.request_type, t.must_win, s.acct_type, s.name AS shipper, "
+    return await q("SELECT t.id, t.ticket_ref, t.opportunity_id, t.opportunity_name, t.service_type, t.sales_name, t.sales_email, t.owner_name, t.request_type, t.must_win, s.acct_type, s.name AS shipper, "
+                   "(SELECT JSON_UNQUOTE(JSON_EXTRACT(ti.payload,'$.golive')) FROM ticket_input ti WHERE ti.ticket_id=t.id) AS charter_golive, "
                    "i.payload, i.released_payload, i.revision, i.submitted_at, i.actual_golive, i.qc_accepted_at, "
                    "i.handover_at "
                    "FROM tickets t JOIN shippers s ON s.id=t.shipper_id LEFT JOIN onboarding_intake i ON i.ticket_id=t.id "
@@ -10698,6 +10746,10 @@ async def operational_worklist(view: str = "onboarding", u: User = Depends(curre
                        # planned go-live has already passed and nothing is ready.
                        "planned_golive": p.get("planned_golive") or None,
                        "days_to_golive": ob_days_to(p.get("planned_golive")),
+                       # While Sales still owe the form: the D-2 date and how far off it is.
+                       "submit_by": None if r["submitted_at"] else ob_submit_by(ob_target_golive(r)),
+                       "days_to_submit_by": None if r["submitted_at"]
+                                            else ob_days_to(ob_submit_by(ob_target_golive(r))),
                        "points_done": done, "points_total": len(mine),
                        "readiness_state": state, "already_live": live})
     # Pending Readiness is worked nearest-first: the launch closest to its go-live is the

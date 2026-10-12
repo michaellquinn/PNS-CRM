@@ -84,6 +84,14 @@ export function OperationalList({ view = "onboarding", me, onOpen, notify = () =
               Go live {r.planned_golive || "—"} · {goLiveWords(r.days_to_golive)}
             </Pill>
           )}
+          {/* D-2 (2026-10-12): when Sales should have it in. A reminder, never a block. */}
+          {r.submit_by && (
+            <Pill tone={goLiveTone(r.days_to_submit_by)}>
+              Submit by {r.submit_by} · {r.days_to_submit_by < 0
+                ? `${-r.days_to_submit_by} day${r.days_to_submit_by === -1 ? "" : "s"} late`
+                : r.days_to_submit_by === 0 ? "today" : `in ${r.days_to_submit_by} day${r.days_to_submit_by === 1 ? "" : "s"}`}
+            </Pill>
+          )}
           <Btn className="ml-auto" onClick={() => onOpen(r.ref)}>Open onboarding</Btn>
 
         </div>
@@ -287,7 +295,7 @@ export function OnboardingPane({ ticketRef, me, notify }) {
   return <div className={busy ? "pointer-events-none opacity-70" : ""}>
     <div className="mb-4 rounded-xl bg-sky-50 p-4">
       <div className="flex flex-wrap gap-2"><DealTags service={data.service} acctType={data.acct_type} mustWin={data.must_win} /><Pill>{data.status}</Pill><Pill>Revision {data.revision}</Pill>{data.submitted_at && <Pill>Database synced on submission</Pill>}</div>
-      <p className="mt-2 text-[12px] text-slate-600">Sales submits by D-1 20:00 WIB. Teams confirm the same day or next day 20:00 maximum, always before pickup. Onboarding does not change pricing, status, ownership or ticket approval routing.</p>
+      <p className="mt-2 text-[12px] text-slate-600">Sales aim to submit by D-2 before go-live, so the teams have time to confirm — the app reminds them, it does not block. The last possible submit is D-1 20:00 WIB before the first pickup. Teams confirm the same day or next day 20:00 maximum, always before pickup. Onboarding does not change pricing, status, ownership or ticket approval routing.</p>
       {data.submitted_at && <p className="mt-1 text-[12px]">Requirements submitted: {format(data.submitted_at)}</p>}
       {!data.eligible && <p className="mt-2 font-medium text-amber-800">Input is available when the opportunity is Ready to Ship.</p>}
     </div>
