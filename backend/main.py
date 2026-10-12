@@ -1731,7 +1731,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-10-12.2"
+BUILD = "2026-10-12.3"
 
 
 class Me(BaseModel):
@@ -3936,6 +3936,35 @@ async def seed_sample_weekly() -> str:
     return f"seeded {len(SAMPLE_WEEKLY)} sample deals"
 
 
+async def ob_send_reminders() -> int:
+    """Tell a team when a launch goes live within 2 days and it still has points open
+    (Michael, 2026-10-12). Once per team per launch per go-live date: a moved go-live
+    date is a new deadline and is reminded again. Returns how many were sent."""
+    sent = 0
+    for r in await ob_rows():
+        if not r["submitted_at"] or r["actual_golive"]:
+            continue
+        p = ob_json(r["released_payload"])
+        days = ob_days_to(p.get("planned_golive"))
+        if days is None or not 0 <= days <= 2:
+            continue
+        open_by = {row["owner_group"]: int(row["n"]) for row in await q(
+            "SELECT owner_group, COUNT(*) AS n FROM onboarding_check_items "
+            "WHERE ticket_id=%s AND status<>'confirmed' GROUP BY owner_group", (r["id"],))}
+        label = ob_launch_label(r)
+        when_txt = "today" if days == 0 else ("tomorrow" if days == 1 else "in 2 days")
+        for group, n in sorted(open_by.items()):
+            mark = f"Reminder · go-live {p.get('planned_golive')}"
+            if await q("SELECT 1 AS x FROM notifications WHERE ticket_ref=%s AND to_groups=%s "
+                       "AND body LIKE %s LIMIT 1", (r["ticket_ref"], group, f"%{mark}%"), one=True):
+                continue
+            await notify(f"{label}: goes live {when_txt} and {group} still has {n} point"
+                         f"{'s' if n != 1 else ''} open. {ob_when(p)}. ({mark})",
+                         groups=[group], ticket_ref=r["ticket_ref"])
+            sent += 1
+    return sent
+
+
 async def _auto_sync_loop() -> None:
     """Run the Sales CRM sweep on a timer, as the sync owner.
 
@@ -3963,6 +3992,15 @@ async def _auto_sync_loop() -> None:
         # effect without a deploy. Defaults come from the env vars, so a database that
         # has never been written to behaves exactly as before.
         every = await setting_int("sync.every_minutes", 1, 1440, AUTO_SYNC_MINUTES or 5)
+        # Go-live reminders ride the same timer, whatever the sync is doing (Michael,
+        # 2026-10-12). Caught on their own so a failure here never stops the sync, and
+        # the reverse.
+        try:
+            n = await ob_send_reminders()
+            if n:
+                log.warning("onboarding: %d go-live reminder(s) sent", n)
+        except Exception:                                   # noqa: BLE001
+            log.exception("onboarding reminders failed")
         try:
             if not await setting_bool("sync.auto_enabled"):
                 _auto_sync.update(enabled=False, every_minutes=every)
@@ -9307,7 +9345,12 @@ async def notifications(u: User = Depends(current_user)):
             addressed = u.group in groups or role_label in roles
             # A broadcast with no ticket behind it (a sync summary, say) still reaches
             # the group it names; anything ticket-shaped has to be one of theirs.
-            keep = addressed and (r["ticket_ref"] is None or r["ticket_ref"] in mine)
+            # An ops team is not the PIC of any ticket -- its work is the launch, not
+            # the deal -- so a notice addressed to the TEAM reaches it whatever the
+            # ticket (Michael, 2026-10-12). Only notices naming their own group: the
+            # commercial traffic on the same tickets is still not theirs.
+            keep = addressed and (r["ticket_ref"] is None or r["ticket_ref"] in mine
+                                  or (u.group in OPERATIONAL_GROUPS and u.group in groups))
         if keep:
             out.append(Note(id=r["id"], body=r["body"], ticket_ref=r["ticket_ref"],
                             thread_key=r.get("thread_key"),
@@ -10158,6 +10201,29 @@ def ob_deadline(submitted, pickup):
     return min(cutoff, pickup if isinstance(pickup, datetime) else datetime.fromisoformat(pickup))
 
 
+def ob_launch_label(t: dict) -> str:
+    """'PT Contoh - B2BR (Hypercare · Must Win · LTL)' -- what a team reads first."""
+    tags = [x for x in ((t.get("acct_type") if t.get("acct_type") not in (None, "", "Standard") else None),
+                        ("Must Win" if t.get("must_win") else None),
+                        t.get("service_type")) if x]
+    name = t.get("opportunity_name") or t.get("shipper") or t.get("ticket_ref") or ""
+    return f"{name} ({' · '.join(tags)})" if tags else name
+
+
+def ob_when(p: dict) -> str:
+    """First pickup and go-live, as a team needs them in one line."""
+    try:
+        pick = ob_pickup_moment(p).strftime("%d %b %H:%M")
+    except (ValueError, TypeError, KeyError):
+        pick = "—"
+    gl = p.get("planned_golive")
+    try:
+        gl = date.fromisoformat(str(gl)).strftime("%d %b") if gl else "—"
+    except ValueError:
+        pass
+    return f"First pickup {pick}, go-live {gl}"
+
+
 async def ob_event(tid, u, body):
     await execute("INSERT INTO onboarding_events(ticket_id,actor,body,at) VALUES(%s,%s,%s,%s)", (tid, u.name, body, ob_now()))
 
@@ -10181,7 +10247,10 @@ async def operational_access_boundary(request: Request, call_next):
             u = await current_user(request)
         except HTTPException:
             return await call_next(request)
-        if u.group in OPERATIONAL_GROUPS and not path.startswith(("/api/onboarding-v2", "/api/operational-master")):
+        # Notifications are let through (Michael, 2026-10-12): the notices addressed to
+        # an ops team were being written and nobody in ops could read them. What an ops
+        # account receives is filtered in notifications() itself.
+        if u.group in OPERATIONAL_GROUPS and not path.startswith(("/api/onboarding-v2", "/api/operational-master", "/api/notifications")):
             from fastapi.responses import JSONResponse
             return JSONResponse({"detail": "Operational accounts use Onboarding; commercial data is restricted"}, status_code=403)
     return await call_next(request)
@@ -10811,6 +10880,12 @@ async def operational_save(ref: str, body: OperationalSave, u: User = Depends(cu
                                              "confirmed; reopen a point to change it")
             revision = body.revision + 1
             now = ob_now()
+            # What each team is being asked, for the notices after commit (Michael,
+            # 2026-10-12): points that are new to them, and points they had already
+            # confirmed that this change reopens.
+            was_submitted = bool(old and old.get("submitted_at"))
+            asked: dict[str, dict[str, int]] = {}
+            submitted = None
             await cur.execute("INSERT INTO onboarding_intake(ticket_id,payload,revision,updated_at) VALUES(%s,%s,%s,%s) "
                               "ON DUPLICATE KEY UPDATE payload=VALUES(payload),revision=VALUES(revision),updated_at=VALUES(updated_at)",
                               (t["id"], json.dumps(p), revision, now))
@@ -10819,6 +10894,7 @@ async def operational_save(ref: str, body: OperationalSave, u: User = Depends(cu
                 # submissions cannot extend outstanding confirmation deadlines.
                 changed = not old or ob_json(old.get("released_payload")) != p
                 submitted = now if changed else old.get("submitted_at") or now
+                # (also read after commit, for the per-team notices)
                 await cur.execute("UPDATE onboarding_intake SET released_payload=%s,submitted_at=%s,submitted_by=%s WHERE ticket_id=%s", (json.dumps(p), submitted, u.email, t["id"]))
                 specs = ob_check_specs(p)
                 keys = [s["check_key"] for s in specs]
@@ -10850,6 +10926,10 @@ async def operational_save(ref: str, body: OperationalSave, u: User = Depends(cu
                         was = old_items.get((sp["check_key"], it["item_key"]))
                         if was and was["fingerprint"] == it["fingerprint"]:
                             continue
+                        tally = asked.setdefault(sp["owner_group"], {"points": 0, "reopened": 0})
+                        tally["points"] += 1
+                        if was and was["status"] == "confirmed":
+                            tally["reopened"] += 1
                         await cur.execute(
                             "INSERT INTO onboarding_check_items(ticket_id,check_key,item_key,"
                             "label,owner_group,origin_group,fingerprint,revision) "
@@ -10875,7 +10955,26 @@ async def operational_save(ref: str, body: OperationalSave, u: User = Depends(cu
             await conn.rollback()
             raise
     if body.submit:
-        await notify(f"{ref}: Sales submitted onboarding. Related teams: confirm readiness before pickup.", groups=list({s["owner_group"] for s in ob_check_specs(p)}), ticket_ref=ref)
+        # One notice per team, saying what is theirs and by when (Michael, 2026-10-12).
+        # It used to be one line for everybody carrying only the ticket number. A team
+        # with nothing new to confirm -- an unchanged resubmit -- is not told anything.
+        label = ob_launch_label(t)
+        when = ob_when(p)
+        try:
+            by = ob_deadline(submitted, ob_pickup_moment(p)).strftime("%d %b %H:%M") if submitted else None
+        except (ValueError, TypeError, KeyError):
+            by = None
+        for group, n in sorted(asked.items()):
+            pts = f"{n['points']} point{'s' if n['points'] != 1 else ''}"
+            if was_submitted:
+                msg = (f"{label}: Sales changed the requirements — {pts} for {group} to confirm again"
+                       + (f" ({n['reopened']} already confirmed, now reopened)" if n["reopened"] else "")
+                       + f". {when}.")
+            else:
+                msg = f"{label}: {pts} for {group} to confirm. {when}."
+            if by:
+                msg += f" Confirm by {by} WIB."
+            await notify(msg, groups=[group], ticket_ref=ref)
         # A launch with no solutioning behind it is news to Ops, QC and PNS, who would
         # otherwise first hear of it here (Michael, 2026-10-05). In-app, as a group.
         if t.get("request_type") == "onboarding":
@@ -11061,10 +11160,21 @@ async def operational_item(iid: int, body: OperationalItemAction,
         await cur.execute("INSERT INTO onboarding_events(ticket_id,actor,body,at) VALUES(%s,%s,%s,%s)",
                           (it["ticket_id"], actor, body_text[:8000], ob_now()))
         await ob_sync_check_status(cur, it["ticket_id"])
-    if body.action == "move":
-        await notify(f"{it['ticket_ref']}: {it['owner_group']} handed a readiness point to "
-                     f"{body.to_group.strip()} — {body.note.strip()[:200]}",
-                     groups=[body.to_group.strip()], ticket_ref=it["ticket_ref"])
+    if body.action in ("move", "reopen"):
+        t = await get_ticket(it["ticket_ref"])
+        label = ob_launch_label(t)
+        if body.action == "move":
+            await notify(f"{label}: {it['owner_group']} handed you a point — "
+                         f"“{it['label']}”. Why: {body.note.strip()[:200]}",
+                         groups=[body.to_group.strip()], ticket_ref=it["ticket_ref"])
+        else:
+            # A confirmation taken back (Michael, 2026-10-12): the team that holds the
+            # point -- it may have been Admin acting for them -- and the deal's own
+            # people, who were counting on it.
+            await notify(f"{label}: “{it['label']}” was reopened for {it['owner_group']} "
+                         f"by {actor} — {body.note.strip()[:200]}",
+                         groups=[it["owner_group"]], people=await ticket_people(t),
+                         email=False, ticket_ref=it["ticket_ref"])
     return {"ok": True}
 
 

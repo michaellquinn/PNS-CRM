@@ -242,7 +242,8 @@ async def main():
         if "ticket_files" in sql: return []
         if "onboarding_intake" in sql and one: return dict(payload=json.dumps({**p, "revenue": "SECRET_REVENUE"}), released_payload=json.dumps(p), revision=1, submitted_at=NOW, actual_golive=None, qc_accepted_at=None)
         return None if one else []
-    async def notice(*args, **kwargs): pass
+    notices = []
+    async def notice(body, groups=(), **kwargs): notices.append((tuple(groups), body))
     m.get_ticket = ticket; m.q = query; m.notify = notice
     for submit in [False, True]:
         savecur = Cur(); m._pool = Pool(savecur)
@@ -251,6 +252,11 @@ async def main():
         assert any("operational_master" in sql for sql in writes) == submit
         assert all(not sql.startswith(("UPDATE tickets", "INSERT INTO ticket_input", "UPDATE ticket_input")) for sql in writes)
         assert m._pool.conn.committed
+    # One notice per team on submit, saying what is theirs and by when (Michael,
+    # 2026-10-12) -- not one line for all carrying only the ticket number.
+    mine_4w = [b for g, b in notices if g == ("4W",)]
+    assert mine_4w and "for 4W to confirm" in mine_4w[0] and "First pickup" in mine_4w[0]         and "Confirm by" in mine_4w[0] and "PT Test - FTL" in mine_4w[0], notices
+    assert all(len(g) == 1 for g, _ in notices), "each team is told separately"
     stale = Cur(intake=dict(revision=2, actual_golive=None)); m._pool = Pool(stale)
     await denied(lambda: m.operational_save("SOF-1", m.OperationalSave(payload=p, revision=0), sales), 409)
     assert m._pool.conn.rolled_back and not m._pool.conn.committed

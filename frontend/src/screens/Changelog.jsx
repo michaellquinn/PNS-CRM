@@ -3,6 +3,18 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-10-12",
+    title: "The ops teams get notifications they can read",
+    by: "Michael + Claude",
+    changes: [
+      "FIXED — notices addressed to an ops team (CL, Sort, 2W, 4W, 6W, Sameday, DE, QC, Ops) were written but nobody in ops could read them: the Bell was hidden for ops accounts, they were not allowed to load notifications, and a team notice only reached people who own the ticket, which ops never do. Ops accounts now have the Bell and see every notice addressed to their own team. Clicking one opens that launch's onboarding. In-app only — no email.",
+      "Each team now gets its own notice when Sales submit, saying what is theirs: the launch name with its tags, how many points that team has to confirm, the first pickup and go-live, and the confirm-by time. It used to be one line for every team carrying only the ticket number.",
+      "NEW — when Sales change the requirements after submitting, only the teams whose points changed are told, with how many points need confirming again and how many confirmations were reopened. An unchanged resubmit tells nobody.",
+      "NEW — a reopened point tells its team and the deal's people. A handed-over point names the launch and the point.",
+      "NEW — a reminder to each team that still has open points when a launch goes live within 2 days. Once per team per go-live date; moving the go-live date reminds again.",
+    ],
+  },
+  {
+    date: "2026-10-12",
     title: "Ops Onboarding: account type, Must Win and service tags",
     by: "Michael + Claude",
     changes: [

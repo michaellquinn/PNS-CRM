@@ -608,8 +608,11 @@ export default function App() {
   const refreshNotes = () => api.notifications().then(setNotes).catch(() => {});
 
   useEffect(() => {
-    if (!me || me.permissions.operationalOnly) return;
+    if (!me) return;
+    // The ops teams have a Bell too (Michael, 2026-10-12), so their notices load here;
+    // the solutioning counts below are still not theirs.
     refreshNotes();
+    if (me.permissions.operationalOnly) return;
     Promise.all([api.tickets({}), api.tickets({ awaiting: true })])
       .then(([all, awaiting]) => {
         const c = {
@@ -826,8 +829,10 @@ export default function App() {
           <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">
             {me.group}{me.level === "head" ? " · Head" : ""}
           </span>
-          {!me.permissions.operationalOnly && <Bell notes={notes} onRead={() => api.markRead().then(refreshNotes)}
-            onOpen={open} />}
+          {/* Everyone has a Bell, the ops teams included (Michael, 2026-10-12): their
+              notices name a launch, so they open it on its onboarding. */}
+          <Bell notes={notes} onRead={() => api.markRead().then(refreshNotes)}
+            onOpen={me.permissions.operationalOnly ? (ref) => open(ref, "__onboarding__") : open} />
           {me.group === "Admin" && !me.view_as_by && <ViewAsPicker />}
         </div>
       </header>
