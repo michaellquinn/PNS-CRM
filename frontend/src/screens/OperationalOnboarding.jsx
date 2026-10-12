@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api } from "../api";
+import { api, groupTone } from "../api";
 import { Btn, Card, Empty, Head, Pill, inputCls } from "../ui";
 
 const TITLES = { onboarding: "Go live from Solutioning", readiness: "Ops Readiness", golive: "Go Live",
@@ -15,6 +15,18 @@ const goLiveTone = (d) => d == null ? "bg-slate-100 text-slate-600"
 const goLiveWords = (d) => d == null ? "no date"
   : d < 0 ? `${-d} day${d === -1 ? "" : "s"} overdue`
   : d === 0 ? "today" : `in ${d} day${d === 1 ? "" : "s"}`;
+// What kind of launch it is (ops meeting, 2026-10-12): the account tier, Must Win when
+// the deal carries it, and the service. Standard is shown too, so every launch has its
+// tier on it rather than only the watched ones.
+export function DealTags({ service, acctType, mustWin }) {
+  return <>
+    <Pill tone={acctType && acctType !== "Standard" ? groupTone(acctType) : "bg-slate-100 text-slate-600"}>
+      {acctType || "Standard"}
+    </Pill>
+    {mustWin && <Pill tone={groupTone("Must Win")}>Must Win</Pill>}
+    {service && <Pill tone="bg-sky-50 text-sky-800">{service}</Pill>}
+  </>;
+}
 const format = (v) => v ? String(v).replace("T", " ").slice(0, 16) + (String(v).length > 10 ? " WIB" : "") : "—";
 
 export function OperationalList({ view = "onboarding", me, onOpen, notify = () => {} }) {
@@ -60,6 +72,7 @@ export function OperationalList({ view = "onboarding", me, onOpen, notify = () =
           {r.source === "New onboarding" && view !== "direct" && (
             <Pill tone="bg-violet-50 text-violet-700">New onboarding</Pill>
           )}
+          <DealTags service={r.service} acctType={r.acct_type} mustWin={r.must_win} />
           {view !== "readiness" && r.overdue && <Pill tone="bg-rose-100 text-rose-800">Confirmation overdue</Pill>}
           {view === "readiness" && r.points_total > 0 && (
             <Pill tone={r.readiness_state === "cleared" ? "bg-emerald-100 text-emerald-800"
@@ -229,7 +242,7 @@ export function OnboardingPane({ ticketRef, me, notify }) {
   };
   return <div className={busy ? "pointer-events-none opacity-70" : ""}>
     <div className="mb-4 rounded-xl bg-sky-50 p-4">
-      <div className="flex flex-wrap gap-2"><Pill>{data.status}</Pill><Pill>Revision {data.revision}</Pill>{data.submitted_at && <Pill>Database synced on submission</Pill>}</div>
+      <div className="flex flex-wrap gap-2"><DealTags service={data.service} acctType={data.acct_type} mustWin={data.must_win} /><Pill>{data.status}</Pill><Pill>Revision {data.revision}</Pill>{data.submitted_at && <Pill>Database synced on submission</Pill>}</div>
       <p className="mt-2 text-[12px] text-slate-600">Sales submits by D-1 20:00 WIB. Teams confirm the same day or next day 20:00 maximum, always before pickup. Onboarding does not change pricing, status, ownership or ticket approval routing.</p>
       {data.submitted_at && <p className="mt-1 text-[12px]">Requirements submitted: {format(data.submitted_at)}</p>}
       {!data.eligible && <p className="mt-2 font-medium text-amber-800">Input is available when the opportunity is Ready to Ship.</p>}

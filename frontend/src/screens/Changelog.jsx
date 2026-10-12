@@ -2,6 +2,17 @@ import { Card, Head, Pill } from "../ui";
 
 const ENTRIES = [
   {
+    date: "2026-10-12",
+    title: "Ops Onboarding: account type, Must Win and service tags",
+    by: "Michael + Claude",
+    changes: [
+      "Every launch on Go live from Solutioning, Ops Readiness, Go Live and New onboarding, and the top of its onboarding form, now carries three tags: the account type (Standard, Hypercare or Strategic), Must Win when the deal has it, and the service (LTL, Sameday, Complex Logistics…). Asked for in the ops meeting of 2026-10-12.",
+    ],
+    overruled: [
+      "Ops Readiness showing only two tags (2026-09-28). It keeps those two — confirmed count and go-live date — and adds these three, which describe the launch rather than its progress.",
+    ],
+  },
+  {
     date: "2026-10-07",
     title: "Auto-assignment rules are edited on the Workload page",
     by: "Michael + Claude",

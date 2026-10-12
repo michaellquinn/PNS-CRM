@@ -1731,7 +1731,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-10-07.1"
+BUILD = "2026-10-12.1"
 
 
 class Me(BaseModel):
@@ -10163,7 +10163,7 @@ async def ob_event(tid, u, body):
 
 
 async def ob_rows():
-    return await q("SELECT t.id, t.ticket_ref, t.opportunity_id, t.opportunity_name, t.service_type, t.sales_name, t.sales_email, t.request_type, s.name AS shipper, "
+    return await q("SELECT t.id, t.ticket_ref, t.opportunity_id, t.opportunity_name, t.service_type, t.sales_name, t.sales_email, t.request_type, t.must_win, s.acct_type, s.name AS shipper, "
                    "i.payload, i.released_payload, i.revision, i.submitted_at, i.actual_golive, i.qc_accepted_at, "
                    "i.handover_at "
                    "FROM tickets t JOIN shippers s ON s.id=t.shipper_id LEFT JOIN onboarding_intake i ON i.ticket_id=t.id "
@@ -10196,6 +10196,9 @@ class OperationalWorklistResponse(BaseModel):
 class OperationalDetailResponse(BaseModel):
     ref: str
     shipper: str
+    service: str = ""
+    acct_type: str = "Standard"
+    must_win: bool = False
     opportunity_name: str
     ticket_status: str
     fields: list[dict]
@@ -10606,6 +10609,10 @@ async def operational_worklist(view: str = "onboarding", u: User = Depends(curre
         deadline = ob_deadline(r["submitted_at"], ob_pickup_moment(p)) if r["submitted_at"] and p.get("pickup_at") else None
         result.append({"ref": r["ticket_ref"], "opportunity_id": r["opportunity_id"], "opportunity_name": r["opportunity_name"] or r["shipper"],
                        "source": "New onboarding" if direct else "Solutioning",
+                       # What kind of launch this is, at a glance (ops meeting, 2026-10-12):
+                       # the account tier, Must Win on the deal, and the service.
+                       "acct_type": r.get("acct_type") or "Standard",
+                       "must_win": bool(r.get("must_win")),
                        "shipper": r["shipper"], "service": r["service_type"], "sales": r["sales_name"],
                        "status": "Live" if live else ready,
                        "pickup_at": p.get("pickup_at"), "deadline": str(deadline) if deadline else None,
@@ -10728,6 +10735,8 @@ async def operational_detail(ref: str, u: User = Depends(current_user)):
     actual = (intake or {}).get("actual_golive")
     return {"ref": ref, "shipper": t["shipper"], "opportunity_name": t.get("opportunity_name") or t["shipper"],
             "ticket_status": t["status"], "fields": ob_schema(), "payload": p, "locked": locked,
+            "service": t["service_type"], "acct_type": t.get("acct_type") or "Standard",
+            "must_win": bool(t.get("must_win")),
             "charter_photos": [{"id": r["id"], "filename": r["filename"]} for r in photos],
             "revision": (intake or {}).get("revision", 0),
             "submitted_at": str(intake["submitted_at"]) if intake and intake["submitted_at"] else None,

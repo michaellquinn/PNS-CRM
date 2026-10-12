@@ -266,6 +266,9 @@ async def main():
     await m.operational_save("SOF-1", m.OperationalSave(payload=old_draft, revision=0, submit=True, documents_reviewed=True), sales)
     assert m._pool.conn.committed
     assert "SECRET" not in json.dumps(safe, default=str) and "potential_rev" not in safe
+    # The launch's tags (ops meeting, 2026-10-12): tier, Must Win and service reach
+    # the teams too -- none of them is commercial data.
+    assert safe["service"] == "FTL" and safe["acct_type"] == "Standard" and safe["must_win"] is False
 
     import httpx
     original = m.current_user
