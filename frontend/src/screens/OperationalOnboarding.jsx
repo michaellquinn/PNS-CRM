@@ -368,14 +368,35 @@ export function OnboardingPane({ ticketRef, me, notify }) {
     {/* "Actual go-live and QC handover" removed (Michael, 2026-09-18). */}
     {/* Ops accounts only reach a launch once Sales have submitted it, so the thread is
         shown to them from then on; Sales and PNS have it from the start. */}
-    {(!me.permissions.operationalOnly || data.submitted_at) && <OnboardingDiscussion ticketRef={ticketRef} me={me} notify={notify} />}
+    {/* Ops accounts have the thread on its own Discussion tab at the top of the page;
+        Sales and PNS keep it here, on the ticket's Onboarding tab. */}
+    {!me.permissions.operationalOnly && <OnboardingDiscussion ticketRef={ticketRef} me={me} notify={notify} />}
     <details className="text-[12px]"><summary className="cursor-pointer font-semibold">Operational history</summary>{data.events.map((e,n) => <div key={n} className="border-b py-2"><span className="text-slate-500">{format(e.at)} · {e.actor}</span><p className="whitespace-pre-wrap break-words">{e.body}</p></div>)}</details>
   </div>;
 }
 
 export function OperationalTicket({ ticketRef, me, notify, onBack }) {
-  return <><Head title={`Opportunity ${ticketRef}`} sub="Operational view · commercial tabs and attachments are restricted; the Onboarding discussion is below" right={<Btn onClick={onBack}>Back</Btn>} />
-    <Card><div className="border-b px-4 py-3 font-semibold text-[#EE1B2C]">Onboarding</div><div className="p-4"><OnboardingPane ticketRef={ticketRef} me={me} notify={notify} /></div></Card></>;
+  // Two tabs at the top (Michael, 2026-10-12): the launch, and its Onboarding
+  // discussion -- next to each other rather than the thread at the foot of a long form.
+  const [tab, setTab] = useState("onboarding");
+  const tabs = [["onboarding", "Onboarding"], ["discussion", "Discussion"]];
+  return <><Head title={`Opportunity ${ticketRef}`} sub="Operational view · commercial tabs and attachments are restricted" right={<Btn onClick={onBack}>Back</Btn>} />
+    <Card>
+      <div className="flex gap-1 border-b border-slate-200 px-2">
+        {tabs.map(([k, label]) => (
+          <button key={k} type="button" onClick={() => setTab(k)}
+            className={`border-b-2 px-3 py-2.5 text-[13px] ${tab === k
+              ? "border-[#EE1B2C] font-semibold text-[#EE1B2C]" : "border-transparent text-slate-600"}`}>
+            {label}
+          </button>
+        ))}
+      </div>
+      <div className="p-4">
+        {tab === "onboarding"
+          ? <OnboardingPane ticketRef={ticketRef} me={me} notify={notify} />
+          : <OnboardingDiscussion ticketRef={ticketRef} me={me} notify={notify} />}
+      </div>
+    </Card></>;
 }
 
 export function OperationalDatabase({ me, notify, onOpen }) {
