@@ -16,13 +16,11 @@ const goLiveWords = (d) => d == null ? "no date"
   : d < 0 ? `${-d} day${d === -1 ? "" : "s"} overdue`
   : d === 0 ? "today" : `in ${d} day${d === 1 ? "" : "s"}`;
 // What kind of launch it is (ops meeting, 2026-10-12): the account tier, Must Win when
-// the deal carries it, and the service. Standard is shown too, so every launch has its
-// tier on it rather than only the watched ones.
+// the deal carries it, and the service. Standard (BAU) gets no tag (Michael,
+// 2026-10-12): it is the ordinary case, so only Hypercare and Strategic are called out.
 export function DealTags({ service, acctType, mustWin }) {
   return <>
-    <Pill tone={acctType && acctType !== "Standard" ? groupTone(acctType) : "bg-slate-100 text-slate-600"}>
-      {acctType || "Standard"}
-    </Pill>
+    {acctType && acctType !== "Standard" && <Pill tone={groupTone(acctType)}>{acctType}</Pill>}
     {mustWin && <Pill tone={groupTone("Must Win")}>Must Win</Pill>}
     {service && <Pill tone="bg-sky-50 text-sky-800">{service}</Pill>}
   </>;

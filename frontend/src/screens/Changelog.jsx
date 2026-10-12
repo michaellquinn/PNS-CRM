@@ -6,7 +6,8 @@ const ENTRIES = [
     title: "Ops Onboarding: account type, Must Win and service tags",
     by: "Michael + Claude",
     changes: [
-      "Every launch on Go live from Solutioning, Ops Readiness, Go Live and New onboarding, and the top of its onboarding form, now carries three tags: the account type (Standard, Hypercare or Strategic), Must Win when the deal has it, and the service (LTL, Sameday, Complex Logistics…). Asked for in the ops meeting of 2026-10-12.",
+      "Every launch on Go live from Solutioning, Ops Readiness, Go Live and New onboarding, and the top of its onboarding form, now carries its tags: Hypercare or Strategic when the account is one, Must Win when the deal has it, and the service (LTL, Sameday, Complex Logistics…). Asked for in the ops meeting of 2026-10-12.",
+      "Standard (BAU) accounts get no account tag: it is the ordinary case, and a tag on every launch would only bury the ones that are not.",
     ],
     overruled: [
       "Ops Readiness showing only two tags (2026-09-28). It keeps those two — confirmed count and go-live date — and adds these three, which describe the launch rather than its progress.",
