@@ -72,6 +72,9 @@ export async function shrinkImage(file, maxEdge = 1600, quality = 0.82) {
 export const api = {
   operationalList: view => call(`/onboarding-v2${qs({ view })}`),
   operationalDetail: ref => call(`/onboarding-v2/tickets/${encodeURIComponent(ref)}`),
+  onboardingDiscussion: (ref) => call(`/onboarding-v2/tickets/${encodeURIComponent(ref)}/discussion`),
+  postOnboardingDiscussion: (ref, body) => call(`/onboarding-v2/tickets/${encodeURIComponent(ref)}/discussion`,
+    { method: "POST", body: JSON.stringify({ body }) }),
   newOnboarding: (body) => call("/onboarding-v2/new", { method: "POST", body: JSON.stringify(body) }),
   operationalSave: (ref, body) => call(`/onboarding-v2/tickets/${encodeURIComponent(ref)}/intake`, { method: "POST", body: JSON.stringify(body) }),
   operationalUpload: (ref, form) => upload(`/onboarding-v2/tickets/${encodeURIComponent(ref)}/documents`, form),

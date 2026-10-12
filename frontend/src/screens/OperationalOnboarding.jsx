@@ -205,6 +205,52 @@ function Check({ c, items, me, canEdit, frozen, run, teams }) {
   </div>;
 }
 
+/* The Onboarding thread (Michael, 2026-10-12): Sales, PNS and the ops teams talk about a
+   launch in one place, on the launch itself. It is the "Onboarding" thread of the
+   ticket's discussion; ops accounts see this thread and no other. */
+function OnboardingDiscussion({ ticketRef, me, notify }) {
+  const [rows, setRows] = useState(null);
+  const [err, setErr] = useState("");
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const load = () => api.onboardingDiscussion(ticketRef)
+    .then((d) => { setRows(d.comments); setErr(""); }).catch((e) => setErr(e.message));
+  useEffect(() => { load(); }, [ticketRef]);
+  const post = async () => {
+    setBusy(true);
+    try { await api.postOnboardingDiscussion(ticketRef, text.trim()); setText(""); await load(); }
+    catch (e) { notify(e.message); }
+    finally { setBusy(false); }
+  };
+  const mayPost = !["Visitor", "Finance"].includes(me.group);
+  return <section className="mb-5 rounded-xl border border-slate-200 p-4">
+    <h3 className="mb-1 font-semibold">Discussion · Onboarding</h3>
+    <p className="mb-3 text-[12px] text-slate-500">For Sales, PNS and the ops teams on this launch. A post tells the deal's people and every team with points here.</p>
+    {err && <p className="text-[12.5px] text-rose-700">{err}</p>}
+    {!err && rows === null && <p className="text-[12.5px] text-slate-400">Loading…</p>}
+    {rows && rows.length === 0 && <p className="text-[12.5px] text-slate-400">Nothing said yet.</p>}
+    {rows && rows.length > 0 && <div className="mb-3 flex flex-col gap-2">
+      {rows.map((c) => <div key={c.id} className="rounded-lg border border-slate-200 bg-slate-50/60 px-3 py-2">
+        <div className="mb-0.5 flex flex-wrap items-center gap-2 text-[12px]">
+          <b>{c.author}</b><span className="text-slate-400">{c.group}</span>
+          <span className="font-mono text-[10.5px] text-slate-400">{format(c.at)}</span>
+          {c.edited_at && <span className="text-[10.5px] italic text-slate-400">edited</span>}
+        </div>
+        <p className="whitespace-pre-wrap break-words text-[13px] text-slate-700">{c.body}</p>
+      </div>)}
+    </div>}
+    {mayPost && <div className="flex flex-col gap-2">
+      <textarea className={`${inputCls} min-h-[70px]`} value={text} placeholder="Write to Sales, PNS and the teams on this launch…"
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && text.trim()) { e.preventDefault(); post(); } }} />
+      <div className="flex items-center gap-2">
+        <Btn kind="primary" disabled={busy || !text.trim()} onClick={post}>Post</Btn>
+        <span className="text-[11px] text-slate-400">Ctrl+Enter posts</span>
+      </div>
+    </div>}
+  </section>;
+}
+
 export function OnboardingPane({ ticketRef, me, notify }) {
   const [data, setData] = useState(null);
   const [p, setP] = useState({});
@@ -320,12 +366,15 @@ export function OnboardingPane({ ticketRef, me, notify }) {
       <p className="mt-3 text-[12px] text-slate-500">Each card is confirmed point by point, and only by the team that holds the point. A point that is not yours can be handed to the right team with a note; it then leaves your count and joins theirs. Only the assigned team can confirm. Sales Managers approve exceptions after the team's feasible workaround confirmation. Assign team accounts under Users & roles.</p>
     </section>}
     {/* "Actual go-live and QC handover" removed (Michael, 2026-09-18). */}
+    {/* Ops accounts only reach a launch once Sales have submitted it, so the thread is
+        shown to them from then on; Sales and PNS have it from the start. */}
+    {(!me.permissions.operationalOnly || data.submitted_at) && <OnboardingDiscussion ticketRef={ticketRef} me={me} notify={notify} />}
     <details className="text-[12px]"><summary className="cursor-pointer font-semibold">Operational history</summary>{data.events.map((e,n) => <div key={n} className="border-b py-2"><span className="text-slate-500">{format(e.at)} · {e.actor}</span><p className="whitespace-pre-wrap break-words">{e.body}</p></div>)}</details>
   </div>;
 }
 
 export function OperationalTicket({ ticketRef, me, notify, onBack }) {
-  return <><Head title={`Opportunity ${ticketRef}`} sub="Operational view · commercial tabs, attachments and discussion are restricted" right={<Btn onClick={onBack}>Back</Btn>} />
+  return <><Head title={`Opportunity ${ticketRef}`} sub="Operational view · commercial tabs and attachments are restricted; the Onboarding discussion is below" right={<Btn onClick={onBack}>Back</Btn>} />
     <Card><div className="border-b px-4 py-3 font-semibold text-[#EE1B2C]">Onboarding</div><div className="p-4"><OnboardingPane ticketRef={ticketRef} me={me} notify={notify} /></div></Card></>;
 }
 

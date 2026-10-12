@@ -85,7 +85,9 @@ class Body:
 async def fake_q(*a, **k):
     """Stands in for the database. Only the named-thread paths reach it."""
     if "thread_key IS NOT NULL" in a[0]:
-        return {"thread_key": "t3"}
+        # Every keyed thread on the ticket, the fixed Onboarding thread among them
+        # (2026-10-12): numbering must skip it rather than read it as a number.
+        return [{"thread_key": "t3"}, {"thread_key": "onboarding"}, {"thread_key": "t1"}]
     return {"thread_title": "Pickup window at Cikarang"}
 
 
@@ -99,7 +101,7 @@ def run(body):
     import asyncio
     src_async = ("async def _resolve(body, q, t, ref, HTTPException):" + chr(10)
                  + block + "    return thread_key, thread_title" + chr(10))
-    ns = {}
+    ns = {"re": re}
     exec(compile(src_async, "<block>", "exec"), ns)
     return asyncio.run(ns["_resolve"](body, fake_q, {"id": 1}, "SOF-1", HttpErr))
 

@@ -1806,7 +1806,7 @@
       "Me": {
         "properties": {
           "build": {
-            "default": "2026-10-12.3",
+            "default": "2026-10-12.4",
             "title": "Build",
             "type": "string"
           },
@@ -2469,6 +2469,19 @@
           }
         },
         "title": "OnboardingPatch",
+        "type": "object"
+      },
+      "OnboardingPost": {
+        "properties": {
+          "body": {
+            "title": "Body",
+            "type": "string"
+          }
+        },
+        "required": [
+          "body"
+        ],
+        "title": "OnboardingPost",
         "type": "object"
       },
       "OnboardingRow": {
@@ -5167,7 +5180,7 @@
   "info": {
     "description": "Ninja PNS - solutioning and pricing workflow for Ninja Xpress Indonesia. Every route below requires a signed-in session: identity arrives from the platform's auth proxy as an X-Forwarded-Email header the browser cannot set, and the app resolves a role from it. GET /health is the only unauthenticated route. Generated from the app's own route table by tools/gen_openapi.py - do not hand-edit.",
     "title": "Ninja PNS, Solutioning",
-    "version": "2026-10-12.3"
+    "version": "2026-10-12.4"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -6485,6 +6498,94 @@
           }
         },
         "summary": "A goods photo attached to the ticket, shown on the onboarding form."
+      }
+    },
+    "/api/onboarding-v2/tickets/{ref}/discussion": {
+      "get": {
+        "description": "The Onboarding thread of one launch.",
+        "operationId": "onboarding_discussion_api_onboarding_v2_tickets__ref__discussion_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommentList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "The Onboarding thread of one launch."
+      },
+      "post": {
+        "description": "Post to the Onboarding thread. Tells the deal's people and every team with points\non the launch, in the app.",
+        "operationId": "onboarding_discuss_api_onboarding_v2_tickets__ref__discussion_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OnboardingPost"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ok"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Post to the Onboarding thread. Tells the deal's people and every team with points"
       }
     },
     "/api/onboarding-v2/tickets/{ref}/documents": {

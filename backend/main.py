@@ -1731,7 +1731,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-10-12.3"
+BUILD = "2026-10-12.4"
 
 
 class Me(BaseModel):
@@ -9076,10 +9076,12 @@ async def add_comment(ref: str, body: NewComment, u: User = Depends(current_user
     thread_key, thread_title = None, None
     new_title = (body.new_thread_title or "").strip()
     if new_title:
-        last = await q("SELECT thread_key FROM ticket_comments WHERE ticket_id=%s "
-                       "AND thread_key IS NOT NULL ORDER BY id DESC LIMIT 1",
-                       (t["id"],), one=True)
-        n = int(str((last or {}).get("thread_key") or "t0")[1:] or 0) + 1
+        # Numbered threads are t1, t2, ...; the fixed "onboarding" thread (2026-10-12)
+        # is not one of them, and reading its key as a number would fail.
+        keys = await q("SELECT DISTINCT thread_key FROM ticket_comments WHERE ticket_id=%s "
+                       "AND thread_key IS NOT NULL", (t["id"],))
+        n = max([int(k["thread_key"][1:]) for k in keys
+                 if re.fullmatch(r"t\d+", str(k["thread_key"] or ""))] or [0]) + 1
         thread_key, thread_title = f"t{n}", new_title[:200]
     elif (body.thread_key or "").strip():
         thread_key = body.thread_key.strip()
@@ -10250,7 +10252,11 @@ async def operational_access_boundary(request: Request, call_next):
         # Notifications are let through (Michael, 2026-10-12): the notices addressed to
         # an ops team were being written and nobody in ops could read them. What an ops
         # account receives is filtered in notifications() itself.
-        if u.group in OPERATIONAL_GROUPS and not path.startswith(("/api/onboarding-v2", "/api/operational-master", "/api/notifications")):
+        # CAPA too (Michael, 2026-10-12): every ops team reads it, and QC -- which
+        # raises and closes CAPA -- had the permission but could not reach the screen.
+        # A CAPA holds the shipper name, services, issue, TRIDs and proposal; nothing
+        # commercial.
+        if u.group in OPERATIONAL_GROUPS and not path.startswith(("/api/onboarding-v2", "/api/operational-master", "/api/notifications", "/api/capa")):
             from fastapi.responses import JSONResponse
             return JSONResponse({"detail": "Operational accounts use Onboarding; commercial data is restricted"}, status_code=403)
     return await call_next(request)
@@ -10817,6 +10823,71 @@ async def operational_detail(ref: str, u: User = Depends(current_user)):
             "teams": list(OPERATIONAL_GROUPS), "documents": docs, "events": [ob_serial(e) for e in events],
             "status": ob_readiness(checks), "can_edit": can(u, "editOnboarding", t), "packing_labels": OB_PACKING,
             "eligible": t["status"] == "Proposal Accepted / Ready to Ship", "timezone": "Asia/Jakarta"}
+
+
+# The onboarding discussion (Michael, 2026-10-12): one fixed thread on the ticket, keyed
+# "onboarding", which Sales, PNS and the ops teams all read and write. It is an ordinary
+# thread in ticket_comments, so on the commercial side it is simply the "Onboarding"
+# thread on the Discussion tab. Ops accounts reach it ONLY through these two endpoints,
+# which never return any other thread -- the rest of the discussion stays commercial.
+OB_THREAD_KEY = "onboarding"
+OB_THREAD_TITLE = "Onboarding"
+
+
+class OnboardingPost(BaseModel):
+    body: str
+
+
+def ob_may_discuss(u: User) -> bool:
+    return u.group not in ("Visitor", "Finance")
+
+
+@app.get("/api/onboarding-v2/tickets/{ref}/discussion", response_model=CommentList)
+async def onboarding_discussion(ref: str, u: User = Depends(current_user)):
+    """The Onboarding thread of one launch."""
+    t = await get_ticket(ref)
+    if u.group in OPERATIONAL_GROUPS:
+        intake = await q("SELECT submitted_at FROM onboarding_intake WHERE ticket_id=%s",
+                         (t["id"],), one=True)
+        if not (intake or {}).get("submitted_at"):
+            raise HTTPException(403, "Sales has not submitted operational requirements yet")
+    rows = await q("SELECT * FROM ticket_comments WHERE ticket_id=%s AND thread_key=%s "
+                   "ORDER BY created_at, id", (t["id"], OB_THREAD_KEY))
+    return {"comments": [shape_comment(r, u) for r in rows],
+            "open_questions": sum(1 for r in rows if r["is_question"] and not r["resolved_at"])}
+
+
+@app.post("/api/onboarding-v2/tickets/{ref}/discussion", status_code=201, response_model=Ok)
+async def onboarding_discuss(ref: str, body: OnboardingPost, u: User = Depends(current_user)):
+    """Post to the Onboarding thread. Tells the deal's people and every team with points
+    on the launch, in the app."""
+    if not ob_may_discuss(u):
+        raise HTTPException(403, "Your role reads onboarding but does not post to it")
+    t = await get_ticket(ref)
+    text = body.body.strip()
+    if not text:
+        raise HTTPException(400, "write something first")
+    if len(text) > 4000:
+        raise HTTPException(400, "that is too long for one message (4000 characters max)")
+    if u.group in OPERATIONAL_GROUPS:
+        intake = await q("SELECT submitted_at FROM onboarding_intake WHERE ticket_id=%s",
+                         (t["id"],), one=True)
+        if not (intake or {}).get("submitted_at"):
+            raise HTTPException(403, "Sales has not submitted operational requirements yet")
+    await execute(
+        "INSERT INTO ticket_comments (ticket_id, field_key, thread_key, thread_title, "
+        "author_email, author_name, author_group, body, is_question, mentions) "
+        "VALUES (%s,NULL,%s,%s,%s,%s,%s,%s,0,NULL)",
+        (t["id"], OB_THREAD_KEY, OB_THREAD_TITLE, u.email, u.name, u.group, text))
+    teams = sorted({r["owner_group"] for r in await q(
+        "SELECT DISTINCT owner_group FROM onboarding_check_items WHERE ticket_id=%s",
+        (t["id"],))} - {u.group})
+    people = [n for n in await ticket_people(t) if n != u.name]
+    await notify(f"{u.name} ({u.group}) in Onboarding — {ob_launch_label(t)}: {text[:180]}",
+                 groups=teams, people=people, email=False, ticket_ref=ref,
+                 thread_key=OB_THREAD_KEY)
+    await audit(u.email, "comment", "ticket", ref, "thread", None, OB_THREAD_KEY)
+    return {"ok": True, "ref": ref}
 
 
 class OperationalSave(BaseModel):

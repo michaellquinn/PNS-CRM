@@ -42,6 +42,13 @@ import {
 // the working screens that make no sense read-only (My requests, Review meeting).
 const READ_ONLY = ["Visitor", "Finance", "Sales Planning", "Ops"];
 const works = (m) => !READ_ONLY.includes(m.group);
+// What an ops account (CL, Sort, 2W, 4W, 6W, Sameday, DE, QC, Ops) may open: the
+// onboarding screens, a launch, and CAPA (Michael, 2026-10-12 -- every ops team reads
+// CAPA; QC raises and closes it).
+const OPS_SCREENS = ["onboarding", "readiness", "golive", "operational-db", "detail",
+  "capa-all", "capa-new", "capa-submitted", "capa-closed", "capa-raise"];
+// CAPA lists are for everyone who works, and for the ops teams.
+const seesCapa = (m) => works(m) || m.permissions.operationalOnly;
 
 // The PSP screens live inside Solutioning — PSP approval is a step of solutioning, not
 // a separate pipeline — but keep their tag so it is obvious which entries are PSP's.
@@ -193,11 +200,11 @@ const NAV = [
     { id: "operational-db", label: "Operational Database", icon: "▤" },
   ]],
   ["CAPA", [
-    { id: "capa-all", label: "All CAPA", icon: "▤", when: works },
+    { id: "capa-all", label: "All CAPA", icon: "▤", when: seesCapa },
     { id: "capa-new", label: "New", icon: "◷",
       when: (m) => ["PNS", "QC", "Admin"].includes(m.group) },
-    { id: "capa-submitted", label: "Submitted", icon: "◫", when: works },
-    { id: "capa-closed", label: "Closed", icon: "✓", when: works },
+    { id: "capa-submitted", label: "Submitted", icon: "◫", when: seesCapa },
+    { id: "capa-closed", label: "Closed", icon: "✓", when: seesCapa },
     { id: "capa-raise", label: "Raise CAPA", icon: "＋", when: (m) => m.permissions.capaRaise },
   ]],
   ["Reference", [
@@ -553,7 +560,7 @@ export default function App() {
 
   useEffect(() => { api.me().then(setMe).catch((e) => setErr(e.message)); }, []);
   useEffect(() => {
-    if (me?.permissions.operationalOnly && !["onboarding", "readiness", "golive", "operational-db", "detail"].includes(screen)) setScreen("readiness");
+    if (me?.permissions.operationalOnly && !OPS_SCREENS.includes(screen)) setScreen("readiness");
   }, [me, screen]);
 
   // Back goes back through the app, instead of leaving it.
@@ -768,7 +775,7 @@ export default function App() {
   const sidebar = (
     <nav className="flex h-full flex-col gap-5 overflow-y-auto p-4">
       {NAV.map(([group, items]) => {
-        const shown = items.filter((i) => (!me.permissions.operationalOnly || ["onboarding", "readiness", "golive", "operational-db"].includes(i.id)) && (!i.when || i.when(me)));
+        const shown = items.filter((i) => (!me.permissions.operationalOnly || OPS_SCREENS.includes(i.id)) && (!i.when || i.when(me)));
         if (!shown.length) return null;
         return (
           <div key={group}>
@@ -871,7 +878,7 @@ export default function App() {
         )}
         <main className="min-w-0 flex-1 p-4 sm:p-6">
           <ScreenError screen={screen}>
-            {me.permissions.operationalOnly && !["onboarding", "readiness", "golive", "operational-db", "detail"].includes(screen) ? screens.readiness : (screens[screen] || screens.dashboard)}
+            {me.permissions.operationalOnly && !OPS_SCREENS.includes(screen) ? screens.readiness : (screens[screen] || screens.dashboard)}
           </ScreenError>
         </main>
       </div>

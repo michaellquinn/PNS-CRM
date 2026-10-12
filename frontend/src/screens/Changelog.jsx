@@ -3,6 +3,16 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-10-12",
+    title: "CAPA for the ops teams, and an Onboarding discussion on every launch",
+    by: "Michael + Claude",
+    changes: [
+      "Every ops team (CL, Sort, 2W, 4W, 6W, Sameday, DE, QC, Ops) now sees CAPA: All CAPA, Submitted and Closed. QC also gets New, Raise CAPA and Close, which it already had the rights for but could not reach.",
+      "NEW — Discussion · Onboarding on each launch's onboarding page. Sales, PNS and the ops teams post in one thread on the launch; a post tells the deal's people and every team with points on it, in the app. It is the \"Onboarding\" thread of the ticket's discussion, so Sales and PNS also see it on the Discussion tab. Ops accounts see this thread only — the rest of the discussion stays commercial — and only once Sales have submitted.",
+      "FIXED in passing — starting a new discussion thread would have failed on a ticket whose newest thread was the Onboarding one: threads were numbered by reading the last key as \"t\" plus a number.",
+    ],
+  },
+  {
+    date: "2026-10-12",
     title: "The ops teams get notifications they can read",
     by: "Michael + Claude",
     changes: [
