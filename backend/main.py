@@ -1066,7 +1066,7 @@ class User(BaseModel):
 # time — they receive the Kick-off, and without a group there was no list to send it to.
 OPERATIONAL_GROUPS = ("Ops", "QC", "CL", "Sort", "2W", "4W", "6W", "Sameday", "DE")
 ROLE_GROUPS = ["Commercial", "AM", "PNS", "PSP", "Ops", "CL", "Sort", "2W", "4W", "6W", "Sameday", "DE", "Finance", "Sales Planning",
-               "CSO", "QC", "Visitor", "Admin"]
+               "CSO", "QC", "Legal", "Visitor", "Admin"]
 # Account Management (Michael, 2026-09-10). AMs hold the shipper relationship and do the
 # same job as Sales inside this app -- raise the request, correct the intake, follow it
 # through pricing, record the outcome, hand it to Ops -- so they carry the same rights.
@@ -1084,7 +1084,12 @@ SELLING_GROUPS = ("Commercial", "AM")
 # AMs registered on 2026-09-10 have no region, so nothing here is scoped by territory.
 # Visitor, Finance and Ops look and never touch. Sales Planning is different: they
 # correct what Sales submitted, so they get the intake edit and nothing else.
-READ_ONLY_GROUPS = ("Visitor", "Finance", "Ops", "CL", "Sort", "2W", "4W", "6W", "Sameday", "DE")
+READ_ONLY_GROUPS = ("Visitor", "Finance", "Ops", "CL", "Sort", "2W", "4W", "6W", "Sameday", "DE", "Legal")
+# Legal (Michael, 2026-10-12): drafts the contract once a proposal is accepted. Reads the
+# charter and the price of Proposal Accepted tickets ONLY, posts in their discussion, and
+# changes nothing -- see legal_access_boundary() for the ticket scope.
+LEGAL_GROUP = "Legal"
+LEGAL_STATUS = "Proposal Accepted / Ready to Ship"
 # "manager" exists for Commercial: a Sales Manager may reassign the Sales PIC, same as
 # the Sales Head, and nothing else beyond staff. Other groups have no manager tier.
 ROLE_LEVELS = ["staff", "manager", "head"]
@@ -1154,6 +1159,8 @@ def can(u: User, action: str, t: dict | None = None) -> bool:
     admin = u.group == "Admin"
     if action == "operationalOnly":
         return u.group in OPERATIONAL_GROUPS
+    if action == "legalOnly":
+        return u.group == LEGAL_GROUP
     if action == "editOnboarding":
         return admin or (u.group in SELLING_GROUPS and (t is None or u.level in ("manager", "head") or u.name == t.get("sales_name") or u.email == t.get("sales_email")))
     if action == "confirmOperational":
@@ -1731,7 +1738,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-10-12.8"
+BUILD = "2026-10-13.1"
 
 
 class Me(BaseModel):
@@ -1952,7 +1959,7 @@ async def me(u: User = Depends(current_user)):
                "pspAssign", "pspOverride", "allowPsp", "syncSalesCrm",
                "manageIgnored",
                "queueSync", "editSyncSettings", "bulkDelete", "manageImportQueue",
-               "seePrice", "operationalOnly", "editOnboarding", "confirmOperational",
+               "seePrice", "operationalOnly", "legalOnly", "editOnboarding", "confirmOperational",
                "approveOnboardingException", "importOperational",
                "startOnboarding", "createOnboarding", "editAssignRules", "editOnboardingIds", "confirmGolive", "ackGolive",
                "markReady", "raiseRequirement", "ackRequirement"]
@@ -2084,9 +2091,13 @@ async def list_tickets(
     # Onboarding-only launches are not solutioning work (Michael, 2026-10-05): they stay
     # out of every queue, meeting list and count built on this endpoint. A search still
     # finds them, so a deal can always be looked up by its number or name.
-    if not search:
+    if not search and u.group != LEGAL_GROUP:
         sql += " AND t.request_type<>'onboarding'"
+    # Legal reads Proposal Accepted and nothing else, whatever the screen asks for; a
+    # launch raised straight into onboarding still needs its contract, so it is in.
     args: list = []
+    if u.group == LEGAL_GROUP:
+        sql += " AND t.status=%s"; args.append(LEGAL_STATUS)
 
     # The "Finished" PSP queue: every ticket PSP has ever decided on, regardless of where
     # it sits now, a ticket can be back in Pending Review - PSP for a fresh round and
@@ -2495,7 +2506,9 @@ CRM_OPP_PAYLOAD = [
     ("dim",          ["size_paket"], "Parcel dimension / size", True),
     ("sla",          ["service_level"], "SLA", True),
     ("cod",          ["cash_on_delivery_cod"], "COD", True),
-    ("ins",          ["insurance"], "Insurance", True),
+    # Insurance is chosen in this app now, one of five arrangements (Michael,
+    # 2026-10-12); Sales CRM's yes/no is kept beside it for reference, not copied over.
+    ("crmInsurance", ["insurance"], "Insurance (Sales CRM)", True),
     # Sales CRM's own numbers. Reported on alongside potential revenue, and both change
     # as a deal is negotiated, so these are re-read every time.
     ("committedRev", ["committed_revenue_mth"], "Committed revenue / month", True),
@@ -5277,6 +5290,12 @@ async def _refresh_from_salescrm(o: dict, account: dict | None = None,
                 f"onboarding needs: {', '.join(missing)}. Fill them on the ticket input.",
                 people=await ticket_people(t), email=False, ticket_ref=ref)
         moved = wants
+        # Legal drafts the contract from here (Michael, 2026-10-12). Most deals reach
+        # Proposal Accepted through the sync, which used to tell nobody outside the deal.
+        if wants == LEGAL_STATUS:
+            await notify(f"{ref}, {t['shipper']} is Proposal Accepted in Sales CRM "
+                         f"({o.get('stage')}). Contract needed.",
+                         groups=[LEGAL_GROUP], ticket_ref=ref)
     return {"moved": moved, "missing": missing, "revenue_filled": filled_rev,
             "overwritten": changed}
 
@@ -6022,7 +6041,8 @@ async def change_status(ref: str, body: StatusIn, u: User = Depends(current_user
     elif nxt == "Proposal Accepted / Ready to Ship":
         await execute("UPDATE tickets SET outcome='accepted' WHERE id=%s", (t["id"],))
         await notify(f"{ref}, {t['shipper']} ACCEPTED. Contract needed.",
-                     people=await ticket_people(t), email=False, groups=["Ops"], ticket_ref=ref)
+                     people=await ticket_people(t), email=False, groups=["Ops", LEGAL_GROUP],
+                     ticket_ref=ref)
     elif nxt == "Cancel":
         # 'cancel' is the third value the outcome column was always documented to hold,
         # and it was the one nothing ever wrote — so a cancelled ticket read as still
@@ -6570,8 +6590,13 @@ CHARTER_SECTIONS = [
         ("delSlot", "Delivery time"), ("delWait", "Delivery waiting time"),
         ("destType", "Delivery destination type"), ("sla", "SLA"),
         ("billingTreatment", "Billing weight treatment"), ("mps", "MPS"),
-        ("rdo", "RDO"), ("cod", "COD"), ("tkbmO", "TKBM origin"), ("tkbmD", "TKBM destination"),
-        ("ins", "Insurance"), ("truck", "Vehicle request"),
+        ("rdo", "RDO"), ("rdoFee", "RDO fee"), ("rdoSla", "RDO SLA"),
+        ("rdoSlaCustom", "Custom RDO SLA"),
+        ("cod", "COD"), ("tkbmO", "TKBM origin"), ("tkbmD", "TKBM destination"),
+        ("tkbmFee", "TKBM fee"), ("rtsFee", "RTS fee"),
+        ("ins", "Insurance"), ("insParcelValue", "Parcel value"),
+        ("insRate", "Custom insurance rate"), ("insMaxLiability", "Custom max. liability"),
+        ("truck", "Vehicle request"),
         ("shipMode", "Shipment mode"),
         ("handling", "Custom handling request"), ("notes", "Notes"),
     ]),
@@ -6585,6 +6610,32 @@ CHARTER_SECTIONS = [
         ("branchId", "Corporate branch ID"),
     ]),
 ]
+# The contract terms Legal asked for (Michael, 2026-10-12). Insurance stopped being Yes/No:
+# it is one of five arrangements, and three of them need a number to mean anything.
+INS_STANDARD = "No insurance fee — standard liability (10x shipping fee or IDR 1 mio, whichever is lower)"
+INS_NOFEE_CUSTOM = "No insurance fee — custom max. liability"
+INS_PCT = "Insurance, not blended to rate — 0.25% of parcel value"
+INS_CUSTOM = "Insurance, not blended to rate — custom rate & custom max. liability per parent TRID"
+INS_BLENDED = "Insurance, blended to rate"
+INSURANCE_OPTIONS = [INS_STANDARD, INS_NOFEE_CUSTOM, INS_PCT, INS_CUSTOM, INS_BLENDED]
+RDO_SLA_DEFAULT = "Default (1x SLA after complete delivery)"
+
+
+def charter_field_applies(key: str, inp: dict) -> bool:
+    """Whether a follow-up field means anything for this answer set: Parcel value only
+    for the insurance options priced on it, the RDO terms only when there is an RDO.
+    Rows that do not apply are left off the charter rather than shown as gaps."""
+    ins, yes = inp.get("ins"), (lambda k: inp.get(k) == "Yes")
+    return {
+        "insParcelValue": ins in (INS_PCT, INS_BLENDED),
+        "insMaxLiability": ins in (INS_NOFEE_CUSTOM, INS_CUSTOM),
+        "insRate": ins == INS_CUSTOM,
+        "rdoFee": yes("rdo"), "rdoSla": yes("rdo"),
+        "rdoSlaCustom": yes("rdo") and inp.get("rdoSla") == "Custom",
+        "tkbmFee": yes("tkbmO") or yes("tkbmD"),
+    }.get(key, True)
+
+
 # Waiting time is a band now (Michael, 2026-09-23); kept as a name so the old hours
 # formatting below can still render a charter written before the change.
 CHARTER_HOURS = ("pickWait", "delWait")
@@ -6646,7 +6697,18 @@ FIELD_RULES = {
     "cod":            ("Sales", "asked", ""),
     "tkbmO":          ("Sales", "asked", ""),
     "tkbmD":          ("Sales", "asked", ""),
-    "ins":            ("Sales", "asked", ""),
+    "ins":            ("Sales", "asked", "One of five arrangements (2026-10-12): no fee with "
+                                         "standard or custom liability, insured separately at "
+                                         "0.25% or a custom rate, or blended to the rate. "
+                                         "Chosen here; Sales CRM's value is kept for reference."),
+    "insParcelValue": ("Sales", "optional", "Only for 0.25% of parcel value, or blended to rate."),
+    "insRate":        ("Sales", "optional", "Only for a custom rate per parent TRID."),
+    "insMaxLiability": ("Sales", "optional", "Only for a custom max. liability."),
+    "rtsFee":         ("Sales", "asked", "0%, 50% or 100% — what Legal writes into the contract."),
+    "rdoFee":         ("Sales", "optional", "Only when RDO is Yes: free or IDR 350 per document."),
+    "rdoSla":         ("Sales", "optional", "Only when RDO is Yes: default, or a custom SLA."),
+    "rdoSlaCustom":   ("Sales", "optional", "Only when the RDO SLA is Custom."),
+    "tkbmFee":        ("Sales", "optional", "Only when TKBM is Yes: blended to rate or not."),
     "truck":          ("Sales", "optional", ""),
     "shipMode":       ("Sales", "optional", "Port to Port, Port to Door, Door to Port or "
                                             "Door to Door. Onboarding reads it from here."),
@@ -6824,6 +6886,8 @@ def render_charter(t: dict, inp: dict, extras: list[tuple[str, str]],
         rows.append(f'<tr><td colspan="2" style="{_CS["section"]}">{esc(section)}</td></tr>')
         text += ["", section.upper()]
         for key, label in fields:
+            if not charter_field_applies(key, inp):
+                continue
             v = _charter_value(key, inp.get(key))
             cell = esc(v).replace("\n", "<br>") if v else "&mdash;"
             rows.append(f'<tr><td style="{_CS["label"]}">{esc(label)}</td>'
@@ -9389,7 +9453,8 @@ async def notifications(u: User = Depends(current_user)):
             # ticket (Michael, 2026-10-12). Only notices naming their own group: the
             # commercial traffic on the same tickets is still not theirs.
             keep = addressed and (r["ticket_ref"] is None or r["ticket_ref"] in mine
-                                  or (u.group in OPERATIONAL_GROUPS and u.group in groups))
+                                  or ((u.group in OPERATIONAL_GROUPS or u.group == LEGAL_GROUP)
+                                      and u.group in groups))
         if keep:
             out.append(Note(id=r["id"], body=r["body"], ticket_ref=r["ticket_ref"],
                             thread_key=r.get("thread_key"),
@@ -10314,6 +10379,64 @@ async def ob_rows():
                    "ORDER BY t.id DESC")
 
 
+# What a Legal account may call (Michael, 2026-10-12). Reads: its own account, its
+# notifications, the ticket list and one ticket with its files and discussion. Writes:
+# a comment, editing its own comment, marking notifications read. Everything is further
+# limited to tickets at Proposal Accepted.
+_LEGAL_PATHS = ("/api/me", "/api/notifications", "/api/options", "/api/users/directory",
+                "/api/tickets", "/api/files/", "/api/comments/")
+
+
+def _legal_write_ok(method: str, path: str) -> bool:
+    if method in ("GET", "HEAD", "OPTIONS"):
+        return True
+    if method == "POST" and (path == "/api/notifications/read"
+                             or re.fullmatch(r"/api/tickets/[^/]+/comments", path)
+                             or re.fullmatch(r"/api/comments/\d+/(resolve|reopen)", path)):
+        return True
+    return method in ("PATCH", "DELETE") and bool(re.fullmatch(r"/api/comments/\d+", path))
+
+
+async def _legal_ticket_status(path: str) -> str | None:
+    """The status of the ticket a Legal request touches, or "" when it touches none."""
+    m = re.match(r"/api/tickets/([^/]+)", path)
+    if m:
+        row = await q("SELECT status FROM tickets WHERE ticket_ref=%s AND deleted_at IS NULL",
+                      (m.group(1),), one=True)
+        return (row or {}).get("status")
+    m = re.match(r"/api/files/(\d+)", path)
+    if m:
+        row = await q("SELECT t.status FROM ticket_files f JOIN tickets t ON t.id=f.ticket_id "
+                      "WHERE f.id=%s", (int(m.group(1)),), one=True)
+        return (row or {}).get("status")
+    m = re.match(r"/api/comments/(\d+)", path)
+    if m:
+        row = await q("SELECT t.status FROM ticket_comments c JOIN tickets t ON t.id=c.ticket_id "
+                      "WHERE c.id=%s", (int(m.group(1)),), one=True)
+        return (row or {}).get("status")
+    return ""
+
+
+@app.middleware("http")
+async def legal_access_boundary(request: Request, call_next):
+    path = request.url.path
+    if path.startswith("/api/") and path != "/api/me":
+        try:
+            u = await current_user(request)
+        except HTTPException:
+            return await call_next(request)
+        if u.group == LEGAL_GROUP:
+            from fastapi.responses import JSONResponse
+            if not path.startswith(_LEGAL_PATHS) or not _legal_write_ok(request.method, path):
+                return JSONResponse({"detail": "Legal accounts read Proposal Accepted tickets "
+                                               "and their discussion only"}, status_code=403)
+            status = await _legal_ticket_status(path)
+            if status is None or (status and status != LEGAL_STATUS):
+                return JSONResponse({"detail": "Legal sees tickets at Proposal Accepted only"},
+                                    status_code=403)
+    return await call_next(request)
+
+
 @app.middleware("http")
 async def operational_access_boundary(request: Request, call_next):
     # Operational users cannot fetch commercial charters, raw CRM, attachments,
@@ -10684,6 +10807,8 @@ async def new_onboarding(body: NewOnboardingIn, u: User = Depends(current_user))
     await log_status(tid, status, u.name,
                      f"raised for onboarding only — no solutioning (Sales CRM {o.get('stage') or 'no stage'})")
     await audit(u.email, "new_onboarding", "ticket", ref, "opportunity_id", None, oid)
+    await notify(f"{ref}, {o.get('name') or shipper_name}: raised straight into onboarding by "
+                 f"{u.name}. Contract needed.", groups=[LEGAL_GROUP], ticket_ref=ref)
     return {"ok": True, "ref": ref}
 
 

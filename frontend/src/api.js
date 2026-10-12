@@ -306,6 +306,32 @@ export const PENDING = STATUSES.filter((s) => s.startsWith("Pending"));
 // requirement gap never reads as a price somebody owes.
 export const REQUIREMENT_STATUS = "Pending Requirement";
 
+// Contract terms on the charter (Legal, Michael 2026-10-12). Mirrors INSURANCE_OPTIONS
+// and charter_field_applies() in the backend; the server keeps the same rows off the
+// charter email, so the two must say the same thing.
+export const INS_STANDARD = "No insurance fee — standard liability (10x shipping fee or IDR 1 mio, whichever is lower)";
+export const INS_NOFEE_CUSTOM = "No insurance fee — custom max. liability";
+export const INS_PCT = "Insurance, not blended to rate — 0.25% of parcel value";
+export const INS_CUSTOM = "Insurance, not blended to rate — custom rate & custom max. liability per parent TRID";
+export const INS_BLENDED = "Insurance, blended to rate";
+export const INSURANCE_OPTIONS = [INS_STANDARD, INS_NOFEE_CUSTOM, INS_PCT, INS_CUSTOM, INS_BLENDED];
+export const RTS_FEES = ["0%", "50%", "100%"];
+export const RDO_FEES = ["Free", "IDR 350 / document"];
+export const RDO_SLAS = ["Default (1x SLA after complete delivery)", "Custom"];
+export const TKBM_FEES = ["Blended to rate", "Not blended to rate"];
+export function charterApplies(k, v) {
+  const yes = (x) => v[x] === "Yes";
+  switch (k) {
+    case "insParcelValue": return v.ins === INS_PCT || v.ins === INS_BLENDED;
+    case "insMaxLiability": return v.ins === INS_NOFEE_CUSTOM || v.ins === INS_CUSTOM;
+    case "insRate": return v.ins === INS_CUSTOM;
+    case "rdoFee": case "rdoSla": return yes("rdo");
+    case "rdoSlaCustom": return yes("rdo") && v.rdoSla === "Custom";
+    case "tkbmFee": return yes("tkbmO") || yes("tkbmD");
+    default: return true;
+  }
+}
+
 // The groups that sell (Michael, 2026-09-10). AM holds the shipper relationship and does
 // the same job as Sales inside this app, so the two carry the same rights. Named once and
 // mirrored from SELLING_GROUPS in the backend: written out at each call site, the next

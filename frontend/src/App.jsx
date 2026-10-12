@@ -55,6 +55,9 @@ const OVERSEERS = ["Ops", "QC"];
 const opsHome = (m) => (OVERSEERS.includes(m?.group) ? "ob-overview" : "readiness");
 // CAPA lists are for everyone who works, and for the ops teams.
 const seesCapa = (m) => works(m) || m.permissions.operationalOnly;
+// Legal (Michael, 2026-10-12): Proposal Accepted tickets only -- their charter, price and
+// discussion -- and nothing else in the app.
+const LEGAL_SCREENS = ["legal", "detail"];
 
 // The PSP screens live inside Solutioning — PSP approval is a step of solutioning, not
 // a separate pipeline — but keep their tag so it is obvious which entries are PSP's.
@@ -192,6 +195,11 @@ const NAV = [
       keywords: "weekly stage report deck jabo gj wj pipeline sales planning" },
     { id: "weekly-cj-ej", label: "CJ - EJ Weekly Stage", icon: "▦",
       keywords: "weekly stage report deck cj ej pipeline sales planning" },
+  ]],
+  ["Legal", [
+    { id: "legal", label: "Proposal Accepted", icon: "§",
+      when: (m) => m.permissions.legalOnly || m.group === "Admin",
+      keywords: "legal contract accepted proposal" },
   ]],
   ["Ops Onboarding", [
     // Two ways in (Michael, 2026-10-05): a launch raised straight into onboarding, and
@@ -571,6 +579,7 @@ export default function App() {
   useEffect(() => { api.me().then(setMe).catch((e) => setErr(e.message)); }, []);
   useEffect(() => {
     if (me?.permissions.operationalOnly && !OPS_SCREENS.includes(screen)) setScreen(opsHome(me));
+    if (me?.permissions.legalOnly && !LEGAL_SCREENS.includes(screen)) setScreen("legal");
   }, [me, screen]);
 
   // Back goes back through the app, instead of leaving it.
@@ -678,7 +687,7 @@ export default function App() {
   // the one above skips operational users, and they are exactly who needs this number.
   // It is the same list the screen shows, so badge and rows cannot disagree.
   useEffect(() => {
-    if (!me) return;
+    if (!me || me.permissions.legalOnly) return;
     api.operationalList("readiness")
       // Outstanding work only: a launch this team has finished is still listed under
       // Cleared, but it is not something the badge should keep asking about.
@@ -748,6 +757,8 @@ export default function App() {
     pending: <PendingReview me={me} notify={notify} onOpen={open} />,
     proposals: <ProposalReview me={me} notify={notify} onOpen={open} />,
     ship: <ReadyToShip me={me} onOpen={open} />,
+    legal: <ReadyToShip me={me} onOpen={open} title="Proposal Accepted"
+      sub="Every accepted proposal: open one for its Project Charter, the price and the discussion. Read-only — ask Sales or PNS in the discussion." />,
     rdo: <Rdo onOpen={open} />,
     fields: <Fields />,
     ignored: <Ignored notify={notify} />,
@@ -786,7 +797,8 @@ export default function App() {
   const sidebar = (
     <nav className="flex h-full flex-col gap-5 overflow-y-auto p-4">
       {NAV.map(([group, items]) => {
-        const shown = items.filter((i) => (!me.permissions.operationalOnly || OPS_SCREENS.includes(i.id)) && (!i.when || i.when(me)));
+        const shown = items.filter((i) => (!me.permissions.operationalOnly || OPS_SCREENS.includes(i.id))
+          && (!me.permissions.legalOnly || LEGAL_SCREENS.includes(i.id)) && (!i.when || i.when(me)));
         if (!shown.length) return null;
         return (
           <div key={group}>
@@ -840,7 +852,7 @@ export default function App() {
           <span className="grid h-6 w-6 place-items-center rounded bg-[#EE1B2C] text-xs font-extrabold text-white">N</span>
           <span className="hidden font-bold tracking-tight sm:inline">Ninja PNS</span>
         </div>
-        {!me.permissions.operationalOnly && <GlobalSearch me={me} onOpenTicket={open} onGo={go} />}
+        {!me.permissions.operationalOnly && !me.permissions.legalOnly && <GlobalSearch me={me} onOpenTicket={open} onGo={go} />}
         <div className="ml-auto flex items-center gap-3 text-sm">
           <span className="hidden text-slate-500 sm:inline">Signed in as</span>
           <b className="hidden sm:inline">{me.name}</b>
@@ -889,7 +901,9 @@ export default function App() {
         )}
         <main className="min-w-0 flex-1 p-4 sm:p-6">
           <ScreenError screen={screen}>
-            {me.permissions.operationalOnly && !OPS_SCREENS.includes(screen) ? screens[opsHome(me)] : (screens[screen] || screens.dashboard)}
+            {me.permissions.operationalOnly && !OPS_SCREENS.includes(screen) ? screens[opsHome(me)]
+              : me.permissions.legalOnly && !LEGAL_SCREENS.includes(screen) ? screens.legal
+              : (screens[screen] || screens.dashboard)}
           </ScreenError>
         </main>
       </div>

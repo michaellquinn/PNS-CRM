@@ -1107,12 +1107,13 @@ export function ProposalActions({ t, me, notify, onDone }) {
    the note above warns about actually starts. */
 
 /* ---------------------------------------------------------------- ready to ship */
-export function ReadyToShip({ me, onOpen }) {
+export function ReadyToShip({ me, onOpen, title = "Ready to ship",
+  sub = "Accepted proposals, handed to Legal for the contract and then to Ops." }) {
   const [rows, err] = useTickets({ status: "Proposal Accepted / Ready to Ship" });
   const [list, f, set, clear, patch] = useFilter(rows, {}, "ship");
   return (
-    <Shell title="Ready to ship"
-      sub="Accepted proposals, handed to Legal for the contract and then to Ops."
+    <Shell title={title}
+      sub={sub}
       rows={rows} err={err} empty="Nothing ready to ship yet."
       bar={<FilterBar f={f} set={set} clear={clear} patch={patch} me={me}
         shown={list.length} total={(rows || []).length} rows={rows} />}

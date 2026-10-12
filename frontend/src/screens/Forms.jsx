@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { api, SERVICES, shrinkImage } from "../api";
+import { api, SERVICES, shrinkImage, INSURANCE_OPTIONS, INS_PCT, INS_BLENDED, INS_CUSTOM,
+  INS_NOFEE_CUSTOM, RTS_FEES, RDO_FEES, RDO_SLAS, TKBM_FEES, charterApplies } from "../api";
 import { Btn, Card, Combo, Field, Head, inputCls, refreshOptions, useOptions } from "../ui";
 
 const CAPA_SERVICES = ["B2BR (<50kg)", "LTL > 50kg", "FTL", "Same Day - Regular", "Same Day - Premium"];
@@ -33,11 +34,18 @@ export function NewRequest({ me, notify, onCreated }) {
     service: "LTL", acct_type: "Standard", region: "GJ", revenue: "48000000",
     project: "One time project", contract: "Short (<= 1 year)",
     sla: "Standard", billingTreatment: "Standard", mps: "Yes", rdo: "Yes",
-    cod: "No", tkbmO: "No", tkbmD: "No",
+    cod: "No", tkbmO: "No", tkbmD: "No", rtsFee: "", ins: "",
     ins: "No", pallet: "Non palletized", commodity: "FMCG", destType: "GT",
   });
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const setV = (k) => (v) => setF({ ...f, [k]: v });
+  // A dropdown with nothing picked yet, so a contract term is a choice and not a default.
+  const pick = (k, options) => (
+    <select className={inputCls} value={f[k] || ""} onChange={set(k)}>
+      <option value="">Choose…</option>
+      {options.map((o) => <option key={o}>{o}</option>)}
+    </select>
+  );
   const [busy, setBusy] = useState(false);
   const [photos, setPhotos] = useState([]);
   const [docs, setDocs] = useState([]);
@@ -60,6 +68,13 @@ export function NewRequest({ me, notify, onCreated }) {
   const submit = async () => {
     if (!f.shipper?.trim()) return notify("Shipper is required");
     if (!f.brief?.trim()) return notify("Brief summary is required");
+    // The contract terms Legal writes from (Michael, 2026-10-12): every one that applies
+    // to the answers given must be filled, so a contract is never drafted on a guess.
+    const TERMS = { rtsFee: "RTS fee", ins: "Insurance", insParcelValue: "Parcel value",
+      insRate: "Custom insurance rate", insMaxLiability: "Custom max. liability",
+      rdoFee: "RDO fee", rdoSla: "RDO SLA", rdoSlaCustom: "Custom RDO SLA", tkbmFee: "TKBM fee" };
+    const gaps = Object.keys(TERMS).filter((k) => charterApplies(k, f) && !String(f[k] || "").trim());
+    if (gaps.length) return notify(`Fill in the contract terms: ${gaps.map((k) => TERMS[k]).join(", ")}`);
     setBusy(true);
     try {
       const { shipper, brief, service, acct_type: _acct, region, revenue, opportunity_id,
@@ -280,9 +295,40 @@ export function NewRequest({ me, notify, onCreated }) {
           <Field label="TKBM destination" required>
             <select className={inputCls} value={f.tkbmD} onChange={set("tkbmD")}><option>No</option><option>Yes</option></select>
           </Field>
-          <Field label="Insurance" required>
-            <select className={inputCls} value={f.ins} onChange={set("ins")}><option>No</option><option>Yes</option></select>
-          </Field>
+          {/* Contract terms Legal works from (Michael, 2026-10-12). The follow-up boxes
+              appear only for the answers that need them. */}
+          {(f.tkbmO === "Yes" || f.tkbmD === "Yes") && (
+            <Field label="TKBM fee" required>{pick("tkbmFee", TKBM_FEES)}</Field>
+          )}
+          {f.rdo === "Yes" && <>
+            <Field label="RDO fee" required>{pick("rdoFee", RDO_FEES)}</Field>
+            <Field label="RDO SLA" required>{pick("rdoSla", RDO_SLAS)}</Field>
+            {f.rdoSla === "Custom" && (
+              <Field label="Custom RDO SLA" required>
+                <input className={inputCls} value={f.rdoSlaCustom || ""} onChange={set("rdoSlaCustom")}
+                  placeholder="e.g. RDO back within 3 days after complete delivery" />
+              </Field>
+            )}
+          </>}
+          <Field label="RTS fee" required>{pick("rtsFee", RTS_FEES)}</Field>
+          <Field label="Insurance" required span>{pick("ins", INSURANCE_OPTIONS)}</Field>
+          {(f.ins === INS_PCT || f.ins === INS_BLENDED) && (
+            <Field label="Parcel value" required>
+              <input className={inputCls} value={f.insParcelValue || ""} onChange={set("insParcelValue")}
+                placeholder="e.g. IDR 2,500,000 per parcel" />
+            </Field>
+          )}
+          {f.ins === INS_CUSTOM && (
+            <Field label="Custom insurance rate" required>
+              <input className={inputCls} value={f.insRate || ""} onChange={set("insRate")} placeholder="e.g. 0.2%" />
+            </Field>
+          )}
+          {(f.ins === INS_NOFEE_CUSTOM || f.ins === INS_CUSTOM) && (
+            <Field label="Custom max. liability" required>
+              <input className={inputCls} value={f.insMaxLiability || ""} onChange={set("insMaxLiability")}
+                placeholder={f.ins === INS_CUSTOM ? "per parent TRID, e.g. IDR 5,000,000" : "e.g. IDR 5,000,000"} />
+            </Field>
+          )}
           <Field label="Shipment mode" hint="Onboarding reads this from the charter">
             <select className={inputCls} value={f.shipMode || ""} onChange={set("shipMode")}>
               <option value="">Choose…</option>

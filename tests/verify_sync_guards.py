@@ -157,14 +157,17 @@ check("every mapped field is Sales CRM's, with no exceptions",
 # half empty. Named individually so removing one is a deliberate act.
 _opp = {k: names for k, names, _l, _o in _maps["CRM_OPP_PAYLOAD"]}
 for _key, _src in (("golive", "target_start_date"), ("cod", "cash_on_delivery_cod"),
-                   ("ins", "insurance"), ("wt", "weight_per_shipment"),
+                   ("crmInsurance", "insurance"), ("wt", "weight_per_shipment"),
                    ("sla", "service_level"), ("freq", "frequency_of_shipment"),
                    ("delSlot", "delivery_slas"), ("dim", "size_paket")):
     check(f"{_key} is filled from {_src}", _src in _opp.get(_key, []),
           "Sales CRM holds this answer already")
 # ...and two that deliberately are NOT (Michael, 2026-09-17): the charter's own words,
 # which a sync would otherwise overwrite every five minutes.
-for _key in ("notes", "handling"):
+# Insurance too (Michael, 2026-10-12): it is one of five arrangements chosen here for
+# Legal, and Sales CRM's yes/no would overwrite it. Sales CRM's value is still kept, under
+# crmInsurance, as the check above makes sure.
+for _key in ("notes", "handling", "ins"):
     check(f"{_key} is not filled from Sales CRM", _key not in _opp,
           "Notes and Custom handling request are written on the charter, not copied")
 

@@ -2,6 +2,22 @@ import { Card, Head, Pill } from "../ui";
 
 const ENTRIES = [
   {
+    date: "2026-10-13",
+    title: "Legal view, and the contract terms on the Project Charter",
+    by: "Michael + Claude",
+    changes: [
+      "NEW — a Legal role. A Legal account sees one screen, Legal / Proposal Accepted: every accepted proposal, including launches raised straight into onboarding. Opening one shows its Project Charter, price and attachments, and Legal can post in its discussion. Nothing else in the app is open to it, and it changes nothing. Register people as Legal under Users & roles; Admin also sees the screen.",
+      "Legal is told in the app whenever a deal reaches Proposal Accepted — marked by hand, moved by the Sales CRM sync, or raised straight into onboarding.",
+      "NEW on the Project Charter and New request — the contract terms Legal works from: RTS fee (0% / 50% / 100%); RDO fee (free or IDR 350 per document) and RDO SLA (default 1x SLA after complete delivery, or custom) when there is an RDO; TKBM fee (blended to rate or not) when there is TKBM.",
+      "CHANGED — Insurance is one of five arrangements instead of Yes/No: no fee with standard liability (10x shipping fee or IDR 1 mio, whichever is lower); no fee with a custom max. liability; insured, not blended to rate, at 0.25% of parcel value; insured, not blended, at a custom rate and custom max. liability per parent TRID; or blended to rate. Parcel value, the custom rate and the custom max. liability are asked only where the choice needs them, and only rows that apply appear on the charter.",
+      "New request will not submit until every contract term that applies is filled in. Tickets from the Sales CRM sync fill them through Edit intake.",
+    ],
+    overruled: [
+      "Insurance copied from Sales CRM's yes/no on every sync. Sales choose the arrangement here now; Sales CRM's value is kept alongside for reference and no longer overwrites it.",
+      "Legal as a Visitor (Users & roles said \"Legal sits here\"). Visitor reads the whole pipeline; Legal now has its own role that sees accepted proposals only.",
+    ],
+  },
+  {
     date: "2026-10-12",
     title: "Security: source-map-js upgraded to 1.2.2",
     by: "Michael + Claude",

@@ -9,10 +9,11 @@ tree = ast.parse(open(SRC, encoding='utf-8').read())
 
 # big_group is pulled in because proposal_or_signoff now asks it whether the deal
 # is watched — Must Win reaches C-level too, so the tier alone no longer answers it.
-WANT_FN = {'render_charter', '_charter_value', 'proposal_or_signoff', 'head_for',
+WANT_FN = {'render_charter', '_charter_value', 'charter_field_applies', 'proposal_or_signoff', 'head_for',
            'big_group',
            'needs_pns_review'}
-WANT_VAR = {'CHARTER_SECTIONS', 'CHARTER_HOURS', '_CS', 'MANAGED_ACCTS'}
+WANT_VAR = {'CHARTER_SECTIONS', 'CHARTER_HOURS', '_CS', 'MANAGED_ACCTS',
+            'INS_STANDARD', 'INS_NOFEE_CUSTOM', 'INS_PCT', 'INS_CUSTOM', 'INS_BLENDED'}
 keep = [n for n in tree.body
         if (isinstance(n, ast.FunctionDef) and n.name in WANT_FN)
         or (isinstance(n, ast.Assign) and any(

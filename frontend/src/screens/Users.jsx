@@ -9,6 +9,7 @@ const GROUP_TONE = {
   PSP: "bg-amber-50 text-amber-700",
   CSO: "bg-teal-50 text-teal-700",
   Visitor: "bg-slate-100 text-slate-600",
+  Legal: "bg-indigo-50 text-indigo-700",
   Ops: "bg-teal-50 text-teal-700",
   // The operational teams that confirm onboarding readiness (Michael, 2026-09-23).
   QC: "bg-emerald-50 text-emerald-700",
@@ -25,7 +26,8 @@ const WHAT_EACH_GROUP_DOES = {
   Commercial: "Raises tickets, prices what Sales owns, records win/loss. Cannot escalate to PSP or see cost and margin.",
   PNS: "Prices watched work, reviews Sales pricing, decides when PSP is needed and can record win/loss. Sees cost and margin.",
   PSP: "One shared role: any PSP member approves or rejects margins. There is no Head PSP approval.",
-  Visitor: "Reads everything, changes nothing. Legal sits here. Can still be tagged into any discussion.",
+  Visitor: "Reads everything, changes nothing. Can still be tagged into any discussion.",
+  Legal: "Drafts the contract. Sees Proposal Accepted tickets only — their Project Charter, price and attachments — and posts in their discussion. Changes nothing else.",
   Ops: "Reads everything and receives the Kick-off. Changes nothing in the app.",
   CSO: "Read-only across the pipeline, including cost and margin.",
   Admin: "Everything, plus registering people, setting roles and the recycle bin.",

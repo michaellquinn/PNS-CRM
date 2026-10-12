@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { api, SELLING_GROUPS, SERVICES, categoryLabel, rp } from "../api";
+import { api, SELLING_GROUPS, SERVICES, categoryLabel, rp, INSURANCE_OPTIONS, RTS_FEES,
+  RDO_FEES, RDO_SLAS, TKBM_FEES, charterApplies } from "../api";
 import { charterHtml, charterText, copyRich } from "../charter";
 import Discussion from "./Discussion";
 import { PriceForm } from "./Queues";
@@ -35,8 +36,12 @@ const SECTIONS = [
     ["destType", "Delivery destination type"], ["sla", "SLA"],
     ["billingTreatment", "Billing weight treatment"], ["mps", "MPS"],
     ["rdo", "RDO"], ["rdoNotes", "RDO details from Sales"],
+    ["rdoFee", "RDO fee"], ["rdoSla", "RDO SLA"], ["rdoSlaCustom", "Custom RDO SLA"],
     ["cod", "COD"], ["tkbmO", "TKBM origin"], ["tkbmD", "TKBM destination"],
-    ["ins", "Insurance"], ["truck", "Vehicle request"], ["shipMode", "Shipment mode"],
+    ["tkbmFee", "TKBM fee"], ["rtsFee", "RTS fee"],
+    ["ins", "Insurance"], ["insParcelValue", "Parcel value"],
+    ["insRate", "Custom insurance rate"], ["insMaxLiability", "Custom max. liability"],
+    ["truck", "Vehicle request"], ["shipMode", "Shipment mode"],
     ["handling", "Custom handling request"], ["notes", "Notes"],
   ]],
   // Sections 1-3 are the Project Charter — solutioning. Section 4 is Kick-Off data —
@@ -50,8 +55,12 @@ const SECTIONS = [
 ];
 
 const EDITABLE = SECTIONS.flatMap(([, fields]) => fields);
+// The charter with only the rows that mean something for these answers (2026-10-12):
+// Parcel value only for the insurance options priced on it, RDO terms only with RDO.
+const applying = (values) => SECTIONS.map(([label, fields]) =>
+  [label, fields.filter(([k]) => charterApplies(k, values))]);
 const LONG = ["brief", "handling", "notes", "rdoNotes", "invAddr", "pickup", "dest"];
-const YESNO = ["mps", "rdo", "cod", "tkbmO", "tkbmD", "ins"];
+const YESNO = ["mps", "rdo", "cod", "tkbmO", "tkbmD"];
 // Waiting time is picked from bands now (Michael, 2026-09-23). HOURS stays only to
 // render a charter written before the change, which holds a number.
 const HOURS = ["pickWait", "delWait"];
@@ -62,6 +71,12 @@ const SELECT_OPTIONS = {
   delWait: WAIT_OPTIONS,
   // Onboarding reads its Shipment mode from here (Michael, 2026-09-17).
   shipMode: ["Port to Port", "Port to Door", "Door to Port", "Door to Door"],
+  // The contract terms Legal asked for (Michael, 2026-10-12).
+  ins: INSURANCE_OPTIONS,
+  rtsFee: RTS_FEES,
+  rdoFee: RDO_FEES,
+  rdoSla: RDO_SLAS,
+  tkbmFee: TKBM_FEES,
 };
 
 // Waiting time is the one field where blank is an answer, not a gap: "None" means the
@@ -186,8 +201,8 @@ function CommercialTicketDetail({ ticketRef: initialRef, me, notify, onBack,
     if (photos.length) extras.push(["Photos of the goods", `${photos.length} attached in the app`]);
     try {
       const how = await copyRich(
-        charterHtml(t, i, SECTIONS, display, extras),
-        charterText(t, i, SECTIONS, display, extras));
+        charterHtml(t, i, applying(i), display, extras),
+        charterText(t, i, applying(i), display, extras));
       notify(how === "rich"
         ? "Charter copied — paste into your email and the table comes with it"
         : "Charter copied");
@@ -218,7 +233,7 @@ function CommercialTicketDetail({ ticketRef: initialRef, me, notify, onBack,
   // (Michael, 2026-09-18): operational onboarding's own readiness checks replaced it,
   // and nothing had ever been raised in it.
   const tabs = [["charter", "Project Charter"],
-                ["onboarding", "Onboarding"],
+                ...(p.legalOnly ? [] : [["onboarding", "Onboarding"]]),
                 ...(p.seePrice ? [["pricing", "Pricing"]] : []),
                 ["files", "Attachments", fCount], ["discussion", "Discussion", openQ],
                 ["history", "History"]];
@@ -581,7 +596,7 @@ function CommercialTicketDetail({ ticketRef: initialRef, me, notify, onBack,
                 </Row>
               </dl>
 
-              {SECTIONS.map(([label, fields]) => (
+              {applying(draft || i).map(([label, fields]) => (
                 <div key={label} className="mt-5">
                   <div className="mb-2 text-[10.5px] font-bold uppercase tracking-wider text-slate-400">{label}</div>
                   <dl>
@@ -605,7 +620,10 @@ function CommercialTicketDetail({ ticketRef: initialRef, me, notify, onBack,
                         ) : SELECT_OPTIONS[k] ? (
                           <select className={`${inputCls} max-w-[240px]`} value={draft[k] || ""}
                             onChange={(e) => setDraft({ ...draft, [k]: e.target.value })}>
-                            <option value="">Choose billing treatment…</option>
+                            <option value="">Choose…</option>
+                            {/* A value written before the options changed (insurance was
+                                Yes/No) is kept selectable, so opening Edit never wipes it. */}
+                            {draft[k] && !SELECT_OPTIONS[k].includes(draft[k]) && <option>{draft[k]}</option>}
                             {SELECT_OPTIONS[k].map((option) => <option key={option}>{option}</option>)}
                           </select>
                         ) : remembered[k] ? (
@@ -624,7 +642,7 @@ function CommercialTicketDetail({ ticketRef: initialRef, me, notify, onBack,
               </>
               ) : (
               <>
-              {SECTIONS.map(([label, fields]) => (
+              {applying(i).map(([label, fields]) => (
                 <div key={label} className="mb-5 last:mb-0">
                   <div className="mb-2 flex items-center gap-2 text-[10.5px] font-bold uppercase tracking-wider text-slate-400">
                     {label}
@@ -724,7 +742,7 @@ function CommercialTicketDetail({ ticketRef: initialRef, me, notify, onBack,
                 </Row>
               </dl>
 
-              {SECTIONS.map(([label, fields]) => (
+              {applying(draft || i).map(([label, fields]) => (
                 <div key={label} className="mt-5">
                   <div className="mb-2 text-[10.5px] font-bold uppercase tracking-wider text-slate-400">{label}</div>
                   <dl>
@@ -748,7 +766,10 @@ function CommercialTicketDetail({ ticketRef: initialRef, me, notify, onBack,
                         ) : SELECT_OPTIONS[k] ? (
                           <select className={`${inputCls} max-w-[240px]`} value={draft[k] || ""}
                             onChange={(e) => setDraft({ ...draft, [k]: e.target.value })}>
-                            <option value="">Choose billing treatment…</option>
+                            <option value="">Choose…</option>
+                            {/* A value written before the options changed (insurance was
+                                Yes/No) is kept selectable, so opening Edit never wipes it. */}
+                            {draft[k] && !SELECT_OPTIONS[k].includes(draft[k]) && <option>{draft[k]}</option>}
                             {SELECT_OPTIONS[k].map((option) => <option key={option}>{option}</option>)}
                           </select>
                         ) : remembered[k] ? (

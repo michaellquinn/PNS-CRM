@@ -101,6 +101,8 @@ export default function Attachments({
 
   return (
     <>
+{/* Legal reads attachments; it does not add them (2026-10-12). */}
+      {!me.permissions.legalOnly && (
       <div className="mb-4 rounded-lg border border-dashed border-slate-300 bg-slate-50 p-3.5">
         <div className="flex flex-wrap items-end gap-2.5">
           <label className="text-[11.5px] font-semibold text-slate-600">
@@ -127,6 +129,7 @@ export default function Attachments({
               "5 MB per file. Images, PDF, Word, Excel, CSV and text."}
         </p>
       </div>
+      )}
 
       {files.length === 0 && <Empty>{emptyText}</Empty>}
 
