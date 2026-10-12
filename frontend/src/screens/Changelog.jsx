@@ -3,6 +3,14 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-10-12",
+    title: "Security: source-map-js upgraded to 1.2.2",
+    by: "Michael + Claude",
+    changes: [
+      "Dependency-Check flagged GHSA-68fv-2mgg-jv7q (high) in source-map-js 1.2.1: an indexed source map with a huge section offset can block the event loop. It is a build-time package pulled in by postcss, not shipped in the served site, but it is pinned to the patched 1.2.2 with an npm override so the build no longer carries it.",
+    ],
+  },
+  {
+    date: "2026-10-12",
     title: "Readiness Overview for Ops and QC, and escalation to Ops before go-live",
     by: "Michael + Claude",
     changes: [
