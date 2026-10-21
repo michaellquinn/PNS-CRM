@@ -3,6 +3,16 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-10-21",
+    title: "Salespeople renamed to their Sales CRM names; renames carry over to tickets",
+    by: "Michael + Claude",
+    changes: [
+      "The app links a deal to its salesperson by NAME: Sales CRM sends the owner's name and never an email. Fifteen salespeople were registered under short names (Dandy, Inggil, Panji…) while their deals carry the full Sales CRM name, so none of their synced deals reached them — not in My requests, not in notifications, and they could not edit their own onboarding. They were renamed to their Sales CRM names in Users & roles.",
+      "FIXED — renaming someone in Users & roles now renames them on their tickets too, as Sales PIC and as PNS owner. Before, the tickets kept the old name and stopped reaching the person.",
+      "Two salespeople appear in Sales CRM under a second name on some deals — \"Ari\" (Bayu Bakhriansyah Bachruddin) and \"Kelvin\" (Kelvin Sitinjak). The sync translates those to the registered name, and migration V39 corrects the tickets already carrying them, plus Sandrina's four hand-raised tickets. The proper fix is one user record each in Sales CRM.",
+    ],
+  },
+  {
+    date: "2026-10-21",
     title: "My requests shows all your tickets, with stage filters; Cancel and Future opportunity",
     by: "Michael + Claude",
     changes: [

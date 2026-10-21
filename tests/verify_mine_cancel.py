@@ -37,4 +37,20 @@ check("...and Future opportunity", '<option value="Cancel:future">Future opportu
 check("Future opportunity says so in the reason", "Future opportunity — ${reason.trim()}" in q)
 check("My requests has its views", all(v in mine for v in ('"open"', '"won"', '"lost"', '"cancelled"', '"all"')))
 check("...and a Stage picker", "Every stage" in mine)
+# ---- names (2026-10-21): the sync translates Sales CRM's second names, and a rename
+# in Users & roles carries over to the person's tickets.
+check("Ari on a Sales CRM deal is Bayu", m.crm_owner({"owner_name": "Ari"}) == "Bayu Bakhriansyah Bachruddin")
+check("Kelvin is Kelvin Sitinjak", m.crm_owner({"owner_name": "Kelvin"}) == "Kelvin Sitinjak")
+check("everyone else passes through", m.crm_owner({"owner_name": "Dandy Pradipto Wicaksono"}) == "Dandy Pradipto Wicaksono")
+check("no owner stays no owner", m.crm_owner({}) is None)
+check("the import and the refresh both translate",
+      '"sales_name": crm_owner(o),' in src and 'o.get("name"), crm_owner(o)]' in src)
+check("a rename carries over to tickets",
+      'UPDATE tickets SET sales_name=%s WHERE sales_name=%s", (name, row["name"])' in src
+      and 'UPDATE tickets SET owner_name=%s WHERE owner_name=%s", (name, row["name"])' in src)
+mig = open(os.path.join(ROOT, "backend", "resources", "db", "migration", "V39__sales_name_aliases.sql"), encoding="utf-8").read()
+check("V39 corrects the tickets already carrying the old names",
+      all(x in mig for x in ("'Sandrina Oktiana' WHERE sales_name = 'Sandrina'",
+                             "'Bayu Bakhriansyah Bachruddin' WHERE sales_name = 'Ari'",
+                             "'Kelvin Sitinjak' WHERE sales_name = 'Kelvin'")))
 print(f"my requests + cancel: {ok} checks OK")

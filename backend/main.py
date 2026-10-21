@@ -1738,7 +1738,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-10-21.1"
+BUILD = "2026-10-21.2"
 
 
 class Me(BaseModel):
@@ -4894,7 +4894,7 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
                             "acct_type": acct_type,
                             "stage": stage,
                             "parent_stage": o.get("parent_stage"),
-                            "sales_name": o.get("owner_name"),
+                            "sales_name": crm_owner(o),
                             "account_id": str(o.get("account_id") or ""),
                             "parent_account_id": str((account or {}).get("parent_account_id") or ""),
                         }
@@ -5068,10 +5068,10 @@ async def _refresh_from_salescrm(o: dict, account: dict | None = None,
     sets = ["stage=%s", "parent_stage=%s",
             "opportunity_name=COALESCE(%s, opportunity_name)",
             "sales_name=COALESCE(%s, sales_name)"]
-    args = [o.get("stage"), o.get("parent_stage"), o.get("name"), o.get("owner_name")]
+    args = [o.get("stage"), o.get("parent_stage"), o.get("name"), crm_owner(o)]
     # The region follows the Sales PIC (Michael, 2026-10-02), including when Sales CRM
     # hands the deal to somebody else. Only when that person has a region set.
-    _region = await sales_region_for(o.get("owner_name") or t.get("sales_name"))
+    _region = await sales_region_for(crm_owner(o) or t.get("sales_name"))
     if _region:
         sets.append("region=%s")
         args.append(_region)
@@ -8990,6 +8990,13 @@ async def update_user(email: str, body: UserPatch, u: User = Depends(current_use
     await execute("UPDATE users SET name=%s, role_group=%s, role_level=%s, team=%s, "
                   "manager_email=%s, head_email=%s, active=%s WHERE email=%s",
                   (name, group, level, team, manager, head, active, email))
+    # A rename carries over to the person's tickets (Michael, 2026-10-21). Tickets name
+    # their Sales PIC and PNS owner by name, so renaming only the account left every
+    # ticket under the old name: notices stopped reaching the person and the deal
+    # dropped out of their My requests. Same name in, same name out: nothing to do.
+    if name != row["name"]:
+        await execute("UPDATE tickets SET sales_name=%s WHERE sales_name=%s", (name, row["name"]))
+        await execute("UPDATE tickets SET owner_name=%s WHERE owner_name=%s", (name, row["name"]))
     await audit(u.email, "update", "user", email, "role",
                 f"{row['role_group']}/{row['role_level']}/active={row['active']}",
                 f"{group}/{level}/active={active}")
@@ -10534,6 +10541,23 @@ class OperationalMasterResponse(OperationalRowsResponse):
 # listed at the top of the screen as not set.
 SALES_REGIONS = ["GJ", "WJ", "CJ", "EJ"]
 
+# Sales CRM owner names that belong to a salesperson registered under another (Michael,
+# 2026-10-21). The app links a deal to its salesperson by name -- Sales CRM sends the
+# owner's name and a CRM user number, never an email -- and these two people appear in
+# Sales CRM under a second name on some deals. Translated wherever the sync reads the
+# owner, so the deal follows the person. The real fix is one user record each in Sales
+# CRM; when that happens these lines can go.
+SALES_NAME_ALIASES = {
+    "Ari": "Bayu Bakhriansyah Bachruddin",
+    "Kelvin": "Kelvin Sitinjak",
+}
+
+
+def crm_owner(o: dict) -> str | None:
+    """The opportunity owner's name as this app knows the person."""
+    name = (o or {}).get("owner_name")
+    return SALES_NAME_ALIASES.get(name, name) if name else name
+
 
 async def sales_region_for(name: str | None) -> str | None:
     if not str(name or "").strip():
@@ -10787,7 +10811,7 @@ async def new_onboarding(body: NewOnboardingIn, u: User = Depends(current_user))
             "parent_account_id": str((account or {}).get("parent_account_id") or ""),
             "acct_type": acct_type}
     shipper_id = await _upsert_shipper(plan, account)
-    owner_name = o.get("owner_name")
+    owner_name = crm_owner(o)
     mw, _ = read_must_win(o)
     revenue = int(float(o.get("total_potential_revenue_mth") or 0))
     status = "Proposal Accepted / Ready to Ship"
