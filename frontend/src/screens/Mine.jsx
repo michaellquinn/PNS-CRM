@@ -11,9 +11,24 @@ import { Card, Empty, Head, Pill, TicketCard } from "../ui";
 // missing and then not show the deal on the one screen they open to see their own work.
 const OWED_BY_SALES = ["Pending Sales", "Pending Requirement"];
 
+// Which slice of my tickets to show (Michael, 2026-10-21): what is still moving, and what
+// has finished and how. A Stage picker narrows any of them to one status.
+const VIEWS = [
+  ["open", "Open"], ["won", "Won"], ["lost", "Lost"], ["cancelled", "Cancelled"], ["all", "All"],
+];
+const PNS_OWED = ["Pending PNS", "Pending Review - Head PNS", "Pending Vendor", "Pending Review - PNS"];
+const isOpen = (t) => !t.status.startsWith("Proposal Accepted") && t.status !== "Lost" && t.status !== "Cancel";
+const inView = (v, t) => v === "all" ? true
+  : v === "open" ? isOpen(t)
+  : v === "won" ? t.status.startsWith("Proposal Accepted")
+  : v === "lost" ? t.status === "Lost"
+  : t.status === "Cancel";
+
 export default function Mine({ me, onOpen }) {
   const [rows, setRows] = useState(null);
   const [err, setErr] = useState(null);
+  const [view, setView] = useState("open");
+  const [stage, setStage] = useState("");
 
   useEffect(() => {
     api.tickets({ mine: true })
@@ -25,13 +40,17 @@ export default function Mine({ me, onOpen }) {
   if (!rows) return <Empty>Loading…</Empty>;
 
   const isPns = me.group === "PNS";
-  const open = rows.filter((t) => !t.status.startsWith("Proposal Accepted")
-    && t.status !== "Lost" && t.status !== "Cancel");
-  const onMe = open.filter((t) => isPns
-    ? ["Pending PNS", "Pending Review - Head PNS", "Pending Vendor"].includes(t.status)
-    : OWED_BY_SALES.includes(t.status));
-  const elsewhere = open.filter((t) => !onMe.includes(t));
-  const closed = rows.filter((t) => !open.includes(t));
+  // "Waiting on you" is decided per ticket by what you are ON it: its PNS owner owes the
+  // PNS steps, its Sales PIC owes the Sales ones. One person can be both on different
+  // tickets -- the Head of PNS raising a deal by hand, say.
+  const owesMe = (t) => (t.owner === me.name && PNS_OWED.includes(t.status))
+    || (t.sales === me.name && OWED_BY_SALES.includes(t.status));
+  const shown = rows.filter((t) => inView(view, t));
+  const stages = [...new Set(shown.map((t) => t.status))].sort();
+  const list = shown.filter((t) => !stage || t.status === stage);
+  const onMe = list.filter((t) => isOpen(t) && owesMe(t));
+  const elsewhere = list.filter((t) => !onMe.includes(t));
+  const count = (v) => rows.filter((t) => inView(v, t)).length;
 
   const Group = ({ title, sub, list }) => (
     <div className="mb-5">
@@ -50,8 +69,8 @@ export default function Mine({ me, onOpen }) {
             <div className="flex flex-wrap items-center gap-2 text-[12.5px] text-slate-600">
               <Pill>{t.service}</Pill>
               <span>{rp(t.revenue)}</span>
-              {!isPns && t.owner && <span className="text-slate-400">PNS: {t.owner}</span>}
-              {isPns && t.sales && <span className="text-slate-400">Sales: {t.sales}</span>}
+              {t.owner && t.owner !== me.name && <span className="text-slate-400">PNS: {t.owner}</span>}
+              {t.sales && t.sales !== me.name && <span className="text-slate-400">Sales: {t.sales}</span>}
               <span className="ml-auto text-slate-400">
                 {t.sla_elapsed}/{t.sla_target}d in this status
               </span>
@@ -66,13 +85,32 @@ export default function Mine({ me, onOpen }) {
     <>
       <Head title="My requests"
         sub={isPns
-          ? "Tickets assigned to you. The first group is what you owe a move on."
-          : "Tickets you raised. The first group is what Ninja is waiting on you for."} />
-      <Group title="Waiting on you" list={onMe}
-        sub={isPns ? "yours to price or progress" : "PNS cannot proceed until these come back"} />
-      <Group title="In progress elsewhere" list={elsewhere}
-        sub="someone else owes the next move" />
-      {closed.length > 0 && <Group title="Closed" list={closed} sub="won, lost or cancelled" />}
+          ? "Tickets assigned to you, or that you raised."
+          : "Tickets you raised, that you are the Sales PIC on, or that you own in PNS."} />
+      <Card className="mb-4 flex flex-wrap items-center gap-2 p-3">
+        {VIEWS.map(([v, label]) => (
+          <button key={v} type="button" aria-pressed={view === v}
+            onClick={() => { setView(v); setStage(""); }}
+            className={`rounded-lg px-3 py-1.5 text-[12.5px] font-medium ${view === v
+              ? "bg-[#EE1B2C] text-white" : "border border-slate-300 text-slate-600"}`}>
+            {label} ({count(v)})
+          </button>
+        ))}
+        <select className="ml-auto rounded-lg border border-slate-300 px-2 py-1.5 text-[12.5px]"
+          value={stage} onChange={(e) => setStage(e.target.value)}>
+          <option value="">Every stage</option>
+          {stages.map((st) => <option key={st}>{st}</option>)}
+        </select>
+      </Card>
+      {view === "open" ? <>
+        <Group title="Waiting on you" list={onMe}
+          sub="you owe the next move" />
+        <Group title="In progress elsewhere" list={elsewhere}
+          sub="someone else owes the next move" />
+      </> : (
+        <Group title={VIEWS.find(([v]) => v === view)[1]} list={list}
+          sub={view === "all" ? "every ticket of yours, newest first" : ""} />
+      )}
     </>
   );
 }

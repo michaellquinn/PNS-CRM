@@ -1738,7 +1738,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-10-13.2"
+BUILD = "2026-10-21.1"
 
 
 class Me(BaseModel):
@@ -2115,10 +2115,16 @@ async def list_tickets(
     # a salesperson owns what they raised, a PNS member owns what they were assigned.
     # Matching on email rather than name, names get re-typed, addresses do not.
     if mine:
+        # My requests (Michael, 2026-10-21). Matched on the Sales PIC's NAME as well as
+        # the email: a synced deal carries Sales CRM's owner name and no email at all, so
+        # matching on email alone showed a salesperson only the tickets they had raised
+        # by hand -- none of their synced deals. Anyone who is the PNS owner sees those
+        # too (the Head of PNS works as Admin).
         if u.group == "PNS":
-            sql += " AND t.owner_name=%s"; args.append(u.name)
+            sql += " AND (t.owner_name=%s OR t.sales_email=%s)"; args += [u.name, u.email]
         else:
-            sql += " AND t.sales_email=%s"; args.append(u.email)
+            sql += " AND (t.sales_email=%s OR t.sales_name=%s OR t.owner_name=%s)"
+            args += [u.email, u.name, u.name]
 
     if awaiting:
         # Placeholders generated from the tuple, never hand-counted: adding "Open" to

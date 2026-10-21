@@ -1,0 +1,40 @@
+"""My requests and the new Cancel options (Michael, 2026-10-21).
+
+  * My requests matches the Sales PIC by NAME as well as email -- synced deals carry no
+    email -- and includes what the person owns in PNS;
+  * Cancel is a move the transition map allows from every open status, including
+    Pending solution's and Proposal Submitted, and it needs a reason;
+  * the screens offer Cancel on Pending solution and Cancel / Future opportunity on
+    Proposal submitted.
+"""
+import sys, types, os
+stub = types.ModuleType("asyncmy"); stub.cursors = types.SimpleNamespace(DictCursor=object)
+sys.modules["asyncmy"] = stub; sys.modules["asyncmy.cursors"] = stub.cursors
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(ROOT, "backend"))
+import main as m
+
+ok = 0
+def check(name, cond):
+    global ok
+    assert cond, name
+    ok += 1
+
+src = open(m.__file__, encoding="utf-8").read()
+check("Sales are matched by name or email, and as PNS owner",
+      'sql += " AND (t.sales_email=%s OR t.sales_name=%s OR t.owner_name=%s)"' in src)
+check("PNS members also see what they raised",
+      'sql += " AND (t.owner_name=%s OR t.sales_email=%s)"' in src)
+for frm in list(m.AWAIT_STATUSES) + ["Proposal Submitted"]:
+    check(f"{frm} -> Cancel is allowed", "Cancel" in m.MANUAL_MOVES.get(frm, set()))
+check("Cancel needs a reason", "say why {ref} is being cancelled" in src)
+
+fe = lambda p: open(os.path.join(ROOT, "frontend", "src", p), encoding="utf-8").read()
+q, meet, mine = fe("screens/Queues.jsx"), fe("screens/Meetings.jsx"), fe("screens/Mine.jsx")
+check("Pending solution rows carry Cancel request", "<CancelTicket t={t}" in meet)
+check("Proposal submitted offers Cancel", '<option value="Cancel:cancel">Cancel</option>' in q)
+check("...and Future opportunity", '<option value="Cancel:future">Future opportunity</option>' in q)
+check("Future opportunity says so in the reason", "Future opportunity — ${reason.trim()}" in q)
+check("My requests has its views", all(v in mine for v in ('"open"', '"won"', '"lost"', '"cancelled"', '"all"')))
+check("...and a Stage picker", "Every stage" in mine)
+print(f"my requests + cancel: {ok} checks OK")

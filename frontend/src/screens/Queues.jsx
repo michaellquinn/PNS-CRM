@@ -1004,6 +1004,32 @@ export function BackToRequirement({ t, me, notify, onDone }) {
   );
 }
 
+/* Cancel from the Pending solution walk (Michael, 2026-10-21): a request that will not go
+   ahead is ended on the row, with the reason, rather than left reading as work. It goes
+   to the Cancelled screen, which keeps the reason and has Put back. */
+export function CancelTicket({ t, me, notify, onDone }) {
+  const [why, setWhy] = useState("");
+  const [busy, setBusy] = useState(false);
+  if (!me.permissions.sendBackProposal) return null;
+  const go = async () => {
+    setBusy(true);
+    try {
+      await api.status(t.ref, { status: "Cancel", reason: why.trim() });
+      notify(`${t.ref} cancelled`);
+      setWhy("");
+      await onDone();
+    } catch (e) { notify(e.message); }
+    finally { setBusy(false); }
+  };
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <input className={`${inputCls} max-w-[340px]`} placeholder="Why it is cancelled (required)"
+        value={why} onChange={(e) => setWhy(e.target.value)} />
+      <Btn disabled={busy || !why.trim()} onClick={go}>Cancel request</Btn>
+    </div>
+  );
+}
+
 /* ---------------------------------------------------------------- proposals */
 /* The status controls for a submitted proposal. Extracted so the Proposal submitted
    screen and anything else that records an outcome run the same code — a second copy of "what may a
@@ -1079,14 +1105,28 @@ export function ProposalActions({ t, me, notify, onDone }) {
             {PICKABLE_LOSS_REASONS.map(([v, l]) => <option key={v} value={`Lost:${v}`}>{l}</option>)}
           </optgroup>
         )}
+        {/* Not lost, not going ahead now (Michael, 2026-10-21). Both end the ticket on
+            the Cancelled screen, which has Put back; Future opportunity says so in the
+            reason, the way the sync records Sales CRM's Future Opportunity stage. */}
+        <optgroup label="Stop">
+          <option value="Cancel:cancel">Cancel</option>
+          <option value="Cancel:future">Future opportunity</option>
+        </optgroup>
       </select>
       <input className={`${inputCls} max-w-[300px]`}
-        placeholder={next === REQUIREMENT_STATUS ? "What is unclear or missing (goes to Sales)" : "Reason — required to send back"}
+        placeholder={next === REQUIREMENT_STATUS ? "What is unclear or missing (goes to Sales)"
+          : next === "Cancel:future" ? "When it may come back, and why not now (required)"
+          : next === "Cancel:cancel" ? "Why it is cancelled (required)"
+          : "Reason — required to send back"}
         value={reason} onChange={(e) => setReason(e.target.value)} />
-      <Btn disabled={busy} onClick={() => act(() => api.status(t.ref,
+      <Btn disabled={busy || (next.startsWith("Cancel:") && !reason.trim())} onClick={() => act(() => api.status(t.ref,
         next.startsWith("Lost:")
           ? { status: "Lost", loss_reason: next.slice(5) }
-          : { status: next, reason }))}>
+          : next === "Cancel:future"
+            ? { status: "Cancel", reason: `Future opportunity — ${reason.trim()}` }
+            : next === "Cancel:cancel"
+              ? { status: "Cancel", reason: reason.trim() }
+              : { status: next, reason }))}>
         Change status
       </Btn>
       {mayClose && (

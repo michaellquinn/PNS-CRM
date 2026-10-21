@@ -2,6 +2,17 @@ import { Card, Head, Pill } from "../ui";
 
 const ENTRIES = [
   {
+    date: "2026-10-21",
+    title: "My requests shows all your tickets, with stage filters; Cancel and Future opportunity",
+    by: "Michael + Claude",
+    changes: [
+      "FIXED — My requests matched Sales on their email only, and a deal from the Sales CRM sync carries the owner's NAME and no email. So a salesperson saw only the tickets they had raised by hand, none of their synced deals, and anyone working as Admin saw only those too. It now matches the Sales PIC's name or email, and the PNS owner.",
+      "NEW — My requests has views: Open (split into Waiting on you / In progress elsewhere), Won, Lost, Cancelled and All, each with its count, and a Stage picker to narrow any of them to one status.",
+      "NEW — Pending solution: a Cancel request box on every row, with a required reason. The ticket goes to Cancelled, which keeps the reason and has Put back.",
+      "NEW — Proposal submitted: the status menu has Cancel and Future opportunity. Both end the ticket on the Cancelled screen with a required reason; Future opportunity is labelled so in the reason, the same way the sync records Sales CRM's Future Opportunity stage, and can be put back when the deal returns.",
+    ],
+  },
+  {
     date: "2026-10-13",
     title: "Shipment mode required; RDO terms sit under RDO",
     by: "Michael + Claude",
