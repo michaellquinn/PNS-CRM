@@ -69,7 +69,7 @@ check("the import uses the salesperson's region",
       'await sales_region_for(plan["sales_name"]) or "GJ"' in src)
 check("New request uses the creator's region",
       "await sales_region_for(u.name) or body.region" in src)
-check("the sync follows the PIC", 'sales_region_for(o.get("owner_name") or t.get("sales_name"))' in src)
+check("the sync follows the PIC", 'sales_region_for(crm_owner(o) or t.get("sales_name"))' in src)
 check("a handover here follows the new PIC", "region=COALESCE(%s, region)" in src)
 check("the import no longer hard-codes GJ alone", not re.search(r'plan\["sales_name"\], "GJ"', src))
 print(f"sales regions: {ok} checks OK")
