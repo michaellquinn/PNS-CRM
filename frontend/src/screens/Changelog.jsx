@@ -3,6 +3,14 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-10-22",
+    title: "Security: vite upgraded to 6.4.5",
+    by: "Michael + Claude",
+    changes: [
+      "Dependency-Check flagged GHSA-587h-7wmj-h5pm (high) in vite 5.4.21: launch-editor, used by vite's development server to open a file in an editor, can be tricked on Windows into running a command. No 5.x release fixes it, so vite moved to 6.4.5 (with @vitejs/plugin-react 4.7.0 and esbuild 0.25). vite only builds the site here — no vite server runs in Dev or production, and the build runs on Linux — but the build no longer carries the flaw.",
+    ],
+  },
+  {
+    date: "2026-10-22",
     title: "FTL is on-call or monthly only, and no longer synced; Solutioning CRM",
     by: "Michael + Claude",
     changes: [
