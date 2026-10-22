@@ -53,4 +53,21 @@ check("V39 corrects the tickets already carrying the old names",
       all(x in mig for x in ("'Sandrina Oktiana' WHERE sales_name = 'Sandrina'",
                              "'Bayu Bakhriansyah Bachruddin' WHERE sales_name = 'Ari'",
                              "'Kelvin Sitinjak' WHERE sales_name = 'Kelvin'")))
+# ---- FTL retired (2026-10-22): the sync never moves a ticket onto or off a truck line,
+# V40 moves the provisional tickets to FTL monthly, and the header is Solutioning CRM.
+check("the refresh leaves FTL on-call / monthly alone",
+      'if t["service_type"] in ("FTL on-call", "FTL monthly"):\n        crm_service = None' in src)
+check("an account name saying FTL is skipped, not imported as B2BR",
+      "if re_service is None and re_prov == FTL_NOT_SYNCED:" in src)
+v40 = open(os.path.join(ROOT, "backend", "resources", "db", "migration",
+                        "V40__retire_provisional_ftl.sql"), encoding="utf-8").read()
+check("V40 moves the provisional tickets to FTL monthly with a history note",
+      "UPDATE tickets SET service_type = 'FTL monthly' WHERE service_type = 'FTL'" in v40
+      and "INSERT INTO ticket_history" in v40
+      and v40.index("INSERT INTO ticket_history") < v40.index("UPDATE tickets"))
+app = fe("App.jsx")
+check("the header says Solutioning CRM with the ninja",
+      "Solutioning CRM" in app and 'src="/ninja.png"' in app and "Ninja PNS" not in app)
+check("the ninja image ships with the site",
+      os.path.getsize(os.path.join(ROOT, "frontend", "public", "ninja.png")) > 1000)
 print(f"my requests + cancel: {ok} checks OK")

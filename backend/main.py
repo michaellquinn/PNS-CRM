@@ -94,7 +94,10 @@ async def execute(sql: str, args: tuple = ()) -> int:
 # "FTL" is the PROVISIONAL truck line: Sales CRM has no FTL product line yet, so a
 # deal identified by its shipper name lands here for PNS to resolve into on-call or
 # monthly. "Next Day" arrived with the NV Product Line / Service Level table.
-SERVICES = ["LTL", "B2BR", "B2C", "FTL", "FTL on-call", "FTL monthly", "Sameday",
+# The provisional "FTL" line was retired (Michael, 2026-10-22): a truck deal is FTL
+# on-call or FTL monthly, chosen by Sales on New request, and never imported from Sales
+# CRM -- which cannot tell the two apart. V40 moved the tickets that were on it.
+SERVICES = ["LTL", "B2BR", "B2C", "FTL on-call", "FTL monthly", "Sameday",
             "Next Day",
             "Fulfillment", "Complex Logistics"]
 
@@ -1738,7 +1741,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-10-21.2"
+BUILD = "2026-10-22.1"
 
 
 class Me(BaseModel):
@@ -2797,6 +2800,12 @@ FTL_IN_NAME = re.compile(r"\bftl\b", re.I)
 # cannot be known from a shipper name either, and guessing put half of them on the wrong
 # team. It is flagged on the ticket for PNS to correct, which re-derives the routing.
 FTL_UNSPECIFIED = "FTL"
+# Why an FTL deal is skipped by the sync (Michael, 2026-10-22). Sales CRM records only
+# "FTL"; on-call versus monthly is ours to decide and decides who prices it, so the
+# sync no longer guesses -- the deal is raised with New request on the right line.
+FTL_NOT_SYNCED = ("FTL is not imported from Sales CRM: Sales CRM cannot say FTL on-call "
+                  "or FTL monthly. Raise it with New request on the right line, with this "
+                  "opportunity id")
 FTL_VARIANT_UNKNOWN = "Trucking"
 
 # Product lines PNS does not price. Each is a SCOPE DECISION rather than a fact about
@@ -2874,26 +2883,19 @@ def service_line_for(product, level, shipper_name="", allow=frozenset()):
     if line in _SKIP_N and _SCOPE_N.get(line) not in allow:
         return None, ""
     if FTL_IN_NAME.search(str(shipper_name or "")):
-        return FTL_UNSPECIFIED, ("the shipper name says FTL, so the deal is on a "
-                                 "provisional FTL line. Set FTL on-call or FTL monthly "
-                                 "on the Input tab — it decides who prices it")
+        return None, FTL_NOT_SYNCED
     if not line:
         return None, ""
     hit = _LINE_LEVEL.get((line, lvl))
+    if hit == FTL_UNSPECIFIED:
+        return None, FTL_NOT_SYNCED
     if hit:
         return hit, ""
     fallback = _LINE_ONLY.get(line)
     if not fallback:
         return None, ""
     if fallback == FTL_UNSPECIFIED:
-        # Names the value Sales CRM actually sent. It used to say "Trucking" flatly,
-        # which became a lie the day an FTL product line existed -- and a provisional
-        # reason that misquotes its own source is worse than none, because the reader
-        # goes looking in Sales CRM for a word that is not there.
-        return fallback, (f"Sales CRM records this as {product} and cannot say whether "
-                          f"it is FTL on-call or FTL monthly — that split is ours, not "
-                          f"theirs. Set the line on the Input tab; it decides who "
-                          f"prices it")
+        return None, FTL_NOT_SYNCED
     return fallback, (f"Sales CRM gave no service level for {product}, so it was read as "
                       f"the standard {fallback}. Confirm the level before pricing."
                       if lvl == "" else
@@ -4819,6 +4821,8 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
                                    f"PNS service line is mapped for '{raw_line}'"
                                    + (f" / '{raw_level}'" if raw_level else "")
                                    + ". Add it to SERVICE_LINE_MAP before these import.")
+                        elif provisional == FTL_NOT_SYNCED:
+                            why = FTL_NOT_SYNCED
                         else:
                             why = _SKIP_N.get(norm,
                                               f"no service line for '{raw_line}'"
@@ -4853,6 +4857,12 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
                         if shipper_name and shipper_name != o.get("account_name"):
                             re_service, re_prov = service_line_for(
                                 raw_line, raw_level, shipper_name, allow)
+                            # The account's name says FTL: not imported (2026-10-22),
+                            # rather than landing on the product line's B2BR.
+                            if re_service is None and re_prov == FTL_NOT_SYNCED:
+                                skipped.append({"id": oid, "name": o.get("name"),
+                                                "why": FTL_NOT_SYNCED})
+                                continue
                             if re_service and re_service != service:
                                 service, provisional = re_service, re_prov
 
@@ -5123,6 +5133,10 @@ async def _refresh_from_salescrm(o: dict, account: dict | None = None,
     shipper_name = _crm_shipper_name(o, account)
     crm_service, _prov = service_line_for(raw_line, _first(o.get("service_level")),
                                           shipper_name, allow)
+    # FTL on-call and FTL monthly are ours (Michael, 2026-10-22): Sales CRM cannot tell
+    # them apart, so it never moves a ticket onto or off either of them.
+    if t["service_type"] in ("FTL on-call", "FTL monthly"):
+        crm_service = None
     new_service = crm_service or t["service_type"]
     if crm_service and crm_service != t["service_type"]:
         changed.append(f"service {t['service_type']} to {crm_service}")

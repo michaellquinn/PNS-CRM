@@ -29,7 +29,7 @@ src = open(os.path.join(_REPO, "backend", "main.py"), encoding="utf-8").read()
 
 WANT_FN = {"_norm_line", "_norm_level", "service_line_for", "_crm_shipper_name",
            "route", "guard_for", "tier_of"}
-WANT_VAR = {"SERVICE_LINE_MAP", "PRODUCT_LINE_DEFAULT", "PRODUCT_SKIP", "FTL_IN_NAME",
+WANT_VAR = {"SERVICE_LINE_MAP", "PRODUCT_LINE_DEFAULT", "PRODUCT_SKIP", "FTL_IN_NAME", "FTL_NOT_SYNCED",
             "FTL_UNSPECIFIED", "FTL_VARIANT_UNKNOWN", "_LINE_LEVEL", "_LINE_ONLY",
             "_SKIP_N", "SERVICES", "PRICING_GUARD", "VENDOR_SERVICES", "MANAGED_ACCTS",
             # PRODUCT_SKIP is derived from PRODUCT_SCOPES now (Baskoro, 2026-09-09:
@@ -90,12 +90,16 @@ for line, level, want in [
     check(f"{line!r} / {level!r} -> {want}", got == want, f"got {got!r}")
 
 # ---------------------------------------------------- the FTL shipper-name rule
-print("\nFTL is read off the shipper name, and beats the product line")
+# FTL is no longer imported (Michael, 2026-10-22): Sales CRM cannot say on-call or
+# monthly, so a deal it calls FTL -- by name or by product line -- is skipped with
+# FTL_NOT_SYNCED as the reason, and Sales raise it on the right line by hand.
+print("\nFTL is read off the shipper name, and beats the product line: it is skipped")
 FTL = ns["FTL_UNSPECIFIED"]
+NOT_SYNCED = ns["FTL_NOT_SYNCED"]
 for name, want in [
-    ("PT. LF Services Indonesia (Maersk OCF) - Electrolux - FTL - Jabo - (B2BR)", FTL),
-    ("Tanamera Coffee Indonesia - FTL (B2BR)", FTL),
-    ("PT Something FTL-Jakarta", FTL),
+    ("PT. LF Services Indonesia (Maersk OCF) - Electrolux - FTL - Jabo - (B2BR)", None),
+    ("Tanamera Coffee Indonesia - FTL (B2BR)", None),
+    ("PT Something FTL-Jakarta", None),
     # Not FTL: the rule is a whole word, so a word merely CONTAINING those letters is
     # left alone. Without the word boundary "SHIFTLESS" becomes a truck deal.
     ("PT SHIFTLESS Logistics", "B2BR"),
@@ -106,7 +110,7 @@ for name, want in [
     check(f"{name[:44]:44} -> {got}", got == want, f"expected {want}")
 
 got, why = service_line_for("Restock", "Standard", "PT A - FTL - B")
-check("an FTL shipper name is flagged as provisional", bool(why))
+check("an FTL shipper name is skipped with the FTL reason", got is None and why == NOT_SYNCED)
 check("a plain product-line hit is NOT flagged",
       not service_line_for("LTL", "Standard", "PT A")[1])
 
@@ -119,7 +123,7 @@ got, why = service_line_for("Restock", "Weekend", "PT A")
 check("an unpublished combination falls back rather than refusing", got == "B2BR")
 check("...and says so too", bool(why))
 got, _ = service_line_for("Trucking", "-", "PT A")
-check("Trucking is the provisional FTL line, not a guessed variant", got == FTL,
+check("Trucking (Sales CRM's truck value) is skipped, not a guessed variant", got is None,
       f"got {got!r}")
 for line in ("Cold Chain", "Cross-border", "Air-freight", "Wingsuit Delivery", ""):
     got, _ = service_line_for(line, "-", "PT Ordinary Shipper")
@@ -129,7 +133,7 @@ for line in ("Cold Chain", "Cross-border", "Air-freight", "Wingsuit Delivery", "
 # ---------------------------------------------------- everything downstream agrees
 print("\nevery service the mapping can produce is known to the rules")
 produced = set(ns["SERVICE_LINE_MAP"].values()) | set(ns["PRODUCT_LINE_DEFAULT"].values())
-produced.add(FTL)
+produced.discard(FTL)          # an FTL mapping now means "skip", never a service
 for svc in sorted(produced):
     check(f"{svc} is in SERVICES", svc in ns["SERVICES"])
     check(f"{svc} has a pricing ceiling at every band",
@@ -181,8 +185,8 @@ print("...and the FTL name rule still fires on every in-scope line")
 for line, lvl in [("Restock", "Standard"), ("LTL", "Standard"),
                   ("Last Mile - Parcel", "Same Day"), ("Trucking", ""), ("", "")]:
     got, why = service_line_for(line, lvl, "PT Anything - FTL - Jabo")
-    check(f"{line or '(blank)'} / {lvl or '(none)'} -> FTL", got == FTL, f"got {got!r}")
-    check(f"{line or '(blank)'} says the line is provisional", bool(why))
+    check(f"{line or '(blank)'} / {lvl or '(none)'} -> skipped as FTL", got is None, f"got {got!r}")
+    check(f"{line or '(blank)'} says why", why == NOT_SYNCED)
 
 # ------------------------------------------- the name rule must see the REAL name
 # The FTL rule reads the shipper's name, and the import used to decide the service line
@@ -204,7 +208,7 @@ resolved = resolve_shipper_name(hermed_opp, hermed_account)
 check("907113 falls back from its blank Opportunity name to the Account name",
       resolved == hermed_account["name"], f"got {resolved!r}")
 got, _ = service_line_for("Restock", "FTL", resolved)
-check("907113 resolves to FTL, not B2BR", got == FTL, f"got {got!r}")
+check("907113 is skipped as FTL, not imported as B2BR", got is None, f"got {got!r}")
 
 _src = io.open(_SRC_PATH, encoding="utf-8").read() if "_SRC_PATH" in dir() else open(
     __import__("os").path.join(_REPO, "backend", "main.py"), encoding="utf-8").read()
@@ -250,21 +254,18 @@ check("and it still runs early too, so an out-of-scope line is skipped before th
 # who owes the price: FTL monthly is PNS's at every band, an on-call deal under 30 Mio
 # is Sales'. Half of them would land on the wrong team with nothing saying so.
 print()
-print("Sales CRM's FTL product line lands on the provisional line, not a guess")
+print("Sales CRM's FTL product line is skipped, never guessed onto a line")
 for level in ("", "-", "FTL", "Monthly", "On Call", "anything at all"):
     svc, why = service_line_for("FTL", level)
-    check(f"FTL / {level!r} -> the provisional line", svc == "FTL",
+    check(f"FTL / {level!r} -> skipped", svc is None,
           f"got {svc!r}; on-call and monthly are not Sales CRM's to choose")
-    check(f"FTL / {level!r} says it must be resolved", bool(why))
+    check(f"FTL / {level!r} says why", why == NOT_SYNCED)
 
-check("the provisional reason names the two lines a person must choose between",
-      all(w and "on-call" in w and "monthly" in w
-          for w in (service_line_for("FTL", "")[1], service_line_for("Trucking", "")[1])),
-      "the note is the only instruction the pricer gets")
-check("...and quotes the value Sales CRM actually sent",
-      "FTL" in service_line_for("FTL", "")[1]
-      and "Trucking" in service_line_for("Trucking", "")[1],
-      "it said 'Trucking' flatly, which became a lie the day an FTL line existed")
+check("the reason names the two lines Sales must choose between",
+      "on-call" in NOT_SYNCED and "monthly" in NOT_SYNCED and "New request" in NOT_SYNCED,
+      "it is the only instruction the sync report gives")
+check("the provisional FTL line is no longer a service anyone can pick",
+      "FTL" not in ns["SERVICES"] and {"FTL on-call", "FTL monthly"} <= set(ns["SERVICES"]))
 
 # A price cannot go on the unresolved line. The flag was already a note on the ticket
 # before this, and notes stop nobody: five deals reached pricing on the provisional line,

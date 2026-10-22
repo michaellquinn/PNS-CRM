@@ -279,7 +279,8 @@ export const api = {
 // dedicated truck, and Sales CRM carries no field for it. So an FTL deal lands here,
 // however it was identified, and PNS resolves it. A price cannot be attached until they
 // do: the server refuses it, because the two lines are owed by different sides.
-export const SERVICES = ["LTL", "B2BR", "B2C", "FTL", "FTL on-call", "FTL monthly",
+// "FTL" was retired on 2026-10-22: a truck deal is FTL on-call or FTL monthly.
+export const SERVICES = ["LTL", "B2BR", "B2C", "FTL on-call", "FTL monthly",
   "Sameday", "Next Day",
   "Fulfillment", "Complex Logistics"];
 

@@ -2,6 +2,21 @@ import { Card, Head, Pill } from "../ui";
 
 const ENTRIES = [
   {
+    date: "2026-10-22",
+    title: "FTL is on-call or monthly only, and no longer synced; Solutioning CRM",
+    by: "Michael + Claude",
+    changes: [
+      "The provisional \"FTL\" service line is gone. A truck deal is FTL on-call or FTL monthly, chosen by Sales on New request.",
+      "FTL deals are no longer imported from Sales CRM. Sales CRM records only \"FTL\" and cannot say on-call or monthly, which decides who prices the deal. A deal whose product line or shipper name says FTL is skipped by the sync with that reason in the sync report; Sales raise it with New request, on the right line, with the opportunity id.",
+      "The sync never moves a ticket onto or off FTL on-call / FTL monthly.",
+      "Migration V40 moved the tickets still on \"FTL\" to FTL monthly — still PNS's to price, as before — each with a note in its history. PNS switches the on-call ones on the Input tab.",
+      "The header reads Solutioning CRM, with the Ninja Van ninja.",
+    ],
+    overruled: [
+      "FTL deals arriving from Sales CRM on a provisional \"FTL\" line for PNS to resolve (2026-09-10).",
+    ],
+  },
+  {
     date: "2026-10-21",
     title: "Salespeople renamed to their Sales CRM names; renames carry over to tickets",
     by: "Michael + Claude",

@@ -719,8 +719,8 @@ export default function App() {
     return (
       <main className="grid min-h-screen place-items-center bg-slate-50 p-6">
         <div className="max-w-md rounded-xl border border-slate-200 bg-white p-8 text-center">
-          <span className="mx-auto grid h-8 w-8 place-items-center rounded bg-[#EE1B2C] text-sm font-extrabold text-white">N</span>
-          <h1 className="mt-3 text-lg font-semibold">Ninja PNS</h1>
+          <img src="/ninja.png" alt="" className="mx-auto h-12 w-12 object-contain" />
+          <h1 className="mt-3 text-lg font-semibold">Solutioning CRM</h1>
           <p className="mt-2 text-sm text-slate-600">{err}</p>
           <p className="mt-4 border-t border-slate-100 pt-4 text-[12px] text-slate-500">
             Google signed you in, but access to this app is granted per person. An
@@ -849,8 +849,9 @@ export default function App() {
         <button onClick={() => setNavOpen(!navOpen)}
           className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-[13px] lg:hidden">☰</button>
         <div className="flex items-center gap-2.5">
-          <span className="grid h-6 w-6 place-items-center rounded bg-[#EE1B2C] text-xs font-extrabold text-white">N</span>
-          <span className="hidden font-bold tracking-tight sm:inline">Ninja PNS</span>
+          {/* Solutioning CRM, with the Ninja Van ninja (Michael, 2026-10-22). */}
+          <img src="/ninja.png" alt="Ninja Van" className="h-8 w-8 object-contain" />
+          <span className="hidden font-bold tracking-tight sm:inline">Solutioning CRM</span>
         </div>
         {!me.permissions.operationalOnly && !me.permissions.legalOnly && <GlobalSearch me={me} onOpenTicket={open} onGo={go} />}
         <div className="ml-auto flex items-center gap-3 text-sm">
