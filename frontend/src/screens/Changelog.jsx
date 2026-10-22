@@ -3,6 +3,20 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-10-22",
+    title: "FTL deals sync again — and can only be FTL on-call or FTL monthly; inactive people can be taken out of the assignment rules",
+    by: "Michael + Claude",
+    changes: [
+      "CHANGED — FTL deals are imported from Sales CRM again. A deal Sales CRM calls FTL (its product line, Trucking, or FTL in the shipper name) arrives on a holding \"FTL\" line that nobody can pick by hand, and cannot be priced until someone sets FTL on-call or FTL monthly on the Input tab.",
+      "For any deal Sales CRM calls FTL, the line can only be FTL on-call or FTL monthly — the dropdown offers just those two and the server refuses anything else. Once chosen, the sync never changes it.",
+      "FIXED — Workload / Auto-assignment rules: someone who left the team and was set inactive (Annisa, still the Sameday specialist) was invisible in Edit rules, so they could not be taken out, and Save refused while they were still named. They now show in red as \"(inactive)\" and a click takes them out.",
+      "FIXED — when the app could not be reached (a 502 while a new version goes live), the page told people Google had signed them in but they needed an administrator to grant access. It now says the app is restarting and offers Try again; the access message is kept for a real refusal.",
+    ],
+    overruled: [
+      "FTL deals not being imported from Sales CRM at all (earlier the same day). They sync again; what stays is that only FTL on-call or FTL monthly can be chosen.",
+    ],
+  },
+  {
+    date: "2026-10-22",
     title: "Security: vite upgraded to 6.4.5",
     by: "Michael + Claude",
     changes: [

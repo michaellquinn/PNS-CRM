@@ -56,9 +56,20 @@ check("V39 corrects the tickets already carrying the old names",
 # ---- FTL retired (2026-10-22): the sync never moves a ticket onto or off a truck line,
 # V40 moves the provisional tickets to FTL monthly, and the header is Solutioning CRM.
 check("the refresh leaves FTL on-call / monthly alone",
-      'if t["service_type"] in ("FTL on-call", "FTL monthly"):\n        crm_service = None' in src)
-check("an account name saying FTL is skipped, not imported as B2BR",
-      "if re_service is None and re_prov == FTL_NOT_SYNCED:" in src)
+      'if t["service_type"] in FTL_LINES:\n        crm_service = None' in src)
+check("the refresh keeps the 'Sales CRM says FTL' mark current",
+      'payload["_crmFtl"] = "Yes" if crm_says_ftl else ""' in src)
+check("an FTL deal only takes FTL on-call or FTL monthly",
+      "and body.service not in FTL_LINES:" in src)
+check("the holding FTL line can stay while other fields are edited",
+      "if service not in SERVICES and service != t[\"service_type\"]:" in src)
+check("the screen offers only the two lines for an FTL deal",
+      'const lineOptions = (t, i) => (i?._crmFtl === "Yes" || t.service === "FTL") ? FTL_LINES : SERVICES;'
+      in fe("screens/TicketDetail.jsx"))
+check("an inactive person in the rules can be taken out",
+      "(inactive) ✕" in fe("screens/Workload.jsx") and '"inactive": [{"email": e' in src)
+check("a server error does not tell people to ask for access",
+      "HTTP 5" in fe("App.jsx") and "The app is restarting" in fe("App.jsx"))
 v40 = open(os.path.join(ROOT, "backend", "resources", "db", "migration",
                         "V40__retire_provisional_ftl.sql"), encoding="utf-8").read()
 check("V40 moves the provisional tickets to FTL monthly with a history note",

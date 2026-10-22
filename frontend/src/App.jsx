@@ -722,10 +722,20 @@ export default function App() {
           <img src="/ninja.png" alt="" className="mx-auto h-12 w-12 object-contain" />
           <h1 className="mt-3 text-lg font-semibold">Solutioning CRM</h1>
           <p className="mt-2 text-sm text-slate-600">{err}</p>
-          <p className="mt-4 border-t border-slate-100 pt-4 text-[12px] text-slate-500">
-            Google signed you in, but access to this app is granted per person. An
-            administrator adds you under Administration → Users.
-          </p>
+          {/* A server error is not an access problem (Michael, 2026-10-22): a 502 during
+              a Go live told people to ask an admin for access. Only a refusal says that. */}
+          {/HTTP 5\d\d|Failed to fetch|NetworkError/.test(String(err)) ? (
+            <div className="mt-4 border-t border-slate-100 pt-4 text-[12px] text-slate-500">
+              <p>The app is restarting or briefly unreachable — usually a new version going live. Try again in a minute.</p>
+              <button type="button" onClick={() => window.location.reload()}
+                className="mt-3 rounded-lg bg-[#EE1B2C] px-3 py-1.5 font-semibold text-white">Try again</button>
+            </div>
+          ) : (
+            <p className="mt-4 border-t border-slate-100 pt-4 text-[12px] text-slate-500">
+              Google signed you in, but access to this app is granted per person. An
+              administrator adds you under Administration → Users.
+            </p>
+          )}
         </div>
       </main>
     );

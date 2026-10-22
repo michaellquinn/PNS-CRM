@@ -1741,7 +1741,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-10-22.2"
+BUILD = "2026-10-22.3"
 
 
 class Me(BaseModel):
@@ -2800,12 +2800,14 @@ FTL_IN_NAME = re.compile(r"\bftl\b", re.I)
 # cannot be known from a shipper name either, and guessing put half of them on the wrong
 # team. It is flagged on the ticket for PNS to correct, which re-derives the routing.
 FTL_UNSPECIFIED = "FTL"
-# Why an FTL deal is skipped by the sync (Michael, 2026-10-22). Sales CRM records only
-# "FTL"; on-call versus monthly is ours to decide and decides who prices it, so the
-# sync no longer guesses -- the deal is raised with New request on the right line.
-FTL_NOT_SYNCED = ("FTL is not imported from Sales CRM: Sales CRM cannot say FTL on-call "
-                  "or FTL monthly. Raise it with New request on the right line, with this "
-                  "opportunity id")
+# FTL deals ARE synced (Michael, 2026-10-22, second pass -- the same day's "not synced"
+# is overruled). They arrive on this holding value, which nobody can pick by hand, and
+# cannot be priced until someone chooses FTL on-call or FTL monthly -- the only two
+# lines offered for a deal Sales CRM calls FTL. The choice decides who prices it.
+FTL_LINES = ("FTL on-call", "FTL monthly")
+FTL_CHOOSE = ("Sales CRM records this deal as FTL and cannot say on-call or monthly. "
+              "Choose FTL on-call or FTL monthly on the Input tab before it is priced; "
+              "the choice decides who prices it")
 FTL_VARIANT_UNKNOWN = "Trucking"
 
 # Product lines PNS does not price. Each is a SCOPE DECISION rather than a fact about
@@ -2883,19 +2885,19 @@ def service_line_for(product, level, shipper_name="", allow=frozenset()):
     if line in _SKIP_N and _SCOPE_N.get(line) not in allow:
         return None, ""
     if FTL_IN_NAME.search(str(shipper_name or "")):
-        return None, FTL_NOT_SYNCED
+        return FTL_UNSPECIFIED, FTL_CHOOSE
     if not line:
         return None, ""
     hit = _LINE_LEVEL.get((line, lvl))
     if hit == FTL_UNSPECIFIED:
-        return None, FTL_NOT_SYNCED
+        return FTL_UNSPECIFIED, FTL_CHOOSE
     if hit:
         return hit, ""
     fallback = _LINE_ONLY.get(line)
     if not fallback:
         return None, ""
     if fallback == FTL_UNSPECIFIED:
-        return None, FTL_NOT_SYNCED
+        return FTL_UNSPECIFIED, FTL_CHOOSE
     return fallback, (f"Sales CRM gave no service level for {product}, so it was read as "
                       f"the standard {fallback}. Confirm the level before pricing."
                       if lvl == "" else
@@ -4821,8 +4823,6 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
                                    f"PNS service line is mapped for '{raw_line}'"
                                    + (f" / '{raw_level}'" if raw_level else "")
                                    + ". Add it to SERVICE_LINE_MAP before these import.")
-                        elif provisional == FTL_NOT_SYNCED:
-                            why = FTL_NOT_SYNCED
                         else:
                             why = _SKIP_N.get(norm,
                                               f"no service line for '{raw_line}'"
@@ -4857,12 +4857,6 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
                         if shipper_name and shipper_name != o.get("account_name"):
                             re_service, re_prov = service_line_for(
                                 raw_line, raw_level, shipper_name, allow)
-                            # The account's name says FTL: not imported (2026-10-22),
-                            # rather than landing on the product line's B2BR.
-                            if re_service is None and re_prov == FTL_NOT_SYNCED:
-                                skipped.append({"id": oid, "name": o.get("name"),
-                                                "why": FTL_NOT_SYNCED})
-                                continue
                             if re_service and re_service != service:
                                 service, provisional = re_service, re_prov
 
@@ -5135,7 +5129,8 @@ async def _refresh_from_salescrm(o: dict, account: dict | None = None,
                                           shipper_name, allow)
     # FTL on-call and FTL monthly are ours (Michael, 2026-10-22): Sales CRM cannot tell
     # them apart, so it never moves a ticket onto or off either of them.
-    if t["service_type"] in ("FTL on-call", "FTL monthly"):
+    crm_says_ftl = crm_service == FTL_UNSPECIFIED
+    if t["service_type"] in FTL_LINES:
         crm_service = None
     new_service = crm_service or t["service_type"]
     if crm_service and crm_service != t["service_type"]:
@@ -5212,6 +5207,7 @@ async def _refresh_from_salescrm(o: dict, account: dict | None = None,
         # left to go stale. Sales CRM's own fields overwrite; everything else fills a
         # blank only, because PNS corrects these here deliberately.
         payload = merge_crm_payload(current, o, account)
+        payload["_crmFtl"] = "Yes" if crm_says_ftl else ""
         await execute("UPDATE ticket_input SET payload=%s WHERE ticket_id=%s",
                       (json.dumps(payload), t["id"]))
 
@@ -5452,6 +5448,9 @@ async def _import_opportunity(o: dict, account: dict | None, plan: dict,
         # Also a field, not just prose in the brief, so the whole set can be found and
         # cleared rather than each one being noticed only if somebody reads the note.
         "ftlVariantNeeded": "Yes" if plan.get("provisional") else "",
+        # Sales CRM calls this deal FTL, so its line can only be FTL on-call or FTL
+        # monthly (2026-10-22). Underscored: a system fact, not a field anybody types.
+        "_crmFtl": "Yes" if plan["service"] == FTL_UNSPECIFIED else "",
         "shipper": plan["shipper"],
     }, o, account)
     await execute("INSERT INTO ticket_input (ticket_id, payload, updated_by) VALUES (%s,%s,%s)",
@@ -5488,6 +5487,7 @@ class AssignRules(BaseModel):
 class AssignRulesOut(BaseModel):
     rules: AssignRules
     members: list[dict]          # who may be named: active PNS (and Admin) users
+    inactive: list[dict] = []    # still named in a rule but no longer active -- to take out
     services: list[str]          # every service a rule can be set for
     editable: bool
     updated_by: str | None = None
@@ -5500,11 +5500,24 @@ async def get_assign_rules(u: User = Depends(current_user)):
     require(u, "seeWorkload")
     members = await q("SELECT email, name, role_group FROM users WHERE active=1 "
                       "AND role_group IN ('PNS','Admin') ORDER BY name")
+    rules = await assign_rules()
+    # Anyone still named in a rule who is no longer an active PNS member -- somebody who
+    # left (Michael, 2026-10-22: Annisa). Returned so the screen can show them and let
+    # the Head take them out; they were invisible there, so a rule naming them could
+    # not be edited at all.
+    named = {e for v in [rules["default"], rules["complex_new"], rules["complex_live"],
+                         *rules["services"].values()] for e in v}
+    active = {r["email"].lower() for r in members}
+    gone = sorted(named - active)
+    gone_rows = await q("SELECT email, name FROM users WHERE email IN (" +
+                        ",".join(["%s"] * len(gone)) + ")", tuple(gone)) if gone else []
+    gone_names = {r["email"].lower(): r["name"] for r in gone_rows}
     last = await q("SELECT updated_by, updated_at FROM app_settings WHERE name LIKE %s "
                    "ORDER BY updated_at DESC LIMIT 1", ("assign.%",), one=True)
-    return {"rules": await assign_rules(),
+    return {"rules": rules,
             "members": [{"email": r["email"], "name": r["name"], "group": r["role_group"]}
                         for r in members],
+            "inactive": [{"email": e, "name": gone_names.get(e, e)} for e in gone],
             "services": [s for s in SERVICES if s != "Complex Logistics"],
             "editable": can(u, "editAssignRules"),
             "updated_by": (last or {}).get("updated_by"),
@@ -5523,7 +5536,8 @@ async def set_assign_rules(body: AssignRules, u: User = Depends(current_user)):
         bad = [e for e in out if e not in allowed]
         if bad:
             raise HTTPException(400, f"{label}: {', '.join(bad)} is not an active PNS "
-                                     f"member. Register them under Users & roles first.")
+                                     f"member. Take them out of the rule, or register "
+                                     f"them under Users & roles first.")
         return out
     if not clean("Default pool", body.default):
         raise HTTPException(400, "The default pool needs at least one person, or every "
@@ -6170,8 +6184,16 @@ async def edit_input(ref: str, body: InputPatch, u: User = Depends(current_user)
     t = await get_ticket(ref)
 
     service = body.service or t["service_type"]
-    if service not in SERVICES:
+    # The holding "FTL" may stay while other fields are edited, but nobody sets it.
+    if service not in SERVICES and service != t["service_type"]:
         raise HTTPException(400, f"service must be one of {SERVICES}")
+    if body.service and body.service != t["service_type"]:
+        _ftl = await q("SELECT JSON_UNQUOTE(JSON_EXTRACT(payload,'$._crmFtl')) AS f "
+                       "FROM ticket_input WHERE ticket_id=%s", (t["id"],), one=True)
+        if ((_ftl or {}).get("f") == "Yes" or t["service_type"] == FTL_UNSPECIFIED) \
+                and body.service not in FTL_LINES:
+            raise HTTPException(400, "Sales CRM records this deal as FTL: choose FTL on-call "
+                                     "or FTL monthly")
     revenue = t["potential_rev"] if body.revenue is None else int(body.revenue)
     if revenue < 0:
         raise HTTPException(400, "potential revenue cannot be negative")

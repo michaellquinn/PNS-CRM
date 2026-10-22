@@ -55,6 +55,10 @@ const SECTIONS = [
 ];
 
 const EDITABLE = SECTIONS.flatMap(([, fields]) => fields);
+// The lines a ticket may be set to. A deal Sales CRM calls FTL -- or one still on the
+// holding "FTL" -- is FTL on-call or FTL monthly, nothing else (Michael, 2026-10-22).
+const FTL_LINES = ["FTL on-call", "FTL monthly"];
+const lineOptions = (t, i) => (i?._crmFtl === "Yes" || t.service === "FTL") ? FTL_LINES : SERVICES;
 // The charter with only the rows that mean something for these answers (2026-10-12):
 // Parcel value only for the insurance options priced on it, RDO terms only with RDO.
 const applying = (values) => SECTIONS.map(([label, fields]) =>
@@ -556,7 +560,11 @@ function CommercialTicketDetail({ ticketRef: initialRef, me, notify, onBack,
                   {draft ? (
                     <select className={`${inputCls} max-w-[240px]`} value={draft.__service}
                       onChange={(e) => setDraft({ ...draft, __service: e.target.value })}>
-                      {SERVICES.map((s) => <option key={s}>{s}</option>)}
+                      {/* A deal Sales CRM calls FTL takes only the two truck lines
+                          (2026-10-22); the holding "FTL" is shown, never offered. */}
+                      {lineOptions(t, i).includes(draft.__service) ? null
+                        : <option value={draft.__service} disabled>{draft.__service} — choose a line</option>}
+                      {lineOptions(t, i).map((s) => <option key={s}>{s}</option>)}
                     </select>
                   ) : <span>{t.service}</span>}
                 </Row>
@@ -702,7 +710,11 @@ function CommercialTicketDetail({ ticketRef: initialRef, me, notify, onBack,
                   {draft ? (
                     <select className={`${inputCls} max-w-[240px]`} value={draft.__service}
                       onChange={(e) => setDraft({ ...draft, __service: e.target.value })}>
-                      {SERVICES.map((s) => <option key={s}>{s}</option>)}
+                      {/* A deal Sales CRM calls FTL takes only the two truck lines
+                          (2026-10-22); the holding "FTL" is shown, never offered. */}
+                      {lineOptions(t, i).includes(draft.__service) ? null
+                        : <option value={draft.__service} disabled>{draft.__service} — choose a line</option>}
+                      {lineOptions(t, i).map((s) => <option key={s}>{s}</option>)}
                     </select>
                   ) : <span>{t.service}</span>}
                 </Row>

@@ -27,15 +27,26 @@ const days = (v) => (v === null || v === undefined ? "—" : `${v}d`);
 
    Only tickets assigned AFTER the Save are affected. A ticket that already has a PNS PIC
    keeps it: moving existing work is a hand-over on the ticket, on purpose. */
-function People({ members, picked, editing, onChange, empty }) {
-  const name = (e) => members.find((m) => m.email === e)?.name || e;
+function People({ members, inactive = [], picked, editing, onChange, empty }) {
+  const gone = (e) => inactive.find((m) => m.email === e);
+  const name = (e) => members.find((m) => m.email === e)?.name || gone(e)?.name || e;
+  // Someone named in a rule who is no longer active (left the team). Shown, marked, and
+  // removable -- they used to be invisible here, so the rule could not be changed.
+  const stale = picked.filter((e) => !members.some((m) => m.email === e));
   if (!editing) {
     return picked.length
-      ? <span>{picked.map(name).join(", ")}</span>
+      ? <span>{picked.map((e) => stale.includes(e) ? `${name(e)} (inactive)` : name(e)).join(", ")}</span>
       : <span className="text-slate-400">{empty}</span>;
   }
   return (
     <div className="flex flex-wrap gap-1.5">
+      {stale.map((e) => (
+        <button key={e} type="button" title="No longer active — click to take out of this rule"
+          onClick={() => onChange(picked.filter((x) => x !== e))}
+          className="rounded-full border border-rose-300 bg-rose-50 px-2.5 py-1 text-[12px] font-semibold text-rose-700 line-through">
+          {name(e)} (inactive) ✕
+        </button>
+      ))}
       {members.map((m) => {
         const on = picked.includes(m.email);
         return (
@@ -76,7 +87,7 @@ function AssignRules({ notify }) {
         {hint && <div className="text-[11.5px] text-slate-400">{hint}</div>}
       </td>
       <td className="px-4 py-2.5">
-        <People members={d.members} picked={picked} editing={editing} onChange={onChange} empty={empty} />
+        <People members={d.members} inactive={d.inactive} picked={picked} editing={editing} onChange={onChange} empty={empty} />
       </td>
     </tr>
   );
