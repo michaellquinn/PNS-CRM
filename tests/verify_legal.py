@@ -66,6 +66,11 @@ check("Legal reads Proposal Submitted and Proposal Accepted (2026-10-28)",
       m.LEGAL_STATUSES == ("Proposal Submitted", "Proposal Accepted / Ready to Ship"))
 check("the boundary lets both through and nothing else",
       "status not in LEGAL_STATUSES" in src)
+_app = open(os.path.join(os.path.dirname(m.__file__), "..", "frontend", "src", "App.jsx"), encoding="utf-8").read()
+check("Legal's Proposal Submitted is the Planning / Proposal submitted screen",
+      '"legal-submitted": <ProposalReview me={me} notify={notify} onOpen={open} />' in _app)
+check("Legal's Proposal Accepted does not reuse another screen's loaded list",
+      '<ReadyToShip key="legal-accepted"' in _app)
 check("Legal hears notices to its group on any ticket",
       "(u.group in OPERATIONAL_GROUPS or u.group == LEGAL_GROUP)" in src)
 check("the sync tells Legal when a deal is accepted", "if wants == LEGAL_STATUS:" in src)

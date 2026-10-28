@@ -772,10 +772,12 @@ export default function App() {
     pending: <PendingReview me={me} notify={notify} onOpen={open} />,
     proposals: <ProposalReview me={me} notify={notify} onOpen={open} />,
     ship: <ReadyToShip me={me} onOpen={open} />,
-    "legal-submitted": <ReadyToShip me={me} onOpen={open} title="Proposal Submitted"
-      status="Proposal Submitted" filterKey="legal-submitted"
-      sub="Proposals out with the shipper, not yet accepted: open one for its Project Charter, the price and the discussion, to prepare the contract. Read-only — ask Sales or PNS in the discussion." />,
-    legal: <ReadyToShip me={me} onOpen={open} title="Proposal Accepted"
+    // The Planning / Proposal submitted screen itself (Michael, 2026-10-28): the same
+    // list, filters and notes Sales and PNS walk. Legal holds no outcome rights, so its
+    // status controls read as view-only there; a note posts to the ticket's discussion.
+    "legal-submitted": <ProposalReview me={me} notify={notify} onOpen={open} />,
+    // keyed: a screen that reuses a component must not reuse its loaded rows.
+    legal: <ReadyToShip key="legal-accepted" me={me} onOpen={open} title="Proposal Accepted"
       sub="Every accepted proposal: open one for its Project Charter, the price and the discussion. Read-only — ask Sales or PNS in the discussion." />,
     rdo: <Rdo onOpen={open} />,
     fields: <Fields />,

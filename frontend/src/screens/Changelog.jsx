@@ -6,7 +6,8 @@ const ENTRIES = [
     title: "Legal also sees Proposal Submitted",
     by: "Michael + Claude",
     changes: [
-      "NEW — Legal / Proposal Submitted, next to Proposal Accepted: every proposal out with the shipper, so the contract can be prepared before the deal closes. Same view as Proposal Accepted — the Project Charter, price and attachments, read-only, with the discussion open to post in. Nothing else in the app is open to Legal.",
+      "NEW — Legal / Proposal Submitted, next to Proposal Accepted: every proposal out with the shipper, so the contract can be prepared before the deal closes. It is the Planning / Proposal submitted screen — the same list, region / salesperson / PNS PIC filters and + Note — with the status controls view-only for Legal. Opening a ticket shows its Project Charter, price and attachments, read-only, with the discussion open to post in. Nothing else in the app is open to Legal.",
+      "FIXED — switching between Legal's two menu items kept showing the first list: both screens reused one list that loads only once.",
     ],
   },
   {
