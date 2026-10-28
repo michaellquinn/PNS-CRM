@@ -1093,6 +1093,9 @@ READ_ONLY_GROUPS = ("Visitor", "Finance", "Ops", "CL", "Sort", "2W", "4W", "6W",
 # changes nothing -- see legal_access_boundary() for the ticket scope.
 LEGAL_GROUP = "Legal"
 LEGAL_STATUS = "Proposal Accepted / Ready to Ship"
+# What Legal reads (Michael, 2026-10-28): proposals out with the shipper as well as the
+# accepted ones, so the contract can be prepared before the deal closes.
+LEGAL_STATUSES = ("Proposal Submitted", LEGAL_STATUS)
 # "manager" exists for Commercial: a Sales Manager may reassign the Sales PIC, same as
 # the Sales Head, and nothing else beyond staff. Other groups have no manager tier.
 ROLE_LEVELS = ["staff", "manager", "head"]
@@ -1741,7 +1744,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-10-22.3"
+BUILD = "2026-10-28.1"
 
 
 class Me(BaseModel):
@@ -2100,7 +2103,8 @@ async def list_tickets(
     # launch raised straight into onboarding still needs its contract, so it is in.
     args: list = []
     if u.group == LEGAL_GROUP:
-        sql += " AND t.status=%s"; args.append(LEGAL_STATUS)
+        marks = ",".join(["%s"] * len(LEGAL_STATUSES))
+        sql += f" AND t.status IN ({marks})"; args += list(LEGAL_STATUSES)
 
     # The "Finished" PSP queue: every ticket PSP has ever decided on, regardless of where
     # it sits now, a ticket can be back in Pending Review - PSP for a fresh round and
@@ -10481,8 +10485,9 @@ async def legal_access_boundary(request: Request, call_next):
                 return JSONResponse({"detail": "Legal accounts read Proposal Accepted tickets "
                                                "and their discussion only"}, status_code=403)
             status = await _legal_ticket_status(path)
-            if status is None or (status and status != LEGAL_STATUS):
-                return JSONResponse({"detail": "Legal sees tickets at Proposal Accepted only"},
+            if status is None or (status and status not in LEGAL_STATUSES):
+                return JSONResponse({"detail": "Legal sees Proposal Submitted and Proposal "
+                                               "Accepted tickets only"},
                                     status_code=403)
     return await call_next(request)
 

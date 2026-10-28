@@ -27,7 +27,7 @@ const WHAT_EACH_GROUP_DOES = {
   PNS: "Prices watched work, reviews Sales pricing, decides when PSP is needed and can record win/loss. Sees cost and margin.",
   PSP: "One shared role: any PSP member approves or rejects margins. There is no Head PSP approval.",
   Visitor: "Reads everything, changes nothing. Can still be tagged into any discussion.",
-  Legal: "Drafts the contract. Sees Proposal Accepted tickets only — their Project Charter, price and attachments — and posts in their discussion. Changes nothing else.",
+  Legal: "Drafts the contract. Sees Proposal Submitted and Proposal Accepted tickets only — their Project Charter, price and attachments — and posts in their discussion. Changes nothing else.",
   Ops: "Reads everything and receives the Kick-off. Changes nothing in the app.",
   CSO: "Read-only across the pipeline, including cost and margin.",
   Admin: "Everything, plus registering people, setting roles and the recycle bin.",

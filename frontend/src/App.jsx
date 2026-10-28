@@ -57,7 +57,7 @@ const opsHome = (m) => (OVERSEERS.includes(m?.group) ? "ob-overview" : "readines
 const seesCapa = (m) => works(m) || m.permissions.operationalOnly;
 // Legal (Michael, 2026-10-12): Proposal Accepted tickets only -- their charter, price and
 // discussion -- and nothing else in the app.
-const LEGAL_SCREENS = ["legal", "detail"];
+const LEGAL_SCREENS = ["legal-submitted", "legal", "detail"];
 
 // The PSP screens live inside Solutioning — PSP approval is a step of solutioning, not
 // a separate pipeline — but keep their tag so it is obvious which entries are PSP's.
@@ -197,6 +197,11 @@ const NAV = [
       keywords: "weekly stage report deck cj ej pipeline sales planning" },
   ]],
   ["Legal", [
+    // Proposals out with the shipper too (Michael, 2026-10-28), so Legal can prepare
+    // the contract before the deal closes.
+    { id: "legal-submitted", label: "Proposal Submitted", icon: "§",
+      when: (m) => m.permissions.legalOnly || m.group === "Admin",
+      keywords: "legal contract submitted proposal" },
     { id: "legal", label: "Proposal Accepted", icon: "§",
       when: (m) => m.permissions.legalOnly || m.group === "Admin",
       keywords: "legal contract accepted proposal" },
@@ -767,6 +772,9 @@ export default function App() {
     pending: <PendingReview me={me} notify={notify} onOpen={open} />,
     proposals: <ProposalReview me={me} notify={notify} onOpen={open} />,
     ship: <ReadyToShip me={me} onOpen={open} />,
+    "legal-submitted": <ReadyToShip me={me} onOpen={open} title="Proposal Submitted"
+      status="Proposal Submitted" filterKey="legal-submitted"
+      sub="Proposals out with the shipper, not yet accepted: open one for its Project Charter, the price and the discussion, to prepare the contract. Read-only — ask Sales or PNS in the discussion." />,
     legal: <ReadyToShip me={me} onOpen={open} title="Proposal Accepted"
       sub="Every accepted proposal: open one for its Project Charter, the price and the discussion. Read-only — ask Sales or PNS in the discussion." />,
     rdo: <Rdo onOpen={open} />,

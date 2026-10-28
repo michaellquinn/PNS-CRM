@@ -60,8 +60,12 @@ check("the list itself carries no ticket", st("/api/tickets") == "")
 check("an unknown ticket is refused", st("/api/tickets/SOF-404") is None)
 
 src = open(m.__file__, encoding="utf-8").read()
-check("the ticket list is forced to Proposal Accepted for Legal",
-      'if u.group == LEGAL_GROUP:\n        sql += " AND t.status=%s"; args.append(LEGAL_STATUS)' in src)
+check("the ticket list is forced to Legal's statuses, placeholders built from the list",
+      'marks = ",".join(["%s"] * len(LEGAL_STATUSES))\n        sql += f" AND t.status IN ({marks})"; args += list(LEGAL_STATUSES)' in src)
+check("Legal reads Proposal Submitted and Proposal Accepted (2026-10-28)",
+      m.LEGAL_STATUSES == ("Proposal Submitted", "Proposal Accepted / Ready to Ship"))
+check("the boundary lets both through and nothing else",
+      "status not in LEGAL_STATUSES" in src)
 check("Legal hears notices to its group on any ticket",
       "(u.group in OPERATIONAL_GROUPS or u.group == LEGAL_GROUP)" in src)
 check("the sync tells Legal when a deal is accepted", "if wants == LEGAL_STATUS:" in src)

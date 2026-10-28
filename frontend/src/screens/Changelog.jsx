@@ -2,6 +2,14 @@ import { Card, Head, Pill } from "../ui";
 
 const ENTRIES = [
   {
+    date: "2026-10-28",
+    title: "Legal also sees Proposal Submitted",
+    by: "Michael + Claude",
+    changes: [
+      "NEW — Legal / Proposal Submitted, next to Proposal Accepted: every proposal out with the shipper, so the contract can be prepared before the deal closes. Same view as Proposal Accepted — the Project Charter, price and attachments, read-only, with the discussion open to post in. Nothing else in the app is open to Legal.",
+    ],
+  },
+  {
     date: "2026-10-22",
     title: "FTL deals sync again — and can only be FTL on-call or FTL monthly; inactive people can be taken out of the assignment rules",
     by: "Michael + Claude",
