@@ -2,6 +2,20 @@ import { Card, Head, Pill } from "../ui";
 
 const ENTRIES = [
   {
+    date: "2026-11-04",
+    title: "Ops Readiness and Readiness Overview are one screen, with a tab per team",
+    by: "Michael + Claude",
+    changes: [
+      "Ops Readiness now shows every submitted launch with every team's progress, for everyone in Ops Onboarding — the teams, Ops, QC, PNS and Admin. Readiness Overview is folded into it and gone from the menu.",
+      "NEW — a tab per team at the top (All teams · 2W · 4W · 6W · Sameday · Sort · DE · CL), each with how many launches that team still has open, or ✓ when it has none. A team member opens on their own team's tab; Ops, QC, PNS and Admin on All teams.",
+      "On a team's tab, Pending / Ongoing / Cleared and the confirmed count are that team's own, so Cleared is what the team has finished. A launch leaves a team's tab once that team has confirmed everything and it is live, and leaves All once every team has. Each launch shows every team's progress, with the open tab's team ringed.",
+      "Teams can look at each other's tabs; each still confirms only its own points. The menu count is a team member's own open launches, or every launch not yet fully confirmed for everyone else.",
+    ],
+    overruled: [
+      "Ops Readiness as each team's own list and Readiness Overview as a separate screen for Ops, QC, PNS and Admin (2026-10-12). One screen with team tabs replaces both.",
+    ],
+  },
+  {
     date: "2026-10-28",
     title: "Legal also sees Proposal Submitted",
     by: "Michael + Claude",

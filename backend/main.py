@@ -1744,7 +1744,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-10-28.2"
+BUILD = "2026-11-04.1"
 
 
 class Me(BaseModel):
@@ -10892,8 +10892,11 @@ async def operational_worklist(view: str = "onboarding", u: User = Depends(curre
     # Readiness Overview (Michael, 2026-10-12): every launch with every team's progress,
     # for the people who answer for all of them. Ops and QC own no points of their own,
     # so Ops Readiness -- scoped to the reader's team -- was empty for exactly them.
-    if view == "overview" and u.group not in OB_OVERVIEW_GROUPS:
-        raise HTTPException(403, "Readiness Overview is for Ops, QC, PNS and Admin")
+    # Ops Readiness and Readiness Overview are one screen now (Michael, 2026-11-04):
+    # every submitted launch with every team's progress, read by everyone in Ops
+    # Onboarding, with a tab per team on the screen. "overview" is kept as a name for it.
+    if view == "overview":
+        view = "readiness"
     checks = await q("SELECT * FROM onboarding_checks ORDER BY id")
     by_ticket = {}
     for c in checks:
@@ -10936,19 +10939,16 @@ async def operational_worklist(view: str = "onboarding", u: User = Depends(curre
         # What this reader owes on this launch: their team's points, or every point for
         # Sales, PNS and Admin, who watch the whole thing.
         mine = items_by_ticket.get(r["id"], [])
-        if u.group in OPERATIONAL_GROUPS and view != "overview":
+        if u.group in OPERATIONAL_GROUPS and view != "readiness":
             mine = [i for i in mine if i["owner_group"] == u.group]
         done = sum(1 for i in mine if i["status"] == "confirmed")
         state = ("cleared" if mine and done == len(mine)
                  else "ongoing" if done else "pending")
-        if view == "overview":
-            # Every submitted launch with points, until all of them are confirmed AND it
-            # is live -- the same leaving rule as Ops Readiness, over every team.
-            if not r["submitted_at"] or not mine or (state == "cleared" and live):
-                continue
         if view == "readiness":
-            # A launch this team owns no point on never appears for them at all.
-            if not mine:
+            # Every submitted launch with points, until EVERY team has confirmed
+            # everything AND it is live. A team's own tab drops it sooner -- once that
+            # team is done and it is live -- which the screen works out from `teams`.
+            if not r["submitted_at"] or not mine:
                 continue
             # It leaves this screen only when the team has confirmed everything AND the
             # launch has actually gone live (Michael, 2026-09-28). A launch that went
@@ -10985,7 +10985,7 @@ async def operational_worklist(view: str = "onboarding", u: User = Depends(curre
                        "days_to_submit_by": None if r["submitted_at"]
                                             else ob_days_to(ob_submit_by(ob_target_golive(r))),
                        "points_done": done, "points_total": len(mine),
-                       "teams": ob_team_progress(items_by_ticket.get(r["id"], [])) if view == "overview" else [],
+                       "teams": ob_team_progress(items_by_ticket.get(r["id"], [])) if view == "readiness" else [],
                        "readiness_state": state, "already_live": live})
     # Pending Readiness is worked nearest-first: the launch closest to its go-live is the
     # one that hurts if it slips. Everything overdue still floats to the top, and a row

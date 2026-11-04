@@ -45,14 +45,10 @@ const works = (m) => !READ_ONLY.includes(m.group);
 // What an ops account (CL, Sort, 2W, 4W, 6W, Sameday, DE, QC, Ops) may open: the
 // onboarding screens, a launch, and CAPA (Michael, 2026-10-12 -- every ops team reads
 // CAPA; QC raises and closes it).
-const OPS_SCREENS = ["onboarding", "readiness", "ob-overview", "golive", "operational-db", "detail",
+const OPS_SCREENS = ["onboarding", "readiness", "golive", "operational-db", "detail",
   "capa-all", "capa-new", "capa-submitted", "capa-closed", "capa-raise"];
-// Readiness Overview: every team's progress on every launch (Michael, 2026-10-12).
-const OVERVIEW_GROUPS = ["Ops", "QC", "PNS", "Admin"];
-// Ops and QC own no readiness points, so Ops Readiness would always be empty for them:
-// they land on the overview instead.
-const OVERSEERS = ["Ops", "QC"];
-const opsHome = (m) => (OVERSEERS.includes(m?.group) ? "ob-overview" : "readiness");
+// Every ops account lands on Ops Readiness, which now shows all teams (2026-11-04).
+const opsHome = () => "readiness";
 // CAPA lists are for everyone who works, and for the ops teams.
 const seesCapa = (m) => works(m) || m.permissions.operationalOnly;
 // Legal (Michael, 2026-10-12): Proposal Accepted tickets only -- their charter, price and
@@ -214,11 +210,10 @@ const NAV = [
       keywords: "add new onboarding launch without solutioning direct request" },
     { id: "onboarding", label: "Go live from Solutioning", icon: "◉",
       keywords: "go live ops kick off onboarding schedule pending information" },
-    { id: "ob-overview", label: "Readiness Overview", icon: "▦",
-      when: (m) => OVERVIEW_GROUPS.includes(m.group),
-      keywords: "all teams progress ops head qc overview readiness late" },
+    // One screen for every team and for the people above them (Michael, 2026-11-04):
+    // Readiness Overview folded in, with a tab per team inside.
     { id: "readiness", label: "Ops Readiness", icon: "◷", count: "ob:readiness",
-      when: (m) => !OVERSEERS.includes(m.group) },
+      keywords: "all teams progress ops head qc overview readiness late confirm" },
     { id: "golive", label: "Go Live", icon: "▷" },
     { id: "operational-db", label: "Operational Database", icon: "▤" },
   ]],
@@ -697,7 +692,13 @@ export default function App() {
       // Outstanding work only: a launch this team has finished is still listed under
       // Cleared, but it is not something the badge should keep asking about.
       .then((d) => setCounts((c) => ({ ...c,
-        "ob:readiness": (d.rows || []).filter((r) => r.readiness_state !== "cleared").length })))
+        "ob:readiness": (d.rows || []).filter((r) => {
+          // A team member counts their own team's open launches; everyone else, every
+          // launch that is not fully confirmed (one screen, 2026-11-04).
+          const g = (r.teams || []).find((x) => x.group === me.group);
+          return (r.teams || []).some((x) => x.group === me.group)
+            ? g.done < g.total : r.readiness_state !== "cleared";
+        }).length })))
       .catch(() => {});
   }, [me, tick]);
 
@@ -804,7 +805,6 @@ export default function App() {
     "weekly-jabo-wj": <WeeklyStage report="jabo-wj" notify={notify} onOpen={open} />,
     "weekly-cj-ej": <WeeklyStage report="cj-ej" notify={notify} onOpen={open} />,
     readiness: <OperationalList view="readiness" me={me} onOpen={ref => open(ref, "__onboarding__")} />,
-    "ob-overview": <OperationalList view="overview" me={me} onOpen={ref => open(ref, "__onboarding__")} />,
     golive: <OperationalList view="golive" me={me} notify={notify} onOpen={ref => open(ref, "__onboarding__")} />,
     "operational-db": <OperationalDatabase me={me} notify={notify} onOpen={ref => open(ref, "__onboarding__")} />,
     matrix: <Matrix />,

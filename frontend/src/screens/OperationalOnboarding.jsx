@@ -3,11 +3,15 @@ import { api, groupTone } from "../api";
 import { Btn, Card, Empty, Head, Pill, inputCls } from "../ui";
 
 const TITLES = { onboarding: "Go live from Solutioning", readiness: "Ops Readiness", golive: "Go Live",
-  direct: "Not submitted yet", overview: "Readiness Overview" };
-const HELP = { overview: "Every launch and how far each team has got, nearest go-live first. A launch leaves once every team has confirmed everything AND it has gone live. Ops are told the day before and the day of go-live when a team still has points open.",
-  onboarding: "Won deals from solutioning, waiting on Sales to fill in and submit the onboarding requirements. Once submitted, a launch moves to Ops Readiness.",
+  direct: "Not submitted yet" };
+// The teams that confirm points, in the order a launch meets them. Each gets a tab on
+// Ops Readiness (Michael, 2026-11-04).
+const TEAM_ORDER = ["2W", "4W", "6W", "Sameday", "Sort", "DE", "CL"];
+// Where one team stands on one launch: nothing confirmed, some, or all.
+const teamState = (g) => !g ? null : g.done === g.total ? "cleared" : g.done ? "ongoing" : "pending";
+const HELP = { onboarding: "Won deals from solutioning, waiting on Sales to fill in and submit the onboarding requirements. Once submitted, a launch moves to Ops Readiness.",
   direct: "Launches raised on this page that Sales have not submitted yet. Open one to finish its onboarding form; once submitted it moves to Ops Readiness.",
-  readiness: "Launches your team has points on, nearest go-live first. It leaves this list once your team has confirmed everything AND the launch has gone live — one that went live with points still open stays here.",
+  readiness: "Every launch and how far each team has got, nearest go-live first. Pick a team to see what it has finished (Cleared) and what is still open. A launch leaves a team's tab once that team has confirmed everything AND it has gone live, and leaves All once every team has. Each team confirms only its own points.",
   golive: "Launches whose go-live date has arrived. A launch appears here on its date — there is nothing to press." };// today or past, amber inside three days, plain after that.
 const goLiveTone = (d) => d == null ? "bg-slate-100 text-slate-600"
   : d < 0 ? "bg-rose-100 text-rose-800"
@@ -35,24 +39,50 @@ export function OperationalList({ view = "onboarding", me, onOpen, notify = () =
   // Where each launch stands for the team reading it (Michael, 2026-09-25).
   const [state, setState] = useState("");
   const [query, setQuery] = useState("");
+  // Which team's tab is open (Michael, 2026-11-04). A team member starts on their own
+  // team; Ops, QC, PNS and Admin start on All.
+  const [team, setTeam] = useState(TEAM_ORDER.includes(me?.group) ? me.group : "");
   const load = () => api.operationalList(view).then(setData).catch(e => setErr(e.message));
   useEffect(() => { setData(null); setErr(""); load(); }, [view]);
   if (err) return <Empty>{err}</Empty>;
-  const rows = (data?.rows || []).filter(r => (!filter || r.status === filter)
-    && (!state || r.readiness_state === state)
+  const ready = view === "readiness";
+  // On Ops Readiness every launch is read through the open tab: that team's own points
+  // on a team tab, the whole launch on All. A team is "done" with a launch once it has
+  // confirmed everything and the launch is live -- it then leaves that team's tab.
+  const of = (r, t = team) => t ? (r.teams || []).find((g) => g.group === t) : null;
+  const stateOf = (r, t = team) => t ? teamState(of(r, t)) : r.readiness_state;
+  const onTab = (r, t = team) => !t || (of(r, t) && !(stateOf(r, t) === "cleared" && r.already_live));
+  const base = (data?.rows || []).filter(r => !ready || onTab(r));
+  const rows = base.filter(r => (!filter || r.status === filter)
+    && (!state || stateOf(r) === state)
     && `${r.ref} ${r.opportunity_name} ${r.shipper}`.toLowerCase().includes(query.toLowerCase()));
-  const counted = (s) => (data?.rows || []).filter(r => r.readiness_state === s).length;
+  const counted = (s) => base.filter(r => stateOf(r) === s).length;
+  const teams = TEAM_ORDER.filter((t) => (data?.rows || []).some((r) => of(r, t)));
+  const openFor = (t) => (data?.rows || []).filter((r) => onTab(r, t) && stateOf(r, t) !== "cleared").length;
   return <>
     <Head title={TITLES[view]} sub={HELP[view]} right={data && <Pill>{rows.length} opportunities</Pill>} />
+    {/* A tab per team (Michael, 2026-11-04), each with how many launches it still has
+        open, so every team sees what it has finished and what it has not. */}
+    {ready && <div className="mb-3 flex flex-wrap gap-1 border-b border-slate-200">
+      {[["", "All teams"], ...teams.map((t) => [t, t])].map(([t, label]) => (
+        <button key={t || "all"} type="button" onClick={() => { setTeam(t); setState(""); }} aria-pressed={team === t}
+          className={`-mb-px border-b-2 px-3 py-2 text-[13px] ${team === t
+            ? "border-[#EE1B2C] font-semibold text-[#EE1B2C]" : "border-transparent text-slate-600 hover:text-slate-800"}`}>
+          {label}
+          {t && <span className={`ml-1.5 rounded-full px-1.5 text-[11px] font-bold ${openFor(t)
+            ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-700"}`}>{openFor(t) || "✓"}</span>}
+        </button>
+      ))}
+    </div>}
     <div className="mb-4 flex flex-wrap gap-2">
       <input className={`${inputCls} max-w-sm`} placeholder="Search opportunity or shipper" value={query} onChange={e => setQuery(e.target.value)} />
       {/* Status filter removed: Go live from Solutioning lists one status only. */}
-      {(view === "readiness" || view === "overview") && <div className="flex flex-wrap gap-1">
+      {ready && <div className="flex flex-wrap gap-1">
         {[["", "All"], ["pending", "Pending"], ["ongoing", "Ongoing"], ["cleared", "Cleared"]].map(([v, label]) => (
           <button key={v} type="button" onClick={() => setState(v)} aria-pressed={state === v}
             className={`rounded-lg px-3 py-1.5 text-[12.5px] font-medium ${
               state === v ? "bg-[#EE1B2C] text-white" : "border border-slate-300 text-slate-600"}`}>
-            {label}{v ? ` (${counted(v)})` : ` (${(data?.rows || []).length})`}
+            {label}{v ? ` (${counted(v)})` : ` (${base.length})`}
           </button>
         ))}
       </div>}
@@ -65,22 +95,25 @@ export function OperationalList({ view = "onboarding", me, onOpen, notify = () =
               the team has got, and when it goes live. The go-live pill already says
               "today" or "overdue", so status, "already live" and "confirmation overdue"
               only repeated it. The other screens keep their status. */}
-          {view !== "readiness" && view !== "overview" && <Pill>{r.status}</Pill>}
+          {!ready && <Pill>{r.status}</Pill>}
           {/* Which way it came in (Michael, 2026-10-05). Only the newer route is
               tagged; a launch from solutioning is the ordinary case. */}
           {r.source === "New onboarding" && view !== "direct" && (
             <Pill tone="bg-violet-50 text-violet-700">New onboarding</Pill>
           )}
           <DealTags service={r.service} acctType={r.acct_type} mustWin={r.must_win} />
-          {view !== "readiness" && view !== "overview" && r.overdue && <Pill tone="bg-rose-100 text-rose-800">Confirmation overdue</Pill>}
-          {(view === "readiness" || view === "overview") && r.points_total > 0 && (
-            <Pill tone={r.readiness_state === "cleared" ? "bg-emerald-100 text-emerald-800"
-              : r.readiness_state === "ongoing" ? "bg-sky-50 text-sky-700"
-              : "bg-slate-100 text-slate-600"}>
-              {r.points_done}/{r.points_total} confirmed
-            </Pill>
-          )}
-          {(view === "readiness" || view === "overview") && (
+          {!ready && r.overdue && <Pill tone="bg-rose-100 text-rose-800">Confirmation overdue</Pill>}
+          {ready && r.points_total > 0 && (() => {
+            // The open tab's own count: this team's points, or the whole launch on All.
+            const g = of(r);
+            const done = g ? g.done : r.points_done, total = g ? g.total : r.points_total;
+            const st = stateOf(r);
+            return <Pill tone={st === "cleared" ? "bg-emerald-100 text-emerald-800"
+              : st === "ongoing" ? "bg-sky-50 text-sky-700" : "bg-slate-100 text-slate-600"}>
+              {team ? `${team} ` : ""}{done}/{total} confirmed
+            </Pill>;
+          })()}
+          {ready && (
             <Pill tone={goLiveTone(r.days_to_golive)}>
               Go live {r.planned_golive || "—"} · {goLiveWords(r.days_to_golive)}
             </Pill>
@@ -103,15 +136,16 @@ export function OperationalList({ view = "onboarding", me, onOpen, notify = () =
           {r.deadline && <span>Confirm by: {format(r.deadline)} (always before pickup)</span>}
           {r.actual_golive && <span>Actual go-live: {r.actual_golive}</span>}
         </div>
-        {/* Every team's progress on this launch (Readiness Overview, 2026-10-12). */}
-        {view === "overview" && !!r.teams?.length && <div className="mt-2 flex flex-wrap gap-1.5">
+        {/* Every team's progress on this launch, the open tab's team ringed. */}
+        {ready && !!r.teams?.length && <div className="mt-2 flex flex-wrap gap-1.5">
           {r.teams.map((g) => <span key={g.group} className={`rounded-md px-2 py-0.5 text-[12px] font-semibold ${
             g.done === g.total ? "bg-emerald-100 text-emerald-800"
-              : g.done ? "bg-amber-100 text-amber-800" : "bg-rose-50 text-rose-700"}`}>
+              : g.done ? "bg-amber-100 text-amber-800" : "bg-rose-50 text-rose-700"}${
+            g.group === team ? " ring-2 ring-[#EE1B2C] ring-offset-1" : ""}`}>
             {g.group} {g.done}/{g.total}
           </span>)}
         </div>}
-        {view !== "overview" && !!r.pending.length && <p className="mt-2 text-[12px] text-amber-800">Outstanding: {r.pending.join(" · ")}</p>}
+        {!ready && !!r.pending.length && <p className="mt-2 text-[12px] text-amber-800">Outstanding: {r.pending.join(" · ")}</p>}
       </Card>)}
     </div>}
     {/* "Existing monitoring records" stood here until 2026-09-14 (Michael). It listed

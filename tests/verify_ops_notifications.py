@@ -102,9 +102,22 @@ prog = m.ob_team_progress([{"owner_group": "Sort", "status": "confirmed"},
                            {"owner_group": "DE", "status": "pending"}])
 check("per-team progress, pickup team first", prog == [{"group": "4W", "done": 1, "total": 2},
       {"group": "Sort", "done": 1, "total": 1}, {"group": "DE", "done": 0, "total": 1}])
-check("only Ops, QC, PNS and Admin read the overview", m.OB_OVERVIEW_GROUPS == ("Ops", "QC", "PNS", "Admin"))
-check("a 4W account is refused the overview",
-      "if view == \"overview\" and u.group not in OB_OVERVIEW_GROUPS" in open(m.__file__, encoding="utf-8").read())
+# One Ops Readiness screen for everyone, a tab per team (2026-11-04).
+_src = open(m.__file__, encoding="utf-8").read()
+check("the overview is the same screen as Ops Readiness",
+      'if view == "overview":\n        view = "readiness"' in _src)
+check("Ops Readiness reads every team's points, for every reader",
+      'if u.group in OPERATIONAL_GROUPS and view != "readiness":' in _src)
+check("every Ops Readiness row carries every team's progress",
+      '"teams": ob_team_progress(items_by_ticket.get(r["id"], [])) if view == "readiness" else []' in _src)
+_ob = open(os.path.join(os.path.dirname(m.__file__), "..", "frontend", "src", "screens",
+                        "OperationalOnboarding.jsx"), encoding="utf-8").read()
+check("a tab per team, a team member starting on their own",
+      'const TEAM_ORDER = ["2W", "4W", "6W", "Sameday", "Sort", "DE", "CL"];' in _ob
+      and 'useState(TEAM_ORDER.includes(me?.group) ? me.group : "")' in _ob)
+check("Readiness Overview is gone from the menu",
+      "ob-overview" not in open(os.path.join(os.path.dirname(m.__file__), "..", "frontend", "src",
+                                             "App.jsx"), encoding="utf-8").read())
 
 # ---- D-2: Sales are reminded, never blocked (2026-10-12)
 check("submit-by is two days before go-live", m.ob_submit_by("2026-10-20") == "2026-10-18")
