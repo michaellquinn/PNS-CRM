@@ -105,5 +105,5 @@ check("the sync only follows Lost or Cancel for it",
       'if t.get("request_type") == "onboarding" and wants not in ("Lost", "Cancel"):' in src)
 check("Go live from Solutioning leaves it to New onboarding",
       'if view == "onboarding" and direct:' in src)
-check("submitting one tells Ops, QC and PNS", 'groups=["Ops", "QC", "PNS"]' in src)
+check("submitting one tells Ops, QC, PNS and SSM", 'groups=["Ops", "QC", "PNS", SSM_GROUP]' in src)
 print(f"new onboarding: {ok} checks OK")

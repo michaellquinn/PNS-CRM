@@ -49,6 +49,9 @@ const OPS_SCREENS = ["onboarding", "readiness", "golive", "operational-db", "det
   "capa-all", "capa-new", "capa-submitted", "capa-closed", "capa-raise"];
 // Every ops account lands on Ops Readiness, which now shows all teams (2026-11-04).
 const opsHome = () => "readiness";
+// SSM manages onboarding (Michael, 2026-11-04): it sees Planning, Ops Onboarding and
+// CAPA, and nothing else in the menu.
+const SSM_SECTIONS = ["Planning", "Ops Onboarding", "CAPA"];
 // CAPA lists are for everyone who works, and for the ops teams.
 const seesCapa = (m) => works(m) || m.permissions.operationalOnly;
 // Legal (Michael, 2026-10-12): Proposal Accepted tickets only -- their charter, price and
@@ -580,6 +583,10 @@ export default function App() {
   useEffect(() => {
     if (me?.permissions.operationalOnly && !OPS_SCREENS.includes(screen)) setScreen(opsHome(me));
     if (me?.permissions.legalOnly && !LEGAL_SCREENS.includes(screen)) setScreen("legal");
+    if (me?.group === "SSM" && screen !== "detail"
+        && !NAV.some(([g, items]) => SSM_SECTIONS.includes(g) && items.some((i) => i.id === screen))) {
+      setScreen("readiness");
+    }
   }, [me, screen]);
 
   // Back goes back through the app, instead of leaving it.
@@ -817,6 +824,7 @@ export default function App() {
   const sidebar = (
     <nav className="flex h-full flex-col gap-5 overflow-y-auto p-4">
       {NAV.map(([group, items]) => {
+        if (me.group === "SSM" && !SSM_SECTIONS.includes(group)) return null;
         const shown = items.filter((i) => (!me.permissions.operationalOnly || OPS_SCREENS.includes(i.id))
           && (!me.permissions.legalOnly || LEGAL_SCREENS.includes(i.id)) && (!i.when || i.when(me)));
         if (!shown.length) return null;

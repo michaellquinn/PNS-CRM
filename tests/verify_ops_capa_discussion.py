@@ -71,13 +71,13 @@ asyncio.run(m.onboarding_discuss("SOF-5", m.OnboardingPost(body="Truck ready 08:
 ins = state["inserted"]
 check("posted into the Onboarding thread", ins[1] == "onboarding" and ins[2] == "Onboarding" and ins[5] == "4W")
 groups, people, k = state["notes"][-1]
-check("tells the other teams, not the poster's own", groups == ("Sort",))
+check("tells the other teams and SSM, not the poster's own", groups == ("SSM", "Sort"))
 check("and the deal's people, in the app only", set(people) == {"Niko", "Dandy"} and k.get("email") is False)
 check("the notice opens the Onboarding thread", k.get("thread_key") == "onboarding")
 state["notes"].clear()
 asyncio.run(m.onboarding_discuss("SOF-5", m.OnboardingPost(body="Updated PIC"), sales))
 groups, people, _ = state["notes"][-1]
-check("a Sales post tells every team on the launch", groups == ("4W", "Sort") and "Dandy" not in people)
+check("a Sales post tells every team on the launch, and SSM", groups == ("4W", "SSM", "Sort") and "Dandy" not in people)
 
 # numbering a new thread next to the fixed Onboarding thread
 asyncio.run(m.add_comment("SOF-5", m.NewComment(body="New point", new_thread_title="Rates"), sales))

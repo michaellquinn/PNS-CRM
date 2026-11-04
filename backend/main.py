@@ -1069,7 +1069,7 @@ class User(BaseModel):
 # time — they receive the Kick-off, and without a group there was no list to send it to.
 OPERATIONAL_GROUPS = ("Ops", "QC", "CL", "Sort", "2W", "4W", "6W", "Sameday", "DE")
 ROLE_GROUPS = ["Commercial", "AM", "PNS", "PSP", "Ops", "CL", "Sort", "2W", "4W", "6W", "Sameday", "DE", "Finance", "Sales Planning",
-               "CSO", "QC", "Legal", "Visitor", "Admin"]
+               "CSO", "QC", "Legal", "SSM", "Visitor", "Admin"]
 # Account Management (Michael, 2026-09-10). AMs hold the shipper relationship and do the
 # same job as Sales inside this app -- raise the request, correct the intake, follow it
 # through pricing, record the outcome, hand it to Ops -- so they carry the same rights.
@@ -1087,7 +1087,13 @@ SELLING_GROUPS = ("Commercial", "AM")
 # AMs registered on 2026-09-10 have no region, so nothing here is scoped by territory.
 # Visitor, Finance and Ops look and never touch. Sales Planning is different: they
 # correct what Sales submitted, so they get the intake edit and nothing else.
-READ_ONLY_GROUPS = ("Visitor", "Finance", "Ops", "CL", "Sort", "2W", "4W", "6W", "Sameday", "DE", "Legal")
+READ_ONLY_GROUPS = ("Visitor", "Finance", "Ops", "CL", "Sort", "2W", "4W", "6W", "Sameday", "DE", "Legal", "SSM")
+# SSM (Michael, 2026-11-04) manages onboarding: fills in and submits any launch's form,
+# raises New onboarding, and confirms, hands over or reopens points for any team --
+# Admin's onboarding rights and no others. Reads Planning (adding notes) and CAPA, and
+# may raise a CAPA. Sees the sell price, never cost or margin. Hears every onboarding
+# notice. Read-only everywhere else.
+SSM_GROUP = "SSM"
 # Legal (Michael, 2026-10-12): drafts the contract once a proposal is accepted. Reads the
 # charter and the price of Proposal Accepted tickets ONLY, posts in their discussion, and
 # changes nothing -- see legal_access_boundary() for the ticket scope.
@@ -1168,9 +1174,14 @@ def can(u: User, action: str, t: dict | None = None) -> bool:
     if action == "legalOnly":
         return u.group == LEGAL_GROUP
     if action == "editOnboarding":
-        return admin or (u.group in SELLING_GROUPS and (t is None or u.level in ("manager", "head") or u.name == t.get("sales_name") or u.email == t.get("sales_email")))
+        return admin or u.group == SSM_GROUP or (u.group in SELLING_GROUPS and (t is None or u.level in ("manager", "head") or u.name == t.get("sales_name") or u.email == t.get("sales_email")))
     if action == "confirmOperational":
-        return admin or u.group in OPERATIONAL_GROUPS
+        return admin or u.group in OPERATIONAL_GROUPS or u.group == SSM_GROUP
+    # SSM's other two rights, answered here because SSM is read-only below this line.
+    if action == "createOnboarding" and u.group == SSM_GROUP:
+        return True
+    if action == "capaRaise" and u.group == SSM_GROUP:
+        return True
     if action == "approveOnboardingException":
         return admin or (u.group == "Commercial" and u.level in ("manager", "head"))
     if action == "importOperational":
@@ -1744,7 +1755,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-11-04.1"
+BUILD = "2026-11-04.2"
 
 
 class Me(BaseModel):
@@ -4015,7 +4026,7 @@ async def ob_send_reminders() -> int:
                            "AND body LIKE %s LIMIT 1", (r["ticket_ref"], "Ops", f"%{mark}%"), one=True):
                 still = ", ".join(f"{g} {n}" for g, n in sorted(open_by.items()))
                 await notify(f"{label}: goes live {when_txt} with points still open — {still}. "
-                             f"{ob_when(p)}. ({mark})", groups=["Ops"], ticket_ref=r["ticket_ref"])
+                             f"{ob_when(p)}. ({mark})", groups=["Ops", SSM_GROUP], ticket_ref=r["ticket_ref"])
                 sent += 1
         for group, n in sorted(open_by.items()):
             mark = f"Reminder · go-live {p.get('planned_golive')}"
@@ -9507,7 +9518,7 @@ async def notifications(u: User = Depends(current_user)):
             # ticket (Michael, 2026-10-12). Only notices naming their own group: the
             # commercial traffic on the same tickets is still not theirs.
             keep = addressed and (r["ticket_ref"] is None or r["ticket_ref"] in mine
-                                  or ((u.group in OPERATIONAL_GROUPS or u.group == LEGAL_GROUP)
+                                  or ((u.group in OPERATIONAL_GROUPS or u.group in (LEGAL_GROUP, SSM_GROUP))
                                       and u.group in groups))
         if keep:
             out.append(Note(id=r["id"], body=r["body"], ticket_ref=r["ticket_ref"],
@@ -11166,9 +11177,11 @@ async def onboarding_discuss(ref: str, body: OnboardingPost, u: User = Depends(c
         "author_email, author_name, author_group, body, is_question, mentions) "
         "VALUES (%s,NULL,%s,%s,%s,%s,%s,%s,0,NULL)",
         (t["id"], OB_THREAD_KEY, OB_THREAD_TITLE, u.email, u.name, u.group, text))
-    teams = sorted({r["owner_group"] for r in await q(
+    # Parenthesised on purpose: `-` binds tighter than `|`, and without the brackets the
+    # poster's own team stayed in the list and was told about its own post.
+    teams = sorted(({r["owner_group"] for r in await q(
         "SELECT DISTINCT owner_group FROM onboarding_check_items WHERE ticket_id=%s",
-        (t["id"],))} - {u.group})
+        (t["id"],))} | {SSM_GROUP}) - {u.group})
     people = [n for n in await ticket_people(t) if n != u.name]
     await notify(f"{u.name} ({u.group}) in Onboarding — {ob_launch_label(t)}: {text[:180]}",
                  groups=teams, people=people, email=False, ticket_ref=ref,
@@ -11333,12 +11346,18 @@ async def operational_save(ref: str, body: OperationalSave, u: User = Depends(cu
             if by:
                 msg += f" Confirm by {by} WIB."
             await notify(msg, groups=[group], ticket_ref=ref)
+        # SSM manages onboarding (2026-11-04): one notice saying what every team was asked.
+        if asked:
+            per_team = ", ".join(f"{g} {n['points']}" for g, n in sorted(asked.items()))
+            await notify(f"{label}: Sales {'changed the requirements' if was_submitted else 'submitted onboarding'}"
+                         f" — points to confirm: {per_team}. {when}." + (f" Confirm by {by} WIB." if by else ""),
+                         groups=[SSM_GROUP], ticket_ref=ref)
         # A launch with no solutioning behind it is news to Ops, QC and PNS, who would
         # otherwise first hear of it here (Michael, 2026-10-05). In-app, as a group.
         if t.get("request_type") == "onboarding":
             await notify(f"{ref}, {t.get('opportunity_name') or t['shipper']}: new onboarding "
                          f"submitted by {u.name} — no solutioning ticket behind it.",
-                         groups=["Ops", "QC", "PNS"], ticket_ref=ref)
+                         groups=["Ops", "QC", "PNS", SSM_GROUP], ticket_ref=ref)
     return {"ok": True, "revision": revision, "status": "Submitted and database synced" if body.submit else "Draft saved"}
 
 
@@ -11431,8 +11450,8 @@ async def ob_locked(tid):
 
 
 def ob_actor(u, c) -> str:
-    """Who acted, saying so when Admin acted in a team's place."""
-    return u.name if u.group == c["owner_group"] else f"{u.name} (Admin, for {c['owner_group']})"
+    """Who acted, saying so when Admin or SSM acted in a team's place."""
+    return u.name if u.group == c["owner_group"] else f"{u.name} ({u.group}, for {c['owner_group']})"
 
 
 async def ob_sync_check_status(cur, tid) -> None:
@@ -11481,9 +11500,9 @@ async def operational_item(iid: int, body: OperationalItemAction,
         if it["actual_golive"]:
             raise HTTPException(409, "Launch already confirmed")
         # Admin may act for any team, and the record says so — same rule as the card.
-        if u.group != it["owner_group"] and u.group != "Admin":
+        if u.group != it["owner_group"] and u.group not in ("Admin", SSM_GROUP):
             raise HTTPException(403, f"{it['owner_group']} owns this point")
-        actor = u.name if u.group == it["owner_group"] else f"{u.name} (Admin, for {it['owner_group']})"
+        actor = u.name if u.group == it["owner_group"] else f"{u.name} ({u.group}, for {it['owner_group']})"
         if body.action == "confirm":
             await cur.execute("UPDATE onboarding_check_items SET status='confirmed', note=%s,"
                               "confirmed_by=%s, confirmed_name=%s, confirmed_at=%s WHERE id=%s",
@@ -11524,14 +11543,14 @@ async def operational_item(iid: int, body: OperationalItemAction,
         if body.action == "move":
             await notify(f"{label}: {it['owner_group']} handed you a point — "
                          f"“{it['label']}”. Why: {body.note.strip()[:200]}",
-                         groups=[body.to_group.strip()], ticket_ref=it["ticket_ref"])
+                         groups=[body.to_group.strip(), SSM_GROUP], ticket_ref=it["ticket_ref"])
         else:
             # A confirmation taken back (Michael, 2026-10-12): the team that holds the
             # point -- it may have been Admin acting for them -- and the deal's own
             # people, who were counting on it.
             await notify(f"{label}: “{it['label']}” was reopened for {it['owner_group']} "
                          f"by {actor} — {body.note.strip()[:200]}",
-                         groups=[it["owner_group"]], people=await ticket_people(t),
+                         groups=[it["owner_group"], SSM_GROUP], people=await ticket_people(t),
                          email=False, ticket_ref=it["ticket_ref"])
     return {"ok": True}
 
@@ -11548,7 +11567,7 @@ async def ob_apply_decision(cur, c, cid, body, u):
         require(u, "confirmOperational")
         # Admin may confirm for any team (Michael, 2026-09-18), and the record says so:
         # the name reads "<admin> (Admin, for 4W)" so it is never mistaken for the team.
-        if u.group != c["owner_group"] and u.group != "Admin":
+        if u.group != c["owner_group"] and u.group not in ("Admin", SSM_GROUP):
             raise HTTPException(403, "Only the assigned team confirms its readiness; assign team users first")
         if body.status not in ("ready", "not_ready", "clarification") or (body.status != "ready" and not body.note.strip()):
             raise HTTPException(400, "Choose a readiness state and explain blockers")

@@ -102,7 +102,7 @@ run(m.operational_item(7, A(fingerprint="fp1", action="move", to_group="Sort",
                             note="needs manpower, not a vehicle"), fleet))
 moved = [w for w in writes if w[0].startswith("UPDATE onboarding_check_items")]
 assert moved and "Sort" in str(moved[0][1]), moved
-assert ("notify", ["Sort"]) in writes, writes
+assert ("notify", ["Sort", "SSM"]) in writes, writes  # SSM hears every handover (2026-11-04)
 
 # A card is ready only when every point in it is confirmed.
 ITEM["status"] = "confirmed"; OTHER["status"] = "pending"

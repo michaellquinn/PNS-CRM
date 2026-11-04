@@ -3,6 +3,18 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-11-04",
+    title: "NEW role: SSM, who manages onboarding",
+    by: "Michael + Claude",
+    changes: [
+      "SSM sees three menus: Planning, Ops Onboarding and CAPA.",
+      "Ops Onboarding — SSM manages it: fills in and submits any launch's onboarding form, raises New onboarding, and confirms, hands over or reopens points for any team. Acting for a team is recorded as \"<name> (SSM, for 4W)\", the way Admin's is.",
+      "Planning — read, with + Note: no send-back, cancel or status change. CAPA — read, and raise a CAPA. SSM sees the sell price, never cost or margin.",
+      "SSM hears every onboarding notice: a summary of what every team was asked on each submit or change, every handover and reopen, the go-live escalations, New onboarding launches, and every post in a launch's Onboarding discussion.",
+      "Register SSM people under Users & roles with the group SSM.",
+    ],
+  },
+  {
+    date: "2026-11-04",
     title: "Ops Readiness and Readiness Overview are one screen, with a tab per team",
     by: "Michael + Claude",
     changes: [

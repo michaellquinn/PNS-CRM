@@ -72,7 +72,7 @@ check("Legal's Proposal Submitted is the Planning / Proposal submitted screen",
 check("Legal's Proposal Accepted does not reuse another screen's loaded list",
       '<ReadyToShip key="legal-accepted"' in _app)
 check("Legal hears notices to its group on any ticket",
-      "(u.group in OPERATIONAL_GROUPS or u.group == LEGAL_GROUP)" in src)
+      "(u.group in OPERATIONAL_GROUPS or u.group in (LEGAL_GROUP, SSM_GROUP))" in src)
 check("the sync tells Legal when a deal is accepted", "if wants == LEGAL_STATUS:" in src)
 
 # ---- the charter terms
