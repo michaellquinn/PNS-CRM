@@ -3,6 +3,14 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-11-04",
+    title: "FIXED — \"1 opportunities\"",
+    by: "Michael + Claude",
+    changes: [
+      "The count at the top of the Ops Onboarding lists reads \"1 opportunity\" when there is one.",
+    ],
+  },
+  {
+    date: "2026-11-04",
     title: "NEW role: SSM, who manages onboarding",
     by: "Michael + Claude",
     changes: [
