@@ -3,6 +3,18 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-11-04",
+    title: "FIXED — deals lost in Sales CRM stuck open; a send-back undone by the sync",
+    by: "Michael + Claude",
+    changes: [
+      "FIXED — a deal lost in Sales CRM could stay at Proposal Submitted here for good (Sarana Anugerah Sejahtera). The sync writes a history note when it marks a deal Lost, carrying Sales CRM's loss reason and detailed reason; a long reason made the note too long for its column, the save failed, and the whole move with it — the stage updated, the status never did, on every sweep. History notes are now cut to fit, so the move always lands.",
+      "CHANGED — the sync moves a ticket to Proposal Submitted when Sales CRM ENTERS that phase (Proposal Submitted, Negotiation, EKYC Approval, Contract Sent), not on every sweep while it stays there. A deal PNS sends back for rework — Pending PNS, a review — while Sales CRM still says Negotiation now stays where PNS put it (Forester, Enseval Putera Megatrading Sukabumi). Lost, parked and accepted stages still apply every time.",
+    ],
+    overruled: [
+      "The sync re-applying Proposal Submitted on every sweep while Sales CRM sat at that stage (kept on 2026-09-29). It now applies only when the stage changes into that phase.",
+    ],
+  },
+  {
+    date: "2026-11-04",
     title: "FIXED — \"1 opportunities\"",
     by: "Michael + Claude",
     changes: [

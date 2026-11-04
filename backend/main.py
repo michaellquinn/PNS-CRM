@@ -1530,6 +1530,11 @@ async def email_people(names: list[str], subject: str, body: str,
 async def log_note(ticket_id: int, status: str, actor: str, note: str) -> None:
     """History without a status change. Edits and reassignments belong in the timeline,
     but they must not restart status_since, that is what the SLA counts."""
+    # Cut to the column (VARCHAR 500) here, once, for every caller (Michael,
+    # 2026-11-04). A Sales CRM loss reason with a long detailed reason made the note too
+    # long; the INSERT failed, and with it the whole Lost move -- the stage was written,
+    # the status never was, and it failed again on every sweep (SOF-11001313).
+    note = (note or "")[:500]
     await execute("INSERT INTO ticket_history (ticket_id, status, actor, note) "
                   "VALUES (%s,%s,%s,%s)", (ticket_id, status, actor, note or None))
 
@@ -1755,7 +1760,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-11-04.3"
+BUILD = "2026-11-04.4"
 
 
 class Me(BaseModel):
@@ -4744,11 +4749,14 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
                                 # Predict the status move without writing, so the dry
                                 # run shows what "for real" would do to held tickets.
                                 trow = await q(
-                                    "SELECT status, resp, potential_rev FROM tickets "
+                                    "SELECT status, resp, potential_rev, stage FROM tickets "
                                     "WHERE opportunity_id=%s", (oid,), one=True)
                                 would = None
                                 if trow:
                                     w = status_for_stage(o.get("stage"), trow["resp"])
+                                    if w == "Proposal Submitted" and \
+                                            _norm_stage(trow.get("stage")) in _SUBMITTED_N:
+                                        w = None
                                     if w and trow["status"] != w and trow["status"] not in (
                                             "Lost", "Cancel",
                                             "Proposal Accepted / Ready to Ship"):
@@ -5232,6 +5240,14 @@ async def _refresh_from_salescrm(o: dict, account: dict | None = None,
     # stage like Proposal Submitted must not pull it into a solutioning status (Michael,
     # 2026-10-05). It still follows Sales CRM to Lost or Cancel: a dead deal is dead.
     if t.get("request_type") == "onboarding" and wants not in ("Lost", "Cancel"):
+        wants = None
+    # Proposal Submitted is followed when Sales CRM ENTERS that phase, not on every sweep
+    # while it stays there (Michael, 2026-11-04). PNS sends a submitted deal back for
+    # rework -- a renegotiated rate, a review -- while Sales CRM still says Negotiation,
+    # and re-applying the stage every five minutes undid that within one sweep
+    # (Forester, Enseval Putera Megatrading). A move INTO the phase still lands, and the
+    # terminal stages (lost, parked, accepted) still apply every time.
+    if wants == "Proposal Submitted" and _norm_stage(t.get("stage")) in _SUBMITTED_N:
         wants = None
     # Only open tickets follow the stage; a decided ticket keeps its recorded outcome.
     # "Proposal Submitted" additionally must never pull a ticket BACKWARDS: it is the one
