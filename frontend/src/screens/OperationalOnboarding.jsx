@@ -60,7 +60,7 @@ export function OperationalList({ view = "onboarding", me, onOpen, notify = () =
   const teams = TEAM_ORDER.filter((t) => (data?.rows || []).some((r) => of(r, t)));
   const openFor = (t) => (data?.rows || []).filter((r) => onTab(r, t) && stateOf(r, t) !== "cleared").length;
   return <>
-    <Head title={TITLES[view]} sub={HELP[view]} right={data && <Pill>{rows.length} opportunities</Pill>} />
+    <Head title={TITLES[view]} sub={HELP[view]} right={data && <Pill>{rows.length} {rows.length === 1 ? "opportunity" : "opportunities"}</Pill>} />
     {/* A tab per team (Michael, 2026-11-04), each with how many launches it still has
         open, so every team sees what it has finished and what it has not. */}
     {ready && <div className="mb-3 flex flex-wrap gap-1 border-b border-slate-200">
