@@ -12,7 +12,7 @@ const teamState = (g) => !g ? null : g.done === g.total ? "cleared" : g.done ? "
 const HELP = { onboarding: "Won deals from solutioning, waiting on Sales to fill in and submit the onboarding requirements. Once submitted, a launch moves to Ops Readiness.",
   direct: "Launches raised on this page that Sales have not submitted yet. Open one to finish its onboarding form; once submitted it moves to Ops Readiness.",
   readiness: "Every launch and how far each team has got, nearest go-live first. Pick a team to see what it has finished (Cleared) and what is still open. A launch leaves a team's tab once that team has confirmed everything AND it has gone live, and leaves All once every team has. Each team confirms only its own points.",
-  golive: "Launches whose go-live date has arrived. A launch appears here on its date — there is nothing to press." };// today or past, amber inside three days, plain after that.
+  golive: "Upcoming: launches whose go-live date is still coming, nearest first — including won deals whose onboarding form is not in yet. Live: launches whose go-live date has arrived, most recent first. A launch moves from Upcoming to Live on its date; there is nothing to press." };// today or past, amber inside three days, plain after that.
 const goLiveTone = (d) => d == null ? "bg-slate-100 text-slate-600"
   : d < 0 ? "bg-rose-100 text-rose-800"
   : d === 0 ? "bg-rose-100 text-rose-800"
@@ -42,6 +42,8 @@ export function OperationalList({ view = "onboarding", me, onOpen, notify = () =
   // Which team's tab is open (Michael, 2026-11-04). A team member starts on their own
   // team; Ops, QC, PNS and Admin start on All.
   const [team, setTeam] = useState(TEAM_ORDER.includes(me?.group) ? me.group : "");
+  // Go Live: what is coming, or what has gone live (Michael, 2026-11-04).
+  const [when, setWhen] = useState("upcoming");
   const load = () => api.operationalList(view).then(setData).catch(e => setErr(e.message));
   useEffect(() => { setData(null); setErr(""); load(); }, [view]);
   if (err) return <Empty>{err}</Empty>;
@@ -52,7 +54,14 @@ export function OperationalList({ view = "onboarding", me, onOpen, notify = () =
   const of = (r, t = team) => t ? (r.teams || []).find((g) => g.group === t) : null;
   const stateOf = (r, t = team) => t ? teamState(of(r, t)) : r.readiness_state;
   const onTab = (r, t = team) => !t || (of(r, t) && !(stateOf(r, t) === "cleared" && r.already_live));
-  const base = (data?.rows || []).filter(r => !ready || onTab(r));
+  const goLive = view === "golive";
+  const isLive = (r) => !!r.already_live;
+  const base = (data?.rows || []).filter(r => (!ready || onTab(r))
+    && (!goLive || (when === "live" ? isLive(r) : !isLive(r))))
+    // Upcoming nearest first; Live most recent first.
+    .sort((a, b) => !goLive ? 0 : when === "live"
+      ? String(b.actual_golive || b.planned_golive || "").localeCompare(String(a.actual_golive || a.planned_golive || ""))
+      : (a.days_to_golive ?? 9999) - (b.days_to_golive ?? 9999));
   const rows = base.filter(r => (!filter || r.status === filter)
     && (!state || stateOf(r) === state)
     && `${r.ref} ${r.opportunity_name} ${r.shipper}`.toLowerCase().includes(query.toLowerCase()));
@@ -63,6 +72,18 @@ export function OperationalList({ view = "onboarding", me, onOpen, notify = () =
     <Head title={TITLES[view]} sub={HELP[view]} right={data && <Pill>{rows.length} {rows.length === 1 ? "opportunity" : "opportunities"}</Pill>} />
     {/* A tab per team (Michael, 2026-11-04), each with how many launches it still has
         open, so every team sees what it has finished and what it has not. */}
+    {goLive && <div className="mb-3 flex flex-wrap gap-1 border-b border-slate-200">
+      {[["upcoming", "Upcoming"], ["live", "Live"]].map(([w, label]) => (
+        <button key={w} type="button" onClick={() => setWhen(w)} aria-pressed={when === w}
+          className={`-mb-px border-b-2 px-3 py-2 text-[13px] ${when === w
+            ? "border-[#EE1B2C] font-semibold text-[#EE1B2C]" : "border-transparent text-slate-600 hover:text-slate-800"}`}>
+          {label}
+          <span className="ml-1.5 rounded-full bg-slate-100 px-1.5 text-[11px] font-bold text-slate-600">
+            {(data?.rows || []).filter((r) => (w === "live") === isLive(r)).length}
+          </span>
+        </button>
+      ))}
+    </div>}
     {ready && <div className="mb-3 flex flex-wrap gap-1 border-b border-slate-200">
       {[["", "All teams"], ...teams.map((t) => [t, t])].map(([t, label]) => (
         <button key={t || "all"} type="button" onClick={() => { setTeam(t); setState(""); }} aria-pressed={team === t}
@@ -87,7 +108,9 @@ export function OperationalList({ view = "onboarding", me, onOpen, notify = () =
         ))}
       </div>}
     </div>
-    {!data ? <p>Loading…</p> : !rows.length ? <Empty>No opportunities waiting here.</Empty> : <div className="space-y-3">
+    {!data ? <p>Loading…</p> : !rows.length ? <Empty>{goLive
+      ? (when === "live" ? "Nothing has gone live yet." : "Nothing is scheduled to go live.")
+      : "No opportunities waiting here."}</Empty> : <div className="space-y-3">
       {rows.map(r => <Card key={r.ref} className="p-4">
         <div className="flex flex-wrap items-center gap-2">
           <button className="font-mono font-semibold text-[#EE1B2C] hover:underline" onClick={() => onOpen(r.ref)}>{r.ref}</button>
@@ -95,7 +118,17 @@ export function OperationalList({ view = "onboarding", me, onOpen, notify = () =
               the team has got, and when it goes live. The go-live pill already says
               "today" or "overdue", so status, "already live" and "confirmation overdue"
               only repeated it. The other screens keep their status. */}
-          {!ready && <Pill>{r.status}</Pill>}
+          {!ready && !goLive && <Pill>{r.status}</Pill>}
+          {/* Go Live: when, and for what is coming, whether the teams are ready. */}
+          {goLive && (isLive(r)
+            ? <Pill tone="bg-emerald-100 text-emerald-800">Live since {r.actual_golive || r.planned_golive || "—"}</Pill>
+            : <Pill tone={goLiveTone(r.days_to_golive)}>Go live {r.planned_golive || "—"} · {goLiveWords(r.days_to_golive)}</Pill>)}
+          {goLive && !isLive(r) && !r.submitted && <Pill tone="bg-amber-100 text-amber-800">Form not submitted</Pill>}
+          {goLive && r.submitted && r.points_total > 0 && (
+            <Pill tone={r.points_done === r.points_total ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-600"}>
+              {r.points_done}/{r.points_total} confirmed
+            </Pill>
+          )}
           {/* Which way it came in (Michael, 2026-10-05). Only the newer route is
               tagged; a launch from solutioning is the ordinary case. */}
           {r.source === "New onboarding" && view !== "direct" && (

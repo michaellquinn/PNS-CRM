@@ -1760,7 +1760,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-11-04.4"
+BUILD = "2026-11-04.5"
 
 
 class Me(BaseModel):
@@ -10987,9 +10987,18 @@ async def operational_worklist(view: str = "onboarding", u: User = Depends(curre
             # it here too, because the date is still coming.
             if state == "cleared" and live:
                 continue
-        # Go Live is what IS live: the go-live date has arrived. Nothing to press.
-        if view == "golive" and (not r["submitted_at"] or not live):
-            continue
+        # Go Live lists what IS live and what is COMING (Michael, 2026-11-04), split into
+        # two tabs on the screen. Live: submitted and its date has arrived. Upcoming: not
+        # live yet, with a go-live date -- the submitted launch's own, or for a won deal
+        # whose form is not in yet, the date in its draft or charter, so nothing about to
+        # go live is missing from the list. A launch with no date at all is not here; it
+        # is still on Go live from Solutioning or New onboarding.
+        golive_date = p.get("planned_golive") or (None if r["submitted_at"] else ob_target_golive(r))
+        if view == "golive":
+            if live and not r["submitted_at"]:
+                continue
+            if not live and not golive_date:
+                continue
         deadline = ob_deadline(r["submitted_at"], ob_pickup_moment(p)) if r["submitted_at"] and p.get("pickup_at") else None
         result.append({"ref": r["ticket_ref"], "opportunity_id": r["opportunity_id"], "opportunity_name": r["opportunity_name"] or r["shipper"],
                        "source": "New onboarding" if direct else "Solutioning",
@@ -11005,8 +11014,9 @@ async def operational_worklist(view: str = "onboarding", u: User = Depends(curre
                        # The date the whole readiness queue is racing (Michael,
                        # 2026-09-25), and how many days are left. Negative means the
                        # planned go-live has already passed and nothing is ready.
-                       "planned_golive": p.get("planned_golive") or None,
-                       "days_to_golive": ob_days_to(p.get("planned_golive")),
+                       "planned_golive": (golive_date if view == "golive" else p.get("planned_golive")) or None,
+                       "days_to_golive": ob_days_to(golive_date if view == "golive" else p.get("planned_golive")),
+                       "submitted": bool(r["submitted_at"]),
                        # While Sales still owe the form: the D-2 date and how far off it is.
                        "submit_by": None if r["submitted_at"] else ob_submit_by(ob_target_golive(r)),
                        "days_to_submit_by": None if r["submitted_at"]

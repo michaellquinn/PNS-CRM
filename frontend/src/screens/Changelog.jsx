@@ -3,6 +3,15 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-11-04",
+    title: "Go Live: Upcoming and Live",
+    by: "Michael + Claude",
+    changes: [
+      "Go Live has two tabs. Upcoming: launches whose go-live date is still coming, nearest first, each with its go-live date and how far the teams have got — and won deals whose onboarding form is not submitted yet, tagged \"Form not submitted\", using the date in the draft or the charter. Live: launches whose go-live date has arrived, most recent first.",
+      "A launch moves from Upcoming to Live on its date; there is nothing to press. One with no go-live date at all stays on Go live from Solutioning or New onboarding until it has one.",
+    ],
+  },
+  {
+    date: "2026-11-04",
     title: "FIXED — deals lost in Sales CRM stuck open; a send-back undone by the sync",
     by: "Michael + Claude",
     changes: [
