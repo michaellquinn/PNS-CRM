@@ -121,10 +121,17 @@ check("Readiness Overview is gone from the menu",
 
 # ---- D-2: Sales are reminded, never blocked (2026-10-12)
 check("submit-by is two days before go-live", m.ob_submit_by("2026-10-20") == "2026-10-18")
-check("the draft's go-live wins over the charter's",
-      m.ob_target_golive({"payload": json.dumps({"planned_golive": "2026-10-20"}), "charter_golive": "2026-10-25"}) == "2026-10-20")
-check("the charter's go-live when the draft has none",
-      m.ob_target_golive({"payload": None, "charter_golive": "2026-10-25"}) == "2026-10-25")
+# Ops Onboarding runs on the first pickup (2026-11-06).
+check("the draft's first pickup wins over the charter's go-live",
+      m.ob_target_pickup({"payload": json.dumps({"pickup_at": "2026-10-20"}), "charter_golive": "2026-10-25"}) == "2026-10-20")
+check("the charter's go-live stands in when the draft has no pickup yet",
+      m.ob_target_pickup({"payload": None, "charter_golive": "2026-10-25"}) == "2026-10-25")
+check("the first pickup wins over an old planned go-live (Karcher ECO)",
+      m.ob_key_date({"planned_golive": "2026-10-30", "pickup_at": "2026-11-09"}) == "2026-11-09")
+check("a launch saved with only a go-live date still has a date",
+      m.ob_key_date({"planned_golive": "2026-10-30"}) == "2026-10-30")
+check("the onboarding form no longer asks for a planned go-live",
+      not any(f[0] == "planned_golive" for f in m.OB_FIELDS))
 told = []
 async def notify_people(body, groups=(), people=(), **k):
     told.append((tuple(people), body, k)); already.add(("SOF-8", "sales"))

@@ -1760,7 +1760,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-11-06.1"
+BUILD = "2026-11-06.2"
 
 
 class Me(BaseModel):
@@ -3994,11 +3994,11 @@ async def ob_send_reminders() -> int:
         # closer and is still not submitted. Its own people, in the app. Once per
         # go-live date, like the team reminder.
         if not r["submitted_at"]:
-            golive = ob_target_golive(r)
+            golive = ob_target_pickup(r)
             days = ob_days_to(golive)
             if days is None or not 0 <= days <= OB_SUBMIT_DAYS_BEFORE:
                 continue
-            mark = f"Submit reminder · go-live {str(golive)[:10]}"
+            mark = f"Submit reminder · first pickup {str(golive)[:10]}"
             if await q("SELECT 1 AS x FROM notifications WHERE ticket_ref=%s AND body LIKE %s "
                        "LIMIT 1", (r["ticket_ref"], f"%{mark}%"), one=True):
                 continue
@@ -4006,7 +4006,7 @@ async def ob_send_reminders() -> int:
             if not people:
                 continue
             when_txt = "today" if days == 0 else ("tomorrow" if days == 1 else "in 2 days")
-            await notify(f"{ob_launch_label(r)}: goes live {when_txt} and the onboarding form "
+            await notify(f"{ob_launch_label(r)}: first pickup is {when_txt} and the onboarding form "
                          f"is not submitted yet. Submitting by D-2 gives the ops teams time "
                          f"to confirm. ({mark})",
                          people=people, email=False, ticket_ref=r["ticket_ref"])
@@ -4015,7 +4015,7 @@ async def ob_send_reminders() -> int:
         if r["actual_golive"]:
             continue
         p = ob_json(r["released_payload"])
-        days = ob_days_to(p.get("planned_golive"))
+        days = ob_days_to(ob_key_date(p))
         if days is None or not 0 <= days <= 2:
             continue
         open_by = {row["owner_group"]: int(row["n"]) for row in await q(
@@ -4027,19 +4027,19 @@ async def ob_send_reminders() -> int:
         # if any team still has points open, the Ops group hears it too -- one notice
         # naming every team still open, once per go-live date.
         if open_by and days <= 1:
-            mark = f"Escalation · go-live {p.get('planned_golive')}"
+            mark = f"Escalation · first pickup {ob_key_date(p)}"
             if not await q("SELECT 1 AS x FROM notifications WHERE ticket_ref=%s AND to_groups=%s "
                            "AND body LIKE %s LIMIT 1", (r["ticket_ref"], "Ops", f"%{mark}%"), one=True):
                 still = ", ".join(f"{g} {n}" for g, n in sorted(open_by.items()))
-                await notify(f"{label}: goes live {when_txt} with points still open — {still}. "
+                await notify(f"{label}: first pickup is {when_txt} with points still open — {still}. "
                              f"{ob_when(p)}. ({mark})", groups=["Ops", SSM_GROUP], ticket_ref=r["ticket_ref"])
                 sent += 1
         for group, n in sorted(open_by.items()):
-            mark = f"Reminder · go-live {p.get('planned_golive')}"
+            mark = f"Reminder · first pickup {ob_key_date(p)}"
             if await q("SELECT 1 AS x FROM notifications WHERE ticket_ref=%s AND to_groups=%s "
                        "AND body LIKE %s LIMIT 1", (r["ticket_ref"], group, f"%{mark}%"), one=True):
                 continue
-            await notify(f"{label}: goes live {when_txt} and {group} still has {n} point"
+            await notify(f"{label}: first pickup is {when_txt} and {group} still has {n} point"
                          f"{'s' if n != 1 else ''} open. {ob_when(p)}. ({mark})",
                          groups=[group], ticket_ref=r["ticket_ref"])
             sent += 1
@@ -9982,7 +9982,6 @@ OB_WAIT_OPTIONS = ["< 1 hour", "1-2 hours", "2-3 hours", "> 3 hours"]
 
 OB_FIELDS = [
     ("request_type", "Request type", "select", "A · Basic requirements", ["New Shipper", "New OD", "New Volume"], None),
-    ("planned_golive", "Planned go-live date", "date", "A · Basic requirements", [], "golive"),
     # A date only (Michael, 2026-09-18). The time of day is the pickup hour range in E.
     ("pickup_at", "First pickup date", "date", "A · Basic requirements", [], None),
     ("shipper_name", "Shipper name", "text", "B · Shipper profile", [], "shipper"),
@@ -10215,11 +10214,10 @@ def ob_validate(p, t, documents):
         raise HTTPException(400, "Pickup and delivery time must be an hour range, start before end")
     try:
         pickup = ob_pickup_moment(p)
-        planned = date.fromisoformat(p["planned_golive"])
     except ValueError:
-        raise HTTPException(400, "Provide valid planned go-live and first pickup date")
-    if pickup.tzinfo or pickup <= ob_now() or planned > pickup.date():
-        raise HTTPException(400, "First pickup must be in the future (WIB), with planned go-live on or before it")
+        raise HTTPException(400, "Provide a valid first pickup date")
+    if pickup.tzinfo or pickup <= ob_now():
+        raise HTTPException(400, "First pickup must be in the future (WIB)")
     if ob_now() > datetime.combine(pickup.date() - timedelta(days=1), datetime.min.time()).replace(hour=20):
         raise HTTPException(400, "Sales requirements must be submitted by D-1 20:00 WIB; reschedule pickup")
     for switch, count in OB_COUNTS:
@@ -10393,11 +10391,21 @@ def ob_readiness(checks):
 OB_SUBMIT_DAYS_BEFORE = 2
 
 
-def ob_target_golive(r: dict) -> str | None:
-    """The go-live a launch is working to: the onboarding draft's date, else the
-    charter's. A draft nobody has opened yet still has the charter's answer."""
-    p = ob_json(r.get("payload"))
-    return p.get("planned_golive") or r.get("charter_golive") or None
+def ob_key_date(p: dict) -> str | None:
+    """The date Ops Onboarding runs on: the FIRST PICKUP (Michael, 2026-11-06). The
+    reminders, the escalation, what counts as live, Go Live and the sort order all follow
+    it -- the truck arriving is the moment the teams must be ready for, and a go-live
+    date set apart from it read "7 days overdue" on a launch whose pickup was still three
+    days away. A launch saved before then with no pickup date falls back to its old
+    planned go-live, so nothing drops off a list."""
+    return (str(p.get("pickup_at") or "")[:10] or None) or \
+        (str(p.get("planned_golive") or "")[:10] or None)
+
+
+def ob_target_pickup(r: dict) -> str | None:
+    """The first pickup a launch not yet submitted is working to: its draft's, else the
+    charter's go-live (Sales CRM's target start) as the nearest stand-in."""
+    return ob_key_date(ob_json(r.get("payload"))) or r.get("charter_golive") or None
 
 
 def ob_submit_by(golive) -> str | None:
@@ -10431,17 +10439,12 @@ def ob_launch_label(t: dict) -> str:
 
 
 def ob_when(p: dict) -> str:
-    """First pickup and go-live, as a team needs them in one line."""
+    """The first pickup, as a team needs it in one line."""
     try:
         pick = ob_pickup_moment(p).strftime("%d %b %H:%M")
     except (ValueError, TypeError, KeyError):
         pick = "—"
-    gl = p.get("planned_golive")
-    try:
-        gl = date.fromisoformat(str(gl)).strftime("%d %b") if gl else "—"
-    except ValueError:
-        pass
-    return f"First pickup {pick}, go-live {gl}"
+    return f"First pickup {pick}"
 
 
 async def ob_event(tid, u, body):
@@ -10968,7 +10971,7 @@ async def operational_worklist(view: str = "onboarding", u: User = Depends(curre
         # planned go-live has arrived; nobody has to remember to press anything, and the
         # screens follow the calendar the way the operation does. A date recorded by the
         # old button still counts, so launches from before this read correctly.
-        days_left = ob_days_to(p.get("planned_golive"))
+        days_left = ob_days_to(ob_key_date(p))
         live = bool(r["actual_golive"]) or (days_left is not None and days_left <= 0)
         # Pending Information is only what still waits on Sales (Michael, 2026-09-18):
         # once submitted, a launch belongs to Pending Readiness and the steps after it.
@@ -11012,7 +11015,7 @@ async def operational_worklist(view: str = "onboarding", u: User = Depends(curre
         # whose form is not in yet, the date in its draft or charter, so nothing about to
         # go live is missing from the list. A launch with no date at all is not here; it
         # is still on Go live from Solutioning or New onboarding.
-        golive_date = p.get("planned_golive") or (None if r["submitted_at"] else ob_target_golive(r))
+        golive_date = ob_key_date(p) or (None if r["submitted_at"] else ob_target_pickup(r))
         if view == "golive":
             if live and not r["submitted_at"]:
                 continue
@@ -11033,13 +11036,14 @@ async def operational_worklist(view: str = "onboarding", u: User = Depends(curre
                        # The date the whole readiness queue is racing (Michael,
                        # 2026-09-25), and how many days are left. Negative means the
                        # planned go-live has already passed and nothing is ready.
-                       "planned_golive": (golive_date if view == "golive" else p.get("planned_golive")) or None,
-                       "days_to_golive": ob_days_to(golive_date if view == "golive" else p.get("planned_golive")),
+                       # Everything in Ops Onboarding runs on the first pickup (2026-11-06).
+                       "first_pickup": golive_date or None,
+                       "days_to_pickup": ob_days_to(golive_date),
                        "submitted": bool(r["submitted_at"]),
                        # While Sales still owe the form: the D-2 date and how far off it is.
-                       "submit_by": None if r["submitted_at"] else ob_submit_by(ob_target_golive(r)),
+                       "submit_by": None if r["submitted_at"] else ob_submit_by(ob_target_pickup(r)),
                        "days_to_submit_by": None if r["submitted_at"]
-                                            else ob_days_to(ob_submit_by(ob_target_golive(r))),
+                                            else ob_days_to(ob_submit_by(ob_target_pickup(r))),
                        "points_done": done, "points_total": len(mine),
                        "teams": ob_team_progress(items_by_ticket.get(r["id"], [])) if view == "readiness" else [],
                        "readiness_state": state, "already_live": live})
@@ -11048,7 +11052,7 @@ async def operational_worklist(view: str = "onboarding", u: User = Depends(curre
     # with no planned date sorts last rather than first.
     if view in ("readiness", "overview"):
         result.sort(key=lambda r: (r["readiness_state"] == "cleared", not r["overdue"],
-                                   r["days_to_golive"] if r["days_to_golive"] is not None else 9999,
+                                   r["days_to_pickup"] if r["days_to_pickup"] is not None else 9999,
                                    r["deadline"] or "9999", r["ref"]))
     else:
         result.sort(key=lambda r: (not r["overdue"], r["deadline"] or "9999", r["ref"]))
@@ -11286,7 +11290,7 @@ async def operational_save(ref: str, body: OperationalSave, u: User = Depends(cu
             # correct it, including after go-live: requirements change at the weekend and
             # the app should carry the correction rather than refuse it. Reopening a
             # point unlocks a finished launch again.
-            _days = ob_days_to(ob_json((old or {}).get("released_payload")).get("planned_golive"))
+            _days = ob_days_to(ob_key_date(ob_json((old or {}).get("released_payload"))))
             if old and (old.get("actual_golive") or (_days is not None and _days <= 0)):
                 await cur.execute("SELECT COUNT(*) AS n FROM onboarding_check_items "
                                   "WHERE ticket_id=%s AND status<>'confirmed'", (t["id"],))

@@ -11,8 +11,8 @@ const TEAM_ORDER = ["2W", "4W", "6W", "Sameday", "Sort", "DE", "CL"];
 const teamState = (g) => !g ? null : g.done === g.total ? "cleared" : g.done ? "ongoing" : "pending";
 const HELP = { onboarding: "Won deals from solutioning, waiting on Sales to fill in and submit the onboarding requirements. Once submitted, a launch moves to Ops Readiness.",
   direct: "Launches raised on this page that Sales have not submitted yet. Open one to finish its onboarding form; once submitted it moves to Ops Readiness.",
-  readiness: "Every launch and how far each team has got, nearest go-live first. Pick a team to see what it has finished (Cleared) and what is still open. A launch leaves a team's tab once that team has confirmed everything AND it has gone live, and leaves All once every team has. Each team confirms only its own points.",
-  golive: "Upcoming: launches whose go-live date is still coming, nearest first — including won deals whose onboarding form is not in yet. Live: launches whose go-live date has arrived, most recent first. A launch moves from Upcoming to Live on its date; there is nothing to press." };// today or past, amber inside three days, plain after that.
+  readiness: "Every launch and how far each team has got, nearest first pickup first. Pick a team to see what it has finished (Cleared) and what is still open. A launch leaves a team's tab once that team has confirmed everything AND its first pickup has happened, and leaves All once every team has. Each team confirms only its own points.",
+  golive: "Upcoming: launches whose first pickup is still coming, nearest first — including won deals whose onboarding form is not in yet. Live: launches whose first pickup date has arrived, most recent first. A launch moves from Upcoming to Live on that date; there is nothing to press." };// today or past, amber inside three days, plain after that.
 const goLiveTone = (d) => d == null ? "bg-slate-100 text-slate-600"
   : d < 0 ? "bg-rose-100 text-rose-800"
   : d === 0 ? "bg-rose-100 text-rose-800"
@@ -60,8 +60,8 @@ export function OperationalList({ view = "onboarding", me, onOpen, notify = () =
     && (!goLive || (when === "live" ? isLive(r) : !isLive(r))))
     // Upcoming nearest first; Live most recent first.
     .sort((a, b) => !goLive ? 0 : when === "live"
-      ? String(b.actual_golive || b.planned_golive || "").localeCompare(String(a.actual_golive || a.planned_golive || ""))
-      : (a.days_to_golive ?? 9999) - (b.days_to_golive ?? 9999));
+      ? String(b.first_pickup || "").localeCompare(String(a.first_pickup || ""))
+      : (a.days_to_pickup ?? 9999) - (b.days_to_pickup ?? 9999));
   const rows = base.filter(r => (!filter || r.status === filter)
     && (!state || stateOf(r) === state)
     && `${r.ref} ${r.opportunity_name} ${r.shipper}`.toLowerCase().includes(query.toLowerCase()));
@@ -121,8 +121,8 @@ export function OperationalList({ view = "onboarding", me, onOpen, notify = () =
           {!ready && !goLive && <Pill>{r.status}</Pill>}
           {/* Go Live: when, and for what is coming, whether the teams are ready. */}
           {goLive && (isLive(r)
-            ? <Pill tone="bg-emerald-100 text-emerald-800">Live since {r.actual_golive || r.planned_golive || "—"}</Pill>
-            : <Pill tone={goLiveTone(r.days_to_golive)}>Go live {r.planned_golive || "—"} · {goLiveWords(r.days_to_golive)}</Pill>)}
+            ? <Pill tone="bg-emerald-100 text-emerald-800">Live · first pickup {r.first_pickup || "—"}</Pill>
+            : <Pill tone={goLiveTone(r.days_to_pickup)}>First pickup {r.first_pickup || "—"} · {goLiveWords(r.days_to_pickup)}</Pill>)}
           {goLive && !isLive(r) && !r.submitted && <Pill tone="bg-amber-100 text-amber-800">Form not submitted</Pill>}
           {goLive && r.submitted && r.points_total > 0 && (
             <Pill tone={r.points_done === r.points_total ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-600"}>
@@ -147,8 +147,8 @@ export function OperationalList({ view = "onboarding", me, onOpen, notify = () =
             </Pill>;
           })()}
           {ready && (
-            <Pill tone={goLiveTone(r.days_to_golive)}>
-              Go live {r.planned_golive || "—"} · {goLiveWords(r.days_to_golive)}
+            <Pill tone={goLiveTone(r.days_to_pickup)}>
+              First pickup {r.first_pickup || "—"} · {goLiveWords(r.days_to_pickup)}
             </Pill>
           )}
           {/* D-2 (2026-10-12): when Sales should have it in. A reminder, never a block. */}
@@ -165,7 +165,6 @@ export function OperationalList({ view = "onboarding", me, onOpen, notify = () =
         <h3 className="mt-2 text-[15px] font-semibold">{r.opportunity_name}</h3>
         <p className="mt-1 text-[12px] text-slate-500">CRM {r.opportunity_id || "—"} · {r.shipper} · {r.service} · Sales {r.sales || "unassigned"}</p>
         <div className="mt-2 flex flex-wrap gap-x-6 text-[12px] text-slate-600">
-          <span>First pickup: {format(r.pickup_at)}</span>
           {r.deadline && <span>Confirm by: {format(r.deadline)} (always before pickup)</span>}
           {r.actual_golive && <span>Actual go-live: {r.actual_golive}</span>}
         </div>

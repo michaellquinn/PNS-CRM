@@ -3,6 +3,19 @@ import { Card, Head, Pill } from "../ui";
 const ENTRIES = [
   {
     date: "2026-11-06",
+    title: "Ops Onboarding runs on the first pickup; Ready to ship filters by Sales PIC",
+    by: "Michael + Claude",
+    changes: [
+      "CHANGED — everything in Ops Onboarding follows the FIRST PICKUP date instead of a separate go-live date: the date shown on every launch, the order (nearest first pickup first), what counts as overdue and as live, the Go Live tabs (Upcoming / Live), Sales' D-2 \"submit by\", the teams' reminders and the escalation to Ops and SSM. A go-live date set apart from the pickup read \"7 days overdue\" on a launch whose truck was still three days away (Karcher ECO).",
+      "The onboarding form no longer asks for a planned go-live date — the first pickup date is the one that counts. A launch submitted before this with no pickup date falls back to its old go-live date, so nothing leaves a list. The charter's own Go live (from Sales CRM) and the Kick-off are unchanged.",
+      "NEW — Ready to ship has a Sales PIC filter, listing the salespeople on the list (and No Sales PIC).",
+    ],
+    overruled: [
+      "Ops Readiness and Go Live keyed on the planned go-live date (2026-09-25 / 2026-09-28). The first pickup replaces it.",
+    ],
+  },
+  {
+    date: "2026-11-06",
     title: "FIXED — an expired Sales CRM key now says so",
     by: "Michael + Claude",
     changes: [

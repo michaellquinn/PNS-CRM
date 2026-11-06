@@ -29,12 +29,16 @@ def row(id_, ref, submitted, released=None, draft=None, charter=None):
                 payload=json.dumps(draft or {}), released_payload=json.dumps(released or {}),
                 revision=1, submitted_at=datetime.now() if submitted else None,
                 actual_golive=None, qc_accepted_at=None, handover_at=None)
+# Keyed on the FIRST PICKUP (2026-11-06). KARCHER is the reported case: an old planned
+# go-live a week ago, the truck still three days away -- Upcoming, not overdue.
 ROWS = [
-    row(1, "LIVE", True, released={"planned_golive": d(-3), "pickup_at": d(-3)}),
-    row(2, "SOON", True, released={"planned_golive": d(4), "pickup_at": d(4)}),
-    row(3, "NOTIN", False, draft={"planned_golive": d(6)}),
+    row(1, "LIVE", True, released={"pickup_at": d(-3)}),
+    row(2, "SOON", True, released={"pickup_at": d(4)}),
+    row(3, "NOTIN", False, draft={"pickup_at": d(6)}),
     row(4, "CHARTER", False, charter=d(9)),
     row(5, "NODATE", False),
+    row(6, "KARCHER", True, released={"planned_golive": d(-7), "pickup_at": d(3)}),
+    row(7, "OLDONLY", True, released={"planned_golive": d(-2)}),
 ]
 async def ob_rows(): return ROWS
 async def q(sql, args=(), one=False): return None if one else []
@@ -44,14 +48,19 @@ admin = m.User(email="a@x", name="A", group="Admin", level="head")
 got = {r["ref"]: r for r in asyncio.run(m.operational_worklist("golive", admin))["rows"]}
 check("a launch whose date has arrived is Live", got["LIVE"]["already_live"] is True)
 check("a submitted launch still coming is Upcoming", got["SOON"]["already_live"] is False
-      and got["SOON"]["days_to_golive"] == 4)
-check("a won deal not submitted, dated in its draft, is Upcoming and flagged",
+      and got["SOON"]["days_to_pickup"] == 4)
+check("a won deal not submitted, with a first pickup in its draft, is Upcoming and flagged",
       got["NOTIN"]["already_live"] is False and got["NOTIN"]["submitted"] is False
-      and got["NOTIN"]["planned_golive"] == d(6))
-check("...or dated in its charter", got["CHARTER"]["planned_golive"] == d(9))
+      and got["NOTIN"]["first_pickup"] == d(6))
+check("...or dated in its charter", got["CHARTER"]["first_pickup"] == d(9))
+check("Karcher: an old go-live a week ago, first pickup in 3 days -> Upcoming, not overdue",
+      got["KARCHER"]["already_live"] is False and got["KARCHER"]["days_to_pickup"] == 3
+      and got["KARCHER"]["first_pickup"] == d(3))
+check("a launch saved with only a go-live date still goes Live on it",
+      got["OLDONLY"]["already_live"] is True)
 check("a launch with no date at all is not on Go Live", "NODATE" not in got)
 
 four = m.User(email="f@x", name="F", group="4W", level="staff")
 seen = {r["ref"] for r in asyncio.run(m.operational_worklist("golive", four))["rows"]}
-check("an ops account sees only submitted launches", seen == {"LIVE", "SOON"})
+check("an ops account sees only submitted launches", seen == {"LIVE", "SOON", "KARCHER", "OLDONLY"})
 print(f"go live tabs: {ok} checks OK")

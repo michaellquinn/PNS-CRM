@@ -44,6 +44,8 @@ function useFilter(rows, extra = {}, key = "") {
     const q = f.q.trim().toLowerCase();
     if (q && !`${t.ref} ${t.shipper}`.toLowerCase().includes(q)) return false;
     if (f.service.length && !f.service.includes(t.service)) return false;
+    // Sales PIC, where a list asks for it (Ready to ship, 2026-11-06).
+    if (f.sales?.length && !f.sales.includes(t.sales || "__none__")) return false;
     if (f.resp?.length && !f.resp.includes(t.priced_by)) return false;
     // Whether PNS checks the price after Sales builds it. Stored as the strings "yes" and
     // "no" rather than booleans so it behaves like every other filter here: an empty
@@ -136,6 +138,15 @@ function FilterBar({ f, set, clear, patch, me, shown, total, rows, groups = true
                    : "border-slate-300 bg-white text-slate-600 hover:border-slate-400"}`}>
           Assigned to me
         </button>
+      )}
+      {/* Sales PIC, on a list that carries the filter (Ready to ship, 2026-11-06). The
+          names are the ones on the list, so every choice finds something. */}
+      {f.sales && (
+        <MultiSelect label="Sales PIC" picked={f.sales}
+          onClear={() => patch("sales", [])}
+          sections={pickList(["__none__", ...[...new Set((rows || []).map((t) => t.sales).filter(Boolean))].sort()],
+                             f.sales, (v) => patch("sales", v),
+                             (v) => (v === "__none__" ? "No Sales PIC" : v))} />
       )}
       {children}
       <span className="text-[12px] text-slate-500">{shown} of {total}</span>
@@ -1151,7 +1162,7 @@ export function ReadyToShip({ me, onOpen, title = "Ready to ship",
   sub = "Accepted proposals, handed to Legal for the contract and then to Ops.",
   status = "Proposal Accepted / Ready to Ship", filterKey = "ship" }) {
   const [rows, err] = useTickets({ status });
-  const [list, f, set, clear, patch] = useFilter(rows, {}, filterKey);
+  const [list, f, set, clear, patch] = useFilter(rows, { sales: [] }, filterKey);
   return (
     <Shell title={title}
       sub={sub}
