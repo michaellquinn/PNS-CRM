@@ -2,6 +2,14 @@ import { Card, Head, Pill } from "../ui";
 
 const ENTRIES = [
   {
+    date: "2026-11-06",
+    title: "FIXED — an expired Sales CRM key now says so",
+    by: "Michael + Claude",
+    changes: [
+      "FIXED — when the Sales CRM API key expired, New onboarding said only \"Sales CRM could not be read. Try again\", and the automatic sync kept reporting OK while refreshing and importing nothing, because every read swallowed the refusal. Both now say plainly that Sales CRM rejected the key and what to do: issue a new key in Sales CRM, put it in SALESCRM_API_KEY on the Substrait Secrets tab, and redeploy. The sync run is recorded as failed with that message.",
+    ],
+  },
+  {
     date: "2026-11-04",
     title: "Go Live: Upcoming and Live",
     by: "Michael + Claude",

@@ -1760,7 +1760,7 @@ class Health(BaseModel):
 
 # Bump on every deploy. Without it there is no way to tell from the outside whether a
 # PREVIEW_LIVE run actually replaced the running backend.
-BUILD = "2026-11-04.5"
+BUILD = "2026-11-06.1"
 
 
 class Me(BaseModel):
@@ -3070,9 +3070,10 @@ class SalesCrm:
         for attempt in range(_CRM_TRIES):
             r = await self.c.get(f"{SALESCRM_BASE}/objects/{obj}/records", params=params)
             if r.status_code == 401:
-                raise HTTPException(502, "Sales CRM rejected the API key. It may have "
-                                         "expired (keys last 30 days). Issue a new one "
-                                         "and update SALESCRM_API_KEY.")
+                _CRM_KEY["rejected"] = True
+                raise HTTPException(502, CRM_KEY_REJECTED)
+            if r.status_code < 400:
+                _CRM_KEY["rejected"] = False
             if r.status_code in (429, 503) and attempt < _CRM_TRIES - 1:
                 await asyncio.sleep(_retry_after(r, delay))
                 delay = min(delay * 2, _CRM_MAX_WAIT)
@@ -4205,6 +4206,16 @@ async def salescrm_contact_raw(contact_id: str, u: User = Depends(current_user))
         default=str)))
 
 
+# Whether Sales CRM refused the API key on its last answer (Michael, 2026-11-06). Every
+# read catches its own failure so one bad record cannot end a sweep -- which also meant
+# an expired key ended EVERY read quietly: the auto-sync reported "ok" with nothing
+# refreshed and nothing imported, and New onboarding said only "could not be read".
+CRM_KEY_REJECTED = ("Sales CRM rejected the API key. It has probably expired (keys last "
+                    "30 days). Issue a new one in Sales CRM, put it in SALESCRM_API_KEY on "
+                    "the Substrait Secrets tab, and redeploy.")
+_CRM_KEY = {"rejected": False}
+
+
 @app.post("/api/sync/salescrm")
 async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
     """Pull new Sales CRM opportunities and raise the matching solutioning tickets.
@@ -4985,6 +4996,9 @@ async def sync_salescrm(body: SyncIn, u: User = Depends(current_user)):
 
             caught_up = not truncated and not created
 
+    # An expired key fails the run, out loud, rather than reporting "ok, nothing new".
+    if _CRM_KEY["rejected"]:
+        raise HTTPException(502, CRM_KEY_REJECTED)
     if not body.dry_run:
         await audit(u.email, "sync", "salescrm", None, "created", None, str(len(created)))
     # Close the loop on anything Sales queued. Reconciled from the run's own results
@@ -10859,7 +10873,12 @@ async def new_onboarding(body: NewOnboardingIn, u: User = Depends(current_user))
         crm = SalesCrm(client)
         try:
             d = await crm.records("Opportunity", id=oid)
+        except HTTPException:
+            # Already says what is wrong -- an expired key, above all. It used to be
+            # caught below and replaced with a bare "could not be read".
+            raise
         except Exception as e:                                   # noqa: BLE001
+            log.warning("New onboarding: Sales CRM read for %s failed: %r", oid, e)
             why = getattr(getattr(e, "response", None), "status_code", None)
             raise HTTPException(502, f"Sales CRM could not be read (HTTP {why}). Try again."
                                 if why else "Sales CRM could not be read. Try again.")

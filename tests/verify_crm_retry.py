@@ -37,7 +37,8 @@ src = io.open(os.path.join(_REPO, "backend", "main.py"), encoding="utf-8").read(
 
 WANT_FN = {"_retry_after"}
 WANT_CLS = {"SalesCrm"}
-WANT_VAR = {"_CRM_TRIES", "_CRM_MAX_WAIT", "SALESCRM_BASE", "SYNC_CONCURRENCY"}
+WANT_VAR = {"_CRM_TRIES", "_CRM_MAX_WAIT", "SALESCRM_BASE", "SYNC_CONCURRENCY",
+            "_CRM_KEY", "CRM_KEY_REJECTED"}  # the expired-key mark (2026-11-06)
 
 keep = []
 for node in ast.parse(src).body:
