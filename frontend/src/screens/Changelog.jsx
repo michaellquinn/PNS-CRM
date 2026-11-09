@@ -2,6 +2,14 @@ import { Card, Head, Pill } from "../ui";
 
 const ENTRIES = [
   {
+    date: "2026-11-09",
+    title: "Security: backend image takes Debian security updates on every build",
+    by: "Michael + Claude",
+    changes: [
+      "Trivy flagged CVE-2026-76844 and CVE-2026-85091 in zlib1g in the backend image (Debian 13). The image already used the floating python:3.12-slim base; it now also runs apt-get upgrade right under it, so the fixed zlib1g (1:1.3.dfsg+really1.3.1-1+deb13u1) and later Debian security fixes come in on every build, without pinning any version.",
+    ],
+  },
+  {
     date: "2026-11-06",
     title: "Ops Onboarding runs on the first pickup; Ready to ship filters by Sales PIC",
     by: "Michael + Claude",
