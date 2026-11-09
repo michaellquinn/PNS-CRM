@@ -7,11 +7,6 @@
 # (needs CAP_CHOWN) and crashloops. For a static-only backend use
 # `nginxinc/nginx-unprivileged` (rootless, no startup chown; keep `listen 8000`).
 FROM python:3.12-slim
-# Pick up Debian security updates on every build (Trivy, 2026-11-09: CVE-2026-76844 and
-# CVE-2026-85091 in zlib1g, fixed in 1:1.3.dfsg+really1.3.1-1+deb13u1). Upgraded, not
-# pinned: the floating python:3.12-slim tag plus this line keeps the image on Debian's
-# current patched packages instead of freezing it on one version.
-RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY backend/requirements.txt .
 # Wheels-only: never fall back to a source build. This slim image has no C compiler, so
@@ -22,5 +17,16 @@ COPY backend/requirements.txt .
 # drop this flag.
 RUN pip install --no-cache-dir --only-binary=:all: -r requirements.txt
 COPY backend/ .
+# Pick up Debian security updates on every build (Trivy, 2026-11-09: CVE-2026-76844 and
+# CVE-2026-85091 in zlib1g, fixed in 1:1.3.dfsg+really1.3.1-1+deb13u1, DSA-6613-1).
+# Upgraded, not pinned: the floating python:3.12-slim tag plus this line keeps the image
+# on Debian's current patched packages instead of freezing it on one version.
+#
+# Deliberately AFTER `COPY backend/ .`, not straight under FROM. Docker reuses a cached
+# layer while its instruction and everything above it are unchanged; directly under FROM
+# this layer was cached from its first build and never ran again, so a fix Debian
+# published afterwards never arrived. The backend source changes on every deploy (BUILD
+# at least), so here the upgrade really runs each time.
+RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
 EXPOSE 8000
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

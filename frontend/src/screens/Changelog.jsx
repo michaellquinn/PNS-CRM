@@ -6,7 +6,8 @@ const ENTRIES = [
     title: "Security: backend image takes Debian security updates on every build",
     by: "Michael + Claude",
     changes: [
-      "Trivy flagged CVE-2026-76844 and CVE-2026-85091 in zlib1g in the backend image (Debian 13). The image already used the floating python:3.12-slim base; it now also runs apt-get upgrade right under it, so the fixed zlib1g (1:1.3.dfsg+really1.3.1-1+deb13u1) and later Debian security fixes come in on every build, without pinning any version.",
+      "Trivy flagged CVE-2026-76844 and CVE-2026-85091 in zlib1g in the backend image (Debian 13). The image already used the floating python:3.12-slim base; it now also runs apt-get upgrade, so the fixed zlib1g (1:1.3.dfsg+really1.3.1-1+deb13u1, DSA-6613-1) and later Debian security fixes come in on every build, without pinning any version.",
+      "FIXED the same day — the upgrade first sat straight under FROM, where Docker cached it from its first build and never ran it again, so the fix never arrived. It now runs after the app code is copied in, which changes on every deploy, so it really runs each time.",
     ],
   },
   {
